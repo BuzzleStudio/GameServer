@@ -1,7 +1,8 @@
+using System;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Core;
 
-namespace BackpackAdventures;
+namespace BackpackAdventures.CloudCode;
 
 public class PlayerEchoModule
 {
@@ -12,25 +13,35 @@ public class PlayerEchoModule
         _logger = logger;
     }
 
-    [CloudCodeFunction("PlayerEchoTest")]
-    public PlayerEchoResponse PlayerEchoTest(string playerId)
+    [CloudCodeFunction("PlayerEcho")]
+    public PlayerEchoResponse Echo(PlayerEchoRequest request)
     {
+        _logger.LogInformation("PlayerEcho called for playerId: {PlayerId}", request.PlayerId);
         try
         {
-            _logger.LogInformation("PlayerEchoTest called for playerId: {PlayerId}", playerId);
-
-            return new PlayerEchoResponse(
-                success: true,
-                playerId: playerId,
-                serverTime: DateTime.UtcNow.ToString("o")
-            );
+            return new PlayerEchoResponse
+            {
+                Success = true,
+                PlayerId = request.PlayerId,
+                ServerTime = DateTime.UtcNow.ToString("o")
+            };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "PlayerEchoTest failed for playerId: {PlayerId}", playerId);
+            _logger.LogError(ex, "PlayerEcho failed for playerId: {PlayerId}", request.PlayerId);
             throw;
         }
     }
 }
 
-public record PlayerEchoResponse(bool success, string playerId, string serverTime);
+public class PlayerEchoRequest
+{
+    public string PlayerId { get; set; } = string.Empty;
+}
+
+public class PlayerEchoResponse
+{
+    public bool Success { get; set; }
+    public string PlayerId { get; set; } = string.Empty;
+    public string ServerTime { get; set; } = string.Empty;
+}
