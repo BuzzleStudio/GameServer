@@ -1,19 +1,13 @@
 # Deploy Cloud Code Modules to Staging
 #
-# This workflow deploys the BackpackAdventures Cloud Code Module to Unity
-# Gaming Services (UGS) whenever code is pushed to the staging branch.
+# Triggers on every push to the staging branch, or manually via workflow_dispatch.
+# Builds the .NET Cloud Code Module, authenticates with UGS, deploys, and verifies.
 #
 # Required GitHub Secrets:
-#   UNITY_PROJECT_ID  — Unity Dashboard project ID
-#                       (Settings > Project Settings > Project ID)
-#   UNITY_ENVIRONMENT — UGS environment name, e.g. "staging"
-#                       (UGS Dashboard > Environments)
-#   UNITY_KEY_ID      — Service account key ID from UGS Dashboard
-#                       (UGS Dashboard > Service Accounts > Keys)
-#   UNITY_SECRET_KEY  — Service account secret key (generated alongside UNITY_KEY_ID)
-#
-# The service account must have the "Cloud Code Editor" role assigned
-# in the Unity Dashboard.
+#   UNITY_PROJECT_ID              — Unity Dashboard project ID
+#   UNITY_ENVIRONMENT             — UGS target environment name (e.g. "production")
+#   UNITY_SERVICE_ACCOUNT_KEY     — Service account key ID from UGS Dashboard
+#   UNITY_SERVICE_ACCOUNT_SECRET  — Service account secret key
 
 name: Deploy Cloud Code Modules to Staging
 
@@ -21,17 +15,20 @@ on:
   push:
     branches:
       - staging
+  workflow_dispatch:
 
-# Prevent simultaneous deployments to staging.
-# A queued run will wait for any in-progress run to finish before starting.
 concurrency:
   group: staging-deploy
   cancel-in-progress: false
 
 jobs:
   deploy-cloud-code:
-    name: deploy-cloud-code
+    name: Deploy BackpackAdventures Cloud Code Module
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
+      UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
 
     steps:
       # ------------------------------------------------------------------
@@ -41,9 +38,9 @@ jobs:
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------------
-      # 2. Setup .NET 7.0
+      # 2. Setup .NET 7
       # ------------------------------------------------------------------
-      - name: Setup .NET 7.0
+      - name: Setup .NET 7
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '7.0.x'
@@ -69,72 +66,98 @@ jobs:
         run: ugs --version
 
       # ------------------------------------------------------------------
-      # 6. Configure UGS project
+      # 6. Validate required secrets are present
       # ------------------------------------------------------------------
-      - name: Configure UGS project ID
-        run: ugs config set project-id ${{ secrets.UNITY_PROJECT_ID }}
-
-      # ------------------------------------------------------------------
-      # 7. Configure UGS environment
-      # ------------------------------------------------------------------
-      - name: Configure UGS environment
-        run: ugs config set environment-name ${{ secrets.UNITY_ENVIRONMENT }}
-
-      # ------------------------------------------------------------------
-      # 8. Authenticate with UGS service account
-      # ------------------------------------------------------------------
-      - name: Authenticate with UGS
+      - name: Validate required secrets
+        env:
+          PROJECT_ID: ${{ secrets.UNITY_PROJECT_ID }}
+          ENVIRONMENT: ${{ secrets.UNITY_ENVIRONMENT }}
+          ACCOUNT_KEY: ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
+          ACCOUNT_SECRET: ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
         run: |
-          ugs auth login \
-            --service-account-key-id ${{ secrets.UNITY_KEY_ID }} \
-            --secret-key ${{ secrets.UNITY_SECRET_KEY }}
+          set -e
+          MISSING=""
+          [ -z "$PROJECT_ID" ]     && MISSING="$MISSING UNITY_PROJECT_ID"
+          [ -z "$ENVIRONMENT" ]    && MISSING="$MISSING UNITY_ENVIRONMENT"
+          [ -z "$ACCOUNT_KEY" ]    && MISSING="$MISSING UNITY_SERVICE_ACCOUNT_KEY"
+          [ -z "$ACCOUNT_SECRET" ] && MISSING="$MISSING UNITY_SERVICE_ACCOUNT_SECRET"
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: Missing required GitHub Secrets:$MISSING"
+            echo "Configure them at: Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          echo "All required secrets are present."
 
       # ------------------------------------------------------------------
-      # 9. Validate .NET build
+      # 7. Validate deployment artifacts exist
       # ------------------------------------------------------------------
-      - name: Validate .NET build
+      - name: Validate deployment artifacts
         run: |
-          dotnet build \
-            CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
-            -c Release
-        # If the build fails, the deployment step will be skipped automatically.
-        # Check the output above for compiler errors (missing packages, type
-        # mismatches, assembly resolution issues) before re-triggering.
+          set -e
+          echo "Checking required deployment artifacts..."
+
+          if [ ! -f "CloudCodeModule/BackpackAdventures.ccmr" ]; then
+            echo "ERROR: CloudCodeModule/BackpackAdventures.ccmr not found"
+            echo "Ensure the backend module was committed to the staging branch."
+            exit 1
+          fi
+
+          if [ ! -f "CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj" ]; then
+            echo "ERROR: CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj not found"
+            exit 1
+          fi
+
+          echo "All required artifacts present."
 
       # ------------------------------------------------------------------
-      # 10. Deploy Cloud Code Module
+      # 8. Build .NET module
+      # ------------------------------------------------------------------
+      - name: Build Cloud Code Module (.NET)
+        run: |
+          set -e
+          dotnet restore CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj
+          dotnet publish CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
+            -c Release \
+            --no-restore
+
+      # ------------------------------------------------------------------
+      # 9. Deploy Cloud Code Module via UGS CLI
       # ------------------------------------------------------------------
       - name: Deploy Cloud Code Module
         run: |
-          ugs deploy CloudCodeModule/ \
+          set -e
+          ugs deploy CloudCodeModule/BackpackAdventures.ccmr \
             --project-id ${{ secrets.UNITY_PROJECT_ID }} \
             --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
-        # If this step fails, common causes are:
-        #   - Expired or revoked service account credentials → rotate secrets.
-        #   - Invalid project ID or environment name → verify in UGS Dashboard.
-        #   - Module validation errors → fix issues found in the build step above.
 
       # ------------------------------------------------------------------
-      # 11. Verify deployment — list deployed modules
+      # 10. Verify deployment — list deployed modules
       # ------------------------------------------------------------------
       - name: Verify deployment
         run: |
+          set -e
           ugs cloud-code modules list \
             --project-id ${{ secrets.UNITY_PROJECT_ID }} \
             --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
 
       # ------------------------------------------------------------------
-      # Final summary
+      # 11. Write GitHub Actions job summary
       # ------------------------------------------------------------------
-      - name: Deployment summary
+      - name: Write job summary
         if: always()
         run: |
-          echo "========================================"
-          echo "  DEPLOYMENT SUMMARY"
-          echo "========================================"
-          echo "  Module   : BackpackAdventures"
-          echo "  Source   : CloudCodeModule/"
-          echo "  Environment : ${{ secrets.UNITY_ENVIRONMENT }}"
-          echo "  Timestamp: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-          echo "  Triggered by push to branch: staging"
-          echo "========================================"
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then ICON="SUCCESS"; else ICON="FAILED"; fi
+          {
+            echo "## Cloud Code Deployment — $ICON"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| **Module** | BackpackAdventures |"
+            echo "| **Artifact** | CloudCodeModule/BackpackAdventures.ccmr |"
+            echo "| **Environment** | ${{ secrets.UNITY_ENVIRONMENT }} |"
+            echo "| **Commit** | ${{ github.sha }} |"
+            echo "| **Actor** | ${{ github.actor }} |"
+            echo "| **Timestamp** | $(date -u '+%Y-%m-%dT%H:%M:%SZ') |"
+            echo "| **Status** | $STATUS |"
+          } >> "$GITHUB_STEP_SUMMARY"

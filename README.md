@@ -7,9 +7,9 @@ Production-quality proof-of-concept for Unity Cloud Code C# Module deployment wi
 ```
 Unity Client
   └─► Cloud Code C# Module (BackpackAdventures)
-        ├─► HealthCheck        — server connectivity
-        ├─► PlayerEchoTest     — authenticated request roundtrip
-        └─► ServerConfigTest   — server-side runtime config
+        ├─► HealthCheck    — server connectivity
+        ├─► PlayerEcho     — authenticated request roundtrip
+        └─► ServerConfig   — server-side runtime config
 ```
 
 Auto-deploy triggers on every push to `staging` via GitHub Actions.
@@ -24,13 +24,15 @@ CloudCodeModule/                  ← C# .NET 7.0 module (deployed to UGS)
     HealthCheckModule.cs
     PlayerEchoModule.cs
     ServerConfigModule.cs
-    ModuleConfig.cs               ← DI registration
 
-UnityClient/                      ← Unity-side integration (copy into your project)
-  Scripts/
-    CloudCodeModuleService.cs     ← static service wrapper
-    CloudCodeDebugTest.cs         ← MonoBehaviour for Play Mode validation
-    Models/                       ← response DTOs
+UnityClient/                      ← Unity-side integration (copy into your Unity project)
+  Runtime/
+    BackpackCloudCodeService.cs   ← static service wrapper (HealthCheck, PlayerEcho, ServerConfig)
+    CloudCodeModels.cs            ← response/request DTOs
+    CloudCodeValidator.cs         ← per-field response validation
+  Tests/
+    CloudCodeIntegrationTest.cs   ← MonoBehaviour for Play Mode validation
+  UnityClient.asmdef
 
 .github/workflows/
   staging-deploy.yml              ← auto-deploys on push to staging
@@ -43,12 +45,16 @@ docs/
 
 ### 1. Configure GitHub Secrets
 
-| Secret | Description |
-|--------|-------------|
-| `UNITY_PROJECT_ID` | Unity Dashboard → Project Settings → Project ID |
-| `UNITY_ENVIRONMENT` | UGS environment name (e.g. `staging`) |
-| `UNITY_KEY_ID` | UGS Dashboard → Service Accounts → key ID |
-| `UNITY_SECRET_KEY` | Generated with the key above |
+Go to **Settings → Secrets and variables → Actions** in the repository and add:
+
+| Secret | Where to find it |
+|--------|-----------------|
+| `UNITY_PROJECT_ID` | Unity Dashboard → your project → Settings → General → **Project ID** |
+| `UNITY_ENVIRONMENT` | Unity Dashboard → your project → LiveOps → Environments → environment name |
+| `UNITY_SERVICE_ACCOUNT_KEY` | Unity Dashboard → Organization → Settings → Service Accounts → your account → **Key ID** |
+| `UNITY_SERVICE_ACCOUNT_SECRET` | Same page — **Secret Key** (shown only once at key creation, store immediately) |
+
+**To create a service account:** Unity Dashboard → Organization → Settings → Service Accounts → Create service account → assign role **Cloud Code Editor** → Add key.
 
 ### 2. Deploy
 
@@ -57,29 +63,30 @@ Push to `staging` — the pipeline runs automatically.
 For manual local deploy:
 ```bash
 npm install -g ugs
-ugs auth login --service-account-key-id <KEY_ID> --secret-key <SECRET>
-ugs config set project-id <PROJECT_ID>
-ugs config set environment-name staging
-ugs deploy CloudCodeModule/
+ugs login --service-key-id <UNITY_SERVICE_ACCOUNT_KEY> --secret-key-stdin <<< "<UNITY_SERVICE_ACCOUNT_SECRET>"
+ugs config set project-id <UNITY_PROJECT_ID>
+ugs config set environment-name <UNITY_ENVIRONMENT>
+ugs deploy CloudCodeModule/BackpackAdventures.ccmr
 ```
 
 ### 3. Call from Unity
 
 ```csharp
 // Requires Unity Services initialized + authenticated
-var health = await CloudCodeModuleService.HealthCheckAsync();
-var echo   = await CloudCodeModuleService.PlayerEchoTestAsync(playerId);
-var config = await CloudCodeModuleService.ServerConfigTestAsync();
+await BackpackCloudCodeService.InitializeAsync();
+var health = await BackpackCloudCodeService.CallHealthCheckAsync();
+var echo   = await BackpackCloudCodeService.CallPlayerEchoAsync(playerId);
+var config = await BackpackCloudCodeService.CallServerConfigAsync();
 ```
 
-Add `CloudCodeDebugTest` MonoBehaviour to any GameObject to run all 3 APIs in Play Mode.
+Add `CloudCodeIntegrationTest` MonoBehaviour to any GameObject to run all 3 APIs in Play Mode.
 
 ## API Contracts
 
 | Function | Input | Output |
 |----------|-------|--------|
 | `HealthCheck` | — | `{ success, message, timestamp }` |
-| `PlayerEchoTest` | `playerId: string` | `{ success, playerId, serverTime }` |
-| `ServerConfigTest` | — | `{ environment, version, deploymentTime }` |
+| `PlayerEcho` | `playerId: string` | `{ success, playerId, serverTime }` |
+| `ServerConfig` | — | `{ environment, version, deploymentTime }` |
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full documentation.

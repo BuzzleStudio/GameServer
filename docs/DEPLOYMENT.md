@@ -52,16 +52,29 @@ ugs --version      # Should show a version number
 ## 2. Required GitHub Secrets
 
 Configure these secrets in the repository at:
-**GitHub > Repository Settings > Secrets and variables > Actions > New repository secret**
+**GitHub → Repository Settings → Secrets and variables → Actions → New repository secret**
 
 | Secret Name | Where to Find | Description |
 |---|---|---|
-| `UNITY_PROJECT_ID` | Unity Dashboard > Project Settings > Project ID | Unique identifier for the Unity project in UGS |
-| `UNITY_ENVIRONMENT` | UGS Dashboard > Environments | The target environment name (e.g. `staging`, `production`) |
-| `UNITY_KEY_ID` | UGS Dashboard > Service Accounts > (your account) > Keys | The key ID portion of a service account credential pair |
-| `UNITY_SECRET_KEY` | Shown once at key creation time in UGS Dashboard | The secret key paired with `UNITY_KEY_ID`; store it securely immediately |
+| `UNITY_PROJECT_ID` | Unity Dashboard → your project → Settings → General → **Project ID** | UUID identifying the project in UGS |
+| `UNITY_ENVIRONMENT` | Unity Dashboard → your project → LiveOps → **Environments** → environment name | Target environment (e.g. `production`, `staging`) |
+| `UNITY_SERVICE_ACCOUNT_KEY` | Unity Dashboard → Organization → Settings → **Service Accounts** → your account → Keys → **Key ID** | Key ID half of the service account credential pair |
+| `UNITY_SERVICE_ACCOUNT_SECRET` | Same page — **Secret Key**, shown once at creation time | Secret half of the credential pair; store immediately |
 
-> **Security note:** Secret keys are shown only once in the UGS Dashboard at creation time. If lost, delete the key and generate a new pair, then update the GitHub secrets.
+### How to create a service account and generate a key
+
+1. Go to [cloud.unity.com](https://cloud.unity.com) and select your **Organization**.
+2. Navigate to **Settings → Service Accounts → Create service account**.
+3. Give it a name (e.g. `github-actions-deploy`).
+4. Under **Roles**, select your project and assign the **Cloud Code Editor** role.
+5. Click **Create**.
+6. Open the new service account and click **Add key**.
+7. Copy both values immediately:
+   - **Key ID** → `UNITY_SERVICE_ACCOUNT_KEY`
+   - **Secret Key** → `UNITY_SERVICE_ACCOUNT_SECRET` *(not shown again after closing)*
+8. Add them to GitHub Secrets.
+
+> If the secret key was not saved at creation time, delete the key in the UGS Dashboard, generate a new pair, and update both GitHub secrets.
 
 ---
 
@@ -72,9 +85,9 @@ Use these steps to deploy directly from your development machine without trigger
 ### Step 1 — Authenticate
 
 ```bash
-ugs auth login \
-  --service-account-key-id <KEY_ID> \
-  --secret-key <SECRET_KEY>
+ugs login \
+  --service-key-id <KEY_ID> \
+  --secret-key-stdin <<< "<SECRET_KEY>"
 ```
 
 Replace `<KEY_ID>` and `<SECRET_KEY>` with your personal service account credentials from the UGS Dashboard.
@@ -101,7 +114,7 @@ Fix any build errors before proceeding. Deploying a module that does not compile
 ### Step 4 — Deploy
 
 ```bash
-ugs deploy CloudCodeModule/
+ugs deploy CloudCodeModule/BackpackAdventures.ccmr
 ```
 
 ### Step 5 — Verify
@@ -137,7 +150,7 @@ The `BackpackAdventures` module should appear in the list with an updated versio
    - Configures the UGS project and environment from repository secrets.
    - Authenticates using the service account credentials stored as secrets.
    - Validates the .NET build in Release configuration.
-   - Deploys the `CloudCodeModule/` directory to the configured UGS environment.
+   - Deploys `CloudCodeModule/BackpackAdventures.ccmr` to the configured UGS environment.
    - Lists deployed modules to confirm the deployment succeeded.
    - Prints a deployment summary.
 4. Concurrency control (`group: staging-deploy`, `cancel-in-progress: false`) ensures that if multiple pushes arrive quickly, they deploy in sequence rather than racing.
@@ -155,8 +168,8 @@ These endpoints are exposed by the `BackpackAdventures` Cloud Code Module.
 | API Name | Function Name | Input Parameters | Output Shape | Purpose |
 |---|---|---|---|---|
 | Health Check | `HealthCheck` | none | `{ success: bool, message: string, timestamp: string }` | Verify the module is online and responding |
-| Player Echo Test | `PlayerEchoTest` | `playerId: string` | `{ success: bool, playerId: string, serverTime: string }` | Validate player authentication and round-trip serialization |
-| Server Config Test | `ServerConfigTest` | none | `{ environment: string, version: string, deploymentTime: string }` | Validate that server-side configuration is loaded correctly |
+| Player Echo | `PlayerEcho` | `playerId: string` | `{ success: bool, playerId: string, serverTime: string }` | Validate player authentication and round-trip serialization |
+| Server Config | `ServerConfig` | none | `{ environment: string, version: string, deploymentTime: string }` | Validate that server-side configuration is loaded correctly |
 
 ---
 
@@ -203,7 +216,7 @@ var result = await CloudCodeService.Instance
 Debug.Log($"Server online: {result.success} — {result.message} at {result.timestamp}");
 ```
 
-### PlayerEchoTest
+### PlayerEcho
 
 ```csharp
 var args = new Dictionary<string, object>
@@ -214,19 +227,19 @@ var args = new Dictionary<string, object>
 var result = await CloudCodeService.Instance
     .CallModuleEndpointAsync<PlayerEchoResponse>(
         "BackpackAdventures",
-        "PlayerEchoTest",
+        "PlayerEcho",
         args);
 
 Debug.Log($"Echo OK: {result.success}, player: {result.playerId}, server time: {result.serverTime}");
 ```
 
-### ServerConfigTest
+### ServerConfig
 
 ```csharp
 var result = await CloudCodeService.Instance
     .CallModuleEndpointAsync<ServerConfigResponse>(
         "BackpackAdventures",
-        "ServerConfigTest");
+        "ServerConfig");
 
 Debug.Log($"Env: {result.environment}, version: {result.version}, deployed: {result.deploymentTime}");
 ```
@@ -246,16 +259,16 @@ Cloud Code Modules in UGS are versioned. To roll back to a previous deployment:
 git checkout <previous-commit-sha>
 
 # Re-authenticate if needed
-ugs auth login \
-  --service-account-key-id <KEY_ID> \
-  --secret-key <SECRET_KEY>
+ugs login \
+  --service-key-id <KEY_ID> \
+  --secret-key-stdin <<< "<SECRET_KEY>"
 
 # Configure target environment
 ugs config set project-id <PROJECT_ID>
 ugs config set environment-name staging
 
 # Deploy the older version
-ugs deploy CloudCodeModule/
+ugs deploy CloudCodeModule/BackpackAdventures.ccmr
 ```
 
 This redeploys the code from that commit and creates a new module version in UGS with the older logic.
@@ -287,10 +300,10 @@ Confirm the module version matches the expected rollback state. Run the HealthCh
 
 ### Authentication Failures
 
-**Symptom:** `ugs auth login` returns `401 Unauthorized` or `Invalid credentials`.
+**Symptom:** `ugs login` returns `401 Unauthorized` or `Invalid credentials`.
 
 **Fixes:**
-- Confirm `UNITY_KEY_ID` and `UNITY_SECRET_KEY` match the same key pair in the UGS Dashboard.
+- Confirm `UNITY_SERVICE_ACCOUNT_KEY` and `UNITY_SERVICE_ACCOUNT_SECRET` match the same key pair in the UGS Dashboard.
 - Check that the service account is not disabled or deleted.
 - Verify the service account has the **Cloud Code Editor** role on the correct project.
 - If the secret key was never saved, delete the key in UGS Dashboard, create a new pair, and update the GitHub secrets.

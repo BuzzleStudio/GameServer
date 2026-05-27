@@ -1,8 +1,9 @@
+using System;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
 using Unity.Services.CloudCode.Core;
 
-namespace BackpackAdventures;
+namespace BackpackAdventures.CloudCode;
 
 public class ServerConfigModule
 {
@@ -15,25 +16,30 @@ public class ServerConfigModule
         _logger = logger;
     }
 
-    [CloudCodeFunction("ServerConfigTest")]
-    public ServerConfigResponse ServerConfigTest()
+    [CloudCodeFunction("ServerConfig")]
+    public ServerConfigResponse GetServerConfig()
     {
+        _logger.LogInformation("ServerConfig called for environment: {EnvironmentId}", _context.EnvironmentId);
         try
         {
-            _logger.LogInformation("ServerConfigTest called for environment: {EnvironmentId}", _context.EnvironmentId);
-
-            return new ServerConfigResponse(
-                environment: _context.EnvironmentId,
-                version: "1.0.0",
-                deploymentTime: DateTime.UtcNow.ToString("o")
-            );
+            return new ServerConfigResponse
+            {
+                Environment = _context.EnvironmentId ?? "production",
+                Version = "1.0.0",
+                DeploymentTime = DateTime.UtcNow.ToString("o")
+            };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "ServerConfigTest failed");
+            _logger.LogError(ex, "ServerConfig failed");
             throw;
         }
     }
 }
 
-public record ServerConfigResponse(string environment, string version, string deploymentTime);
+public class ServerConfigResponse
+{
+    public string Environment { get; set; } = string.Empty;
+    public string Version { get; set; } = string.Empty;
+    public string DeploymentTime { get; set; } = string.Empty;
+}
