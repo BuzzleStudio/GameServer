@@ -58,8 +58,8 @@ Configure these secrets in the repository at:
 |---|---|---|
 | `UNITY_PROJECT_ID` | Unity Dashboard > Project Settings > Project ID | Unique identifier for the Unity project in UGS |
 | `UNITY_ENVIRONMENT` | UGS Dashboard > Environments | The target environment name (e.g. `staging`, `production`) |
-| `UNITY_KEY_ID` | UGS Dashboard > Service Accounts > (your account) > Keys | The key ID portion of a service account credential pair |
-| `UNITY_SECRET_KEY` | Shown once at key creation time in UGS Dashboard | The secret key paired with `UNITY_KEY_ID`; store it securely immediately |
+| `UNITY_SERVICE_ACCOUNT_KEY` | UGS Dashboard > Service Accounts > (your account) > Keys | The key ID portion of a service account credential pair |
+| `UNITY_SERVICE_ACCOUNT_SECRET` | Shown once at key creation time in UGS Dashboard | The secret key paired with `UNITY_SERVICE_ACCOUNT_KEY`; store it securely immediately |
 
 > **Security note:** Secret keys are shown only once in the UGS Dashboard at creation time. If lost, delete the key and generate a new pair, then update the GitHub secrets.
 
@@ -72,7 +72,7 @@ Use these steps to deploy directly from your development machine without trigger
 ### Step 1 — Authenticate
 
 ```bash
-ugs auth login \
+ugs login \
   --service-account-key-id <KEY_ID> \
   --secret-key <SECRET_KEY>
 ```
@@ -92,7 +92,7 @@ Replace `<PROJECT_ID>` with the Unity project ID from the Unity Dashboard.
 
 ```bash
 dotnet build \
-  CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
+  CloudCodeModules/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
   -c Release
 ```
 
@@ -101,7 +101,7 @@ Fix any build errors before proceeding. Deploying a module that does not compile
 ### Step 4 — Deploy
 
 ```bash
-ugs deploy CloudCodeModule/
+ugs deploy CloudCodeModules/BackpackAdventuresModule.ccmr
 ```
 
 ### Step 5 — Verify
@@ -137,7 +137,7 @@ The `BackpackAdventures` module should appear in the list with an updated versio
    - Configures the UGS project and environment from repository secrets.
    - Authenticates using the service account credentials stored as secrets.
    - Validates the .NET build in Release configuration.
-   - Deploys the `CloudCodeModule/` directory to the configured UGS environment.
+   - Deploys `CloudCodeModules/BackpackAdventuresModule.ccmr` to the configured UGS environment.
    - Lists deployed modules to confirm the deployment succeeded.
    - Prints a deployment summary.
 4. Concurrency control (`group: staging-deploy`, `cancel-in-progress: false`) ensures that if multiple pushes arrive quickly, they deploy in sequence rather than racing.
@@ -246,7 +246,7 @@ Cloud Code Modules in UGS are versioned. To roll back to a previous deployment:
 git checkout <previous-commit-sha>
 
 # Re-authenticate if needed
-ugs auth login \
+ugs login \
   --service-account-key-id <KEY_ID> \
   --secret-key <SECRET_KEY>
 
@@ -255,7 +255,7 @@ ugs config set project-id <PROJECT_ID>
 ugs config set environment-name staging
 
 # Deploy the older version
-ugs deploy CloudCodeModule/
+ugs deploy CloudCodeModules/BackpackAdventuresModule.ccmr
 ```
 
 This redeploys the code from that commit and creates a new module version in UGS with the older logic.
@@ -287,10 +287,10 @@ Confirm the module version matches the expected rollback state. Run the HealthCh
 
 ### Authentication Failures
 
-**Symptom:** `ugs auth login` returns `401 Unauthorized` or `Invalid credentials`.
+**Symptom:** `ugs login` returns `401 Unauthorized` or `Invalid credentials`.
 
 **Fixes:**
-- Confirm `UNITY_KEY_ID` and `UNITY_SECRET_KEY` match the same key pair in the UGS Dashboard.
+- Confirm `UNITY_SERVICE_ACCOUNT_KEY` and `UNITY_SERVICE_ACCOUNT_SECRET` match the same key pair in the UGS Dashboard.
 - Check that the service account is not disabled or deleted.
 - Verify the service account has the **Cloud Code Editor** role on the correct project.
 - If the secret key was never saved, delete the key in UGS Dashboard, create a new pair, and update the GitHub secrets.
