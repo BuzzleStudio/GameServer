@@ -42,37 +42,37 @@ namespace BackpackAdventures.CloudCode.Client
 
         public static async Task<PlayerEchoResponse> CallPlayerEchoAsync(string playerId)
         {
-            Debug.Log($"[CloudCode] Calling PlayerEchoTest with playerId={playerId}...");
+            Debug.Log($"[CloudCode] Calling PlayerEcho with playerId={playerId}...");
             try
             {
                 var args = new Dictionary<string, object> { { "playerId", playerId } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<PlayerEchoResponse>(
                     MODULE_NAME, "PlayerEcho", args);
                 var result = await WithTimeout(callTask, "PlayerEcho");
-                Debug.Log($"[CloudCode] PlayerEchoTest: success={result.success}, playerId={result.playerId}, serverTime={result.serverTime}");
+                Debug.Log($"[CloudCode] PlayerEcho: success={result.success}, playerId={result.playerId}, serverTime={result.serverTime}");
                 return result;
             }
             catch (Exception ex)
             {
-                Debug.LogError("[CloudCode] PlayerEchoTest failed: " + ex.Message);
+                Debug.LogError("[CloudCode] PlayerEcho failed: " + ex.Message);
                 throw;
             }
         }
 
         public static async Task<ServerConfigResponse> CallServerConfigAsync()
         {
-            Debug.Log("[CloudCode] Calling ServerConfigTest...");
+            Debug.Log("[CloudCode] Calling ServerConfig...");
             try
             {
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<ServerConfigResponse>(
                     MODULE_NAME, "ServerConfig", null);
                 var result = await WithTimeout(callTask, "ServerConfig");
-                Debug.Log($"[CloudCode] ServerConfigTest: environment={result.environment}, version={result.version}, deploymentTime={result.deploymentTime}");
+                Debug.Log($"[CloudCode] ServerConfig: environment={result.environment}, version={result.version}, deploymentTime={result.deploymentTime}");
                 return result;
             }
             catch (Exception ex)
             {
-                Debug.LogError("[CloudCode] ServerConfigTest failed: " + ex.Message);
+                Debug.LogError("[CloudCode] ServerConfig failed: " + ex.Message);
                 throw;
             }
         }

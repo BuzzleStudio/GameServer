@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace BackpackAdventures.CloudCode.Client
@@ -16,9 +17,14 @@ namespace BackpackAdventures.CloudCode.Client
                 Debug.LogError("[CloudCodeValidator] HealthCheck: success=false, message=" + response.message);
                 return false;
             }
-            if (string.IsNullOrEmpty(response.timestamp))
+            if (string.IsNullOrEmpty(response.message))
             {
-                Debug.LogError("[CloudCodeValidator] HealthCheck: timestamp is missing");
+                Debug.LogError("[CloudCodeValidator] HealthCheck: message is missing");
+                return false;
+            }
+            if (!IsValidUtcTimestamp(response.timestamp))
+            {
+                Debug.LogError("[CloudCodeValidator] HealthCheck: timestamp is missing or not a valid ISO-8601 UTC string: " + response.timestamp);
                 return false;
             }
             return true;
@@ -36,14 +42,19 @@ namespace BackpackAdventures.CloudCode.Client
                 Debug.LogError("[CloudCodeValidator] PlayerEcho: success=false");
                 return false;
             }
-            if (response.playerId != expectedPlayerId)
+            if (string.IsNullOrEmpty(response.playerId))
             {
-                Debug.LogError($"[CloudCodeValidator] PlayerEcho: playerId mismatch — expected={expectedPlayerId}, got={response.playerId}");
+                Debug.LogError("[CloudCodeValidator] PlayerEcho: playerId is missing");
                 return false;
             }
-            if (string.IsNullOrEmpty(response.serverTime))
+            if (!string.Equals(response.playerId, expectedPlayerId, StringComparison.OrdinalIgnoreCase))
             {
-                Debug.LogError("[CloudCodeValidator] PlayerEcho: serverTime is missing");
+                Debug.LogError($"[CloudCodeValidator] PlayerEcho: playerId mismatch - expected={expectedPlayerId}, got={response.playerId}");
+                return false;
+            }
+            if (!IsValidUtcTimestamp(response.serverTime))
+            {
+                Debug.LogError("[CloudCodeValidator] PlayerEcho: serverTime is missing or not a valid ISO-8601 UTC string: " + response.serverTime);
                 return false;
             }
             return true;
@@ -66,12 +77,19 @@ namespace BackpackAdventures.CloudCode.Client
                 Debug.LogError("[CloudCodeValidator] ServerConfig: version is missing");
                 return false;
             }
-            if (string.IsNullOrEmpty(response.deploymentTime))
+            if (!IsValidUtcTimestamp(response.deploymentTime))
             {
-                Debug.LogError("[CloudCodeValidator] ServerConfig: deploymentTime is missing");
+                Debug.LogError("[CloudCodeValidator] ServerConfig: deploymentTime is missing or not a valid ISO-8601 UTC string: " + response.deploymentTime);
                 return false;
             }
             return true;
+        }
+
+        private static bool IsValidUtcTimestamp(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return false;
+            return DateTimeOffset.TryParse(value, out var parsed) && parsed.Offset == TimeSpan.Zero;
         }
     }
 }
