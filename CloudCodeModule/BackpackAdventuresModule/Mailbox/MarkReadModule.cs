@@ -29,13 +29,24 @@ public class MarkReadModule
             if (string.IsNullOrWhiteSpace(request.MailId))
                 throw new ArgumentException(MailboxError.InvalidInput);
 
-            // Try global index first, then user mailbox.
-            var globalIndex = await CloudSaveHelper.GetCustomDataAsync<GlobalMailIndex>(
-                _gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex) ?? new GlobalMailIndex();
+            // Read both sources in parallel, then determine which owns the mail.
+            var globalIndexTask = CloudSaveHelper.GetCustomDataAsync<GlobalMailIndex>(
+                _gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex);
+            var userMailboxTask = CloudSaveHelper.GetPlayerDataAsync<PlayerUserMailbox>(
+                _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
 
-            var isGlobal = globalIndex.Mails.Exists(m => m.GlobalMailId == request.MailId);
+            await Task.WhenAll(globalIndexTask, userMailboxTask);
 
-            if (isGlobal)
+            var globalIndex = globalIndexTask.Result ?? new GlobalMailIndex();
+            var userMailbox = userMailboxTask.Result ?? new PlayerUserMailbox();
+
+            var globalMail = globalIndex.Mails.Find(m => m.GlobalMailId == request.MailId);
+            var userMail   = userMailbox.Mails.Find(m => m.MailId == request.MailId);
+
+            if (globalMail == null && userMail == null)
+                throw new InvalidOperationException(MailboxError.MailNotFound);
+
+            if (globalMail != null)
             {
                 var state = await CloudSaveHelper.GetPlayerDataAsync<PlayerGlobalMailState>(
                     _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState)
@@ -50,19 +61,11 @@ public class MarkReadModule
             }
             else
             {
-                var mailbox = await CloudSaveHelper.GetPlayerDataAsync<PlayerUserMailbox>(
-                    _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems)
-                    ?? new PlayerUserMailbox();
-
-                var mail = mailbox.Mails.Find(m => m.MailId == request.MailId);
-                if (mail == null)
-                    throw new InvalidOperationException(MailboxError.MailNotFound);
-
-                if (!mail.IsRead)
+                if (!userMail!.IsRead)
                 {
-                    mail.IsRead = true;
+                    userMail.IsRead = true;
                     await CloudSaveHelper.SetPlayerDataAsync(
-                        _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, mailbox);
+                        _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, userMailbox);
                 }
             }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace BackpackAdventures.CloudCode;
 
@@ -20,9 +21,9 @@ public static class MailboxConstants
 // Attachment descriptor — field names match the Unity client MailAttachment model.
 public class MailAttachment
 {
-    public string Type { get; set; } = "none"; // "currency" | "item" | "none"
-    public string Id { get; set; } = string.Empty;
-    public int Amount { get; set; }
+    [JsonPropertyName("type")]   public string Type   { get; set; } = "none"; // "currency" | "item" | "none"
+    [JsonPropertyName("id")]     public string Id     { get; set; } = string.Empty;
+    [JsonPropertyName("amount")] public int    Amount { get; set; }
 }
 
 // Cloud Save storage models
@@ -105,29 +106,29 @@ public class MailItemDto
 
 public class SendGlobalMailRequest
 {
-    public string Subject { get; set; } = string.Empty;
-    public string Body { get; set; } = string.Empty;
-    public string? ExpiresAt { get; set; }
-    public List<MailAttachment>? Attachments { get; set; }
+    [JsonPropertyName("subject")]     public string             Subject     { get; set; } = string.Empty;
+    [JsonPropertyName("body")]        public string             Body        { get; set; } = string.Empty;
+    [JsonPropertyName("expiresAt")]   public string?            ExpiresAt   { get; set; }
+    [JsonPropertyName("attachments")] public List<MailAttachment>? Attachments { get; set; }
 }
 
 public class SendUserMailRequest
 {
-    public string UserId { get; set; } = string.Empty;
-    public string Subject { get; set; } = string.Empty;
-    public string Body { get; set; } = string.Empty;
-    public string? ExpiresAt { get; set; }
-    public List<MailAttachment>? Attachments { get; set; }
+    [JsonPropertyName("userId")]      public string             UserId      { get; set; } = string.Empty;
+    [JsonPropertyName("subject")]     public string             Subject     { get; set; } = string.Empty;
+    [JsonPropertyName("body")]        public string             Body        { get; set; } = string.Empty;
+    [JsonPropertyName("expiresAt")]   public string?            ExpiresAt   { get; set; }
+    [JsonPropertyName("attachments")] public List<MailAttachment>? Attachments { get; set; }
 }
 
 public class MarkMailReadRequest
 {
-    public string MailId { get; set; } = string.Empty;
+    [JsonPropertyName("mailId")] public string MailId { get; set; } = string.Empty;
 }
 
 public class ClaimAttachmentRequest
 {
-    public string MailId { get; set; } = string.Empty;
+    [JsonPropertyName("mailId")] public string MailId { get; set; } = string.Empty;
 }
 
 // API Response types

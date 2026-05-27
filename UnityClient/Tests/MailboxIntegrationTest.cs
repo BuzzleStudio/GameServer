@@ -650,16 +650,18 @@ namespace BackpackAdventures.CloudCode.Client
 
         private static bool IsValidationOrBadRequest(Exception ex)
         {
-            string msg = ex.Message ?? "";
+            string msg = (ex.Message ?? "").ToLowerInvariant();
             return msg.Contains("400") || msg.Contains("validation") || msg.Contains("invalid")
-                || msg.Contains("bad request") || msg.Contains("required");
+                || msg.Contains("bad request") || msg.Contains("required")
+                || msg.Contains("invalidinput");
         }
 
         private static bool IsNotFoundOrBadRequest(Exception ex)
         {
-            string msg = ex.Message ?? "";
-            return msg.Contains("404") || msg.Contains("not found") || msg.Contains("400")
-                || msg.Contains("invalid") || msg.Contains("expired");
+            string msg = (ex.Message ?? "").ToLowerInvariant();
+            return msg.Contains("404") || msg.Contains("not found") || msg.Contains("mailnotfound")
+                || msg.Contains("400") || msg.Contains("invalid") || msg.Contains("expired")
+                || msg.Contains("invalidinput");
         }
     }
 }
