@@ -42,10 +42,10 @@ internal static class CloudSaveHelper
 
     internal static async Task SetPlayerDataAsync<T>(
         IGameApiClient client, IExecutionContext ctx, string playerId, string key, T value,
-        string writeLock = "")
+        string? writeLock = null)
     {
         var json = JsonSerializer.Serialize(value);
-        var body = new SetItemBody(key, json, writeLock);
+        var body = new SetItemBody(key, json, writeLock ?? string.Empty);
         await client.CloudSaveData.SetItemAsync(ctx, ctx.AccessToken, ctx.ProjectId, playerId, body);
     }
 
