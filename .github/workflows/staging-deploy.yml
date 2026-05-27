@@ -107,38 +107,38 @@ jobs:
             exit 1
           fi
 
+          echo "ccmr modulePath: $(cat CloudCodeModule/BackpackAdventures.ccmr)"
+
           echo "All required artifacts present."
 
       # ------------------------------------------------------------------
-      # 8. Build .NET module
-      # ------------------------------------------------------------------
-      - name: Build Cloud Code Module (.NET)
-        run: |
-          set -e
-          dotnet restore CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj
-          dotnet publish CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
-            -c Release \
-            --no-restore
-
-      # ------------------------------------------------------------------
-      # 9. Deploy Cloud Code Module via UGS CLI
+      # 8. Deploy Cloud Code Module via UGS CLI
+      #    ugs deploy handles dotnet build+upload internally.
+      #    Pre-building separately causes artifact conflicts.
       # ------------------------------------------------------------------
       - name: Deploy Cloud Code Module
         run: |
           set -e
-          ugs deploy CloudCodeModule/BackpackAdventures.ccmr \
+          ugs deploy CloudCodeModule/ \
             --project-id ${{ secrets.UNITY_PROJECT_ID }} \
             --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
 
       # ------------------------------------------------------------------
-      # 10. Verify deployment — list deployed modules
+      # 10. Verify deployment — confirm module is listed
       # ------------------------------------------------------------------
       - name: Verify deployment
         run: |
           set -e
-          ugs cloud-code modules list \
+          echo "Listing modules in project=${{ secrets.UNITY_PROJECT_ID }} env=${{ secrets.UNITY_ENVIRONMENT }}"
+          MODULE_LIST=$(ugs cloud-code modules list \
             --project-id ${{ secrets.UNITY_PROJECT_ID }} \
-            --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
+            --environment-name ${{ secrets.UNITY_ENVIRONMENT }})
+          echo "$MODULE_LIST"
+          if ! echo "$MODULE_LIST" | grep -qi "BackpackAdventures"; then
+            echo "ERROR: BackpackAdventures module not found after deployment. Deploy may have silently failed."
+            exit 1
+          fi
+          echo "Verified: BackpackAdventures is deployed to ${{ secrets.UNITY_ENVIRONMENT }}."
 
       # ------------------------------------------------------------------
       # 11. Write GitHub Actions job summary
