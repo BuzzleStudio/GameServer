@@ -42,12 +42,12 @@ namespace BackpackAdventures.CloudCode.Client
 
         public static async Task<PlayerEchoResponse> CallPlayerEchoAsync(string playerId)
         {
-            Debug.Log($"[CloudCode] Calling PlayerEcho with playerId={playerId}...");
+            Debug.Log($"[CloudCode] Calling PlayerEchoTest with playerId={playerId}...");
             try
             {
                 var args = new Dictionary<string, object> { { "playerId", playerId } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<PlayerEchoResponse>(
-                    MODULE_NAME, "PlayerEcho", args);
+                    MODULE_NAME, "PlayerEchoTest", args);
                 var result = await WithTimeout(callTask, "PlayerEcho");
                 Debug.Log($"[CloudCode] PlayerEcho: success={result.success}, playerId={result.playerId}, serverTime={result.serverTime}");
                 return result;
@@ -61,11 +61,11 @@ namespace BackpackAdventures.CloudCode.Client
 
         public static async Task<ServerConfigResponse> CallServerConfigAsync()
         {
-            Debug.Log("[CloudCode] Calling ServerConfig...");
+            Debug.Log("[CloudCode] Calling ServerConfigTest...");
             try
             {
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<ServerConfigResponse>(
-                    MODULE_NAME, "ServerConfig", null);
+                    MODULE_NAME, "ServerConfigTest", null);
                 var result = await WithTimeout(callTask, "ServerConfig");
                 Debug.Log($"[CloudCode] ServerConfig: environment={result.environment}, version={result.version}, deploymentTime={result.deploymentTime}");
                 return result;
