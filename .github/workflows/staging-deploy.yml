@@ -1,0 +1,140 @@
+# Deploy Cloud Code Modules to Staging
+#
+# This workflow deploys the BackpackAdventures Cloud Code Module to Unity
+# Gaming Services (UGS) whenever code is pushed to the staging branch.
+#
+# Required GitHub Secrets:
+#   UNITY_PROJECT_ID  — Unity Dashboard project ID
+#                       (Settings > Project Settings > Project ID)
+#   UNITY_ENVIRONMENT — UGS environment name, e.g. "staging"
+#                       (UGS Dashboard > Environments)
+#   UNITY_KEY_ID      — Service account key ID from UGS Dashboard
+#                       (UGS Dashboard > Service Accounts > Keys)
+#   UNITY_SECRET_KEY  — Service account secret key (generated alongside UNITY_KEY_ID)
+#
+# The service account must have the "Cloud Code Editor" role assigned
+# in the Unity Dashboard.
+
+name: Deploy Cloud Code Modules to Staging
+
+on:
+  push:
+    branches:
+      - staging
+
+# Prevent simultaneous deployments to staging.
+# A queued run will wait for any in-progress run to finish before starting.
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-cloud-code:
+    name: deploy-cloud-code
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Checkout repository
+      # ------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. Setup .NET 7.0
+      # ------------------------------------------------------------------
+      - name: Setup .NET 7.0
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '7.0.x'
+
+      # ------------------------------------------------------------------
+      # 3. Setup Node.js for UGS CLI
+      # ------------------------------------------------------------------
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      # ------------------------------------------------------------------
+      # 4. Install Unity Gaming Services CLI
+      # ------------------------------------------------------------------
+      - name: Install UGS CLI
+        run: npm install -g ugs
+
+      # ------------------------------------------------------------------
+      # 5. Verify UGS CLI installed
+      # ------------------------------------------------------------------
+      - name: Verify UGS CLI version
+        run: ugs --version
+
+      # ------------------------------------------------------------------
+      # 6. Configure UGS project
+      # ------------------------------------------------------------------
+      - name: Configure UGS project ID
+        run: ugs config set project-id ${{ secrets.UNITY_PROJECT_ID }}
+
+      # ------------------------------------------------------------------
+      # 7. Configure UGS environment
+      # ------------------------------------------------------------------
+      - name: Configure UGS environment
+        run: ugs config set environment-name ${{ secrets.UNITY_ENVIRONMENT }}
+
+      # ------------------------------------------------------------------
+      # 8. Authenticate with UGS service account
+      # ------------------------------------------------------------------
+      - name: Authenticate with UGS
+        run: |
+          ugs auth login \
+            --service-account-key-id ${{ secrets.UNITY_KEY_ID }} \
+            --secret-key ${{ secrets.UNITY_SECRET_KEY }}
+
+      # ------------------------------------------------------------------
+      # 9. Validate .NET build
+      # ------------------------------------------------------------------
+      - name: Validate .NET build
+        run: |
+          dotnet build \
+            CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
+            -c Release
+        # If the build fails, the deployment step will be skipped automatically.
+        # Check the output above for compiler errors (missing packages, type
+        # mismatches, assembly resolution issues) before re-triggering.
+
+      # ------------------------------------------------------------------
+      # 10. Deploy Cloud Code Module
+      # ------------------------------------------------------------------
+      - name: Deploy Cloud Code Module
+        run: |
+          ugs deploy CloudCodeModule/ \
+            --project-id ${{ secrets.UNITY_PROJECT_ID }} \
+            --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
+        # If this step fails, common causes are:
+        #   - Expired or revoked service account credentials → rotate secrets.
+        #   - Invalid project ID or environment name → verify in UGS Dashboard.
+        #   - Module validation errors → fix issues found in the build step above.
+
+      # ------------------------------------------------------------------
+      # 11. Verify deployment — list deployed modules
+      # ------------------------------------------------------------------
+      - name: Verify deployment
+        run: |
+          ugs cloud-code modules list \
+            --project-id ${{ secrets.UNITY_PROJECT_ID }} \
+            --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
+
+      # ------------------------------------------------------------------
+      # Final summary
+      # ------------------------------------------------------------------
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "========================================"
+          echo "  DEPLOYMENT SUMMARY"
+          echo "========================================"
+          echo "  Module   : BackpackAdventures"
+          echo "  Source   : CloudCodeModule/"
+          echo "  Environment : ${{ secrets.UNITY_ENVIRONMENT }}"
+          echo "  Timestamp: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          echo "  Triggered by push to branch: staging"
+          echo "========================================"
