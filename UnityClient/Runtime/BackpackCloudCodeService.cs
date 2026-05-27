@@ -10,7 +10,7 @@ namespace BackpackAdventures.CloudCode.Client
 {
     public static class BackpackCloudCodeService
     {
-        private const string MODULE_NAME = "BackpackAdventures";
+        private const string MODULE_NAME = "BackpackAdventuresModule";
         private const int TIMEOUT_SECONDS = 10;
 
         public static async Task InitializeAsync()
