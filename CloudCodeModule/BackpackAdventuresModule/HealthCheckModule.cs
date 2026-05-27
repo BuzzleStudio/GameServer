@@ -1,7 +1,8 @@
+using System;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Core;
 
-namespace BackpackAdventures;
+namespace BackpackAdventures.CloudCode;
 
 public class HealthCheckModule
 {
@@ -13,17 +14,17 @@ public class HealthCheckModule
     }
 
     [CloudCodeFunction("HealthCheck")]
-    public HealthCheckResponse HealthCheck()
+    public HealthCheckResponse GetHealthCheck()
     {
+        _logger.LogInformation("HealthCheck called");
         try
         {
-            _logger.LogInformation("HealthCheck called");
-
-            return new HealthCheckResponse(
-                success: true,
-                message: "Cloud Code module online",
-                timestamp: DateTime.UtcNow.ToString("o")
-            );
+            return new HealthCheckResponse
+            {
+                Success = true,
+                Message = "Cloud Code module online",
+                Timestamp = DateTime.UtcNow.ToString("o")
+            };
         }
         catch (Exception ex)
         {
@@ -33,4 +34,9 @@ public class HealthCheckModule
     }
 }
 
-public record HealthCheckResponse(bool success, string message, string timestamp);
+public class HealthCheckResponse
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Timestamp { get; set; } = string.Empty;
+}
