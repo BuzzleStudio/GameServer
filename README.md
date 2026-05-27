@@ -63,7 +63,7 @@ Push to `staging` — the pipeline runs automatically.
 For manual local deploy:
 ```bash
 npm install -g ugs
-ugs login --service-account-key-id <UNITY_SERVICE_ACCOUNT_KEY> --secret <UNITY_SERVICE_ACCOUNT_SECRET>
+ugs login --service-key-id <UNITY_SERVICE_ACCOUNT_KEY> --secret-key-stdin <<< "<UNITY_SERVICE_ACCOUNT_SECRET>"
 ugs config set project-id <UNITY_PROJECT_ID>
 ugs config set environment-name <UNITY_ENVIRONMENT>
 ugs deploy CloudCodeModule/BackpackAdventures.ccmr

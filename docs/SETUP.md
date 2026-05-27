@@ -81,8 +81,8 @@ dotnet publish CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule
 ```bash
 # Authenticate
 ugs login \
-  --service-account-key-id <YOUR_KEY_ID> \
-  --secret <YOUR_SECRET_KEY>
+  --service-key-id <YOUR_KEY_ID> \
+  --secret-key-stdin <<< "<YOUR_SECRET_KEY>"
 
 # Set project and environment
 ugs config set project-id <YOUR_PROJECT_ID>

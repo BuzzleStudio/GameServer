@@ -89,10 +89,10 @@ jobs:
       # 7. Authenticate with UGS service account
       # ------------------------------------------------------------------
       - name: Authenticate with UGS
-        run: |
-          ugs login \
-            --service-account-key-id ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }} \
-            --secret ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
+        env:
+          UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
+          UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
+        run: ugs login
 
       # ------------------------------------------------------------------
       # 8. Validate deployment artifacts exist
