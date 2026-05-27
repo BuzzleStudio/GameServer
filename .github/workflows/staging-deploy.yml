@@ -26,6 +26,9 @@ jobs:
     name: Deploy BackpackAdventures Cloud Code Module
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
+      UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
 
     steps:
       # ------------------------------------------------------------------
@@ -86,16 +89,7 @@ jobs:
           echo "All required secrets are present."
 
       # ------------------------------------------------------------------
-      # 7. Authenticate with UGS service account
-      # ------------------------------------------------------------------
-      - name: Authenticate with UGS
-        run: |
-          echo "${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}" | ugs login \
-            --service-key-id "${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}" \
-            --secret-key-stdin
-
-      # ------------------------------------------------------------------
-      # 8. Validate deployment artifacts exist
+      # 7. Validate deployment artifacts exist
       # ------------------------------------------------------------------
       - name: Validate deployment artifacts
         run: |
@@ -116,7 +110,7 @@ jobs:
           echo "All required artifacts present."
 
       # ------------------------------------------------------------------
-      # 9. Build .NET module
+      # 8. Build .NET module
       # ------------------------------------------------------------------
       - name: Build Cloud Code Module (.NET)
         run: |
@@ -127,7 +121,7 @@ jobs:
             --no-restore
 
       # ------------------------------------------------------------------
-      # 10. Deploy Cloud Code Module via UGS CLI
+      # 9. Deploy Cloud Code Module via UGS CLI
       # ------------------------------------------------------------------
       - name: Deploy Cloud Code Module
         run: |
@@ -137,7 +131,7 @@ jobs:
             --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
 
       # ------------------------------------------------------------------
-      # 11. Verify deployment — list deployed modules
+      # 10. Verify deployment — list deployed modules
       # ------------------------------------------------------------------
       - name: Verify deployment
         run: |
@@ -147,7 +141,7 @@ jobs:
             --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
 
       # ------------------------------------------------------------------
-      # 12. Write GitHub Actions job summary
+      # 11. Write GitHub Actions job summary
       # ------------------------------------------------------------------
       - name: Write job summary
         if: always()
