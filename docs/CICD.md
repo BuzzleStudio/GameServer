@@ -133,6 +133,23 @@ Use only when re-deploying without new code changes. Prefer Option A or B.
 
 ---
 
+### Authentication fails — unrecognized argument
+
+**Symptom:** `Unrecognized command or argument '--service-account-key-id'`
+
+**Cause:** The UGS CLI changed its flag names in a recent version.
+
+**Fix:** The workflow now uses environment variables instead of flags:
+```yaml
+env:
+  UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
+  UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
+run: ugs login
+```
+For local use, the correct flags are `--service-key-id` and `--secret-key-stdin`.
+
+---
+
 ### Authentication fails (401 Unauthorized)
 
 **Symptom:** "Authenticate with UGS" step fails with `401` or `invalid credentials`.

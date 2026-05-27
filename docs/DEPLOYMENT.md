@@ -86,8 +86,8 @@ Use these steps to deploy directly from your development machine without trigger
 
 ```bash
 ugs login \
-  --service-account-key-id <KEY_ID> \
-  --secret-key <SECRET_KEY>
+  --service-key-id <KEY_ID> \
+  --secret-key-stdin <<< "<SECRET_KEY>"
 ```
 
 Replace `<KEY_ID>` and `<SECRET_KEY>` with your personal service account credentials from the UGS Dashboard.
@@ -260,8 +260,8 @@ git checkout <previous-commit-sha>
 
 # Re-authenticate if needed
 ugs login \
-  --service-account-key-id <KEY_ID> \
-  --secret-key <SECRET_KEY>
+  --service-key-id <KEY_ID> \
+  --secret-key-stdin <<< "<SECRET_KEY>"
 
 # Configure target environment
 ugs config set project-id <PROJECT_ID>
