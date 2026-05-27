@@ -10,7 +10,7 @@ namespace BackpackAdventures.CloudCode.Client
 {
     public static class BackpackCloudCodeService
     {
-        private const string MODULE_NAME = "BackpackAdventures";
+        private const string MODULE_NAME = "BackpackAdventuresModule";
         private const int TIMEOUT_SECONDS = 10;
 
         public static async Task InitializeAsync()
@@ -45,7 +45,7 @@ namespace BackpackAdventures.CloudCode.Client
             Debug.Log($"[CloudCode] Calling PlayerEcho with playerId={playerId}...");
             try
             {
-                var args = new Dictionary<string, object> { { "playerId", playerId } };
+                var args = new Dictionary<string, object> { { "request", new { playerId = playerId } } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<PlayerEchoResponse>(
                     MODULE_NAME, "PlayerEcho", args);
                 var result = await WithTimeout(callTask, "PlayerEcho");
