@@ -20,91 +20,67 @@ public class GetMailboxModule
         _logger = logger;
     }
 
-    /// <summary>Returns the calling player's mailbox: merged global + user-specific mails with read/claimed state applied and expired mails filtered out.</summary>
     [CloudCodeFunction("GetMailbox")]
-    public async Task<GetMailboxResponse> GetMailboxAsync(GetMailboxRequest request)
+    public async Task<GetMailboxResponse> GetMailboxAsync()
     {
         var playerId = _context.PlayerId ?? string.Empty;
         _logger.LogInformation("GetMailbox called for {PlayerId}", playerId);
         try
         {
-            var page = Math.Max(1, request.Page);
-            var pageSize = Math.Clamp(request.PageSize <= 0 ? MailboxConstants.DefaultPageSize : request.PageSize, 1, MailboxConstants.MaxPageSize);
-
             var globalIndexTask = CloudSaveHelper.GetCustomDataAsync<GlobalMailIndex>(
                 _gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex);
             var userMailboxTask = CloudSaveHelper.GetPlayerDataAsync<PlayerUserMailbox>(
                 _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
             var globalStateTask = CloudSaveHelper.GetPlayerDataAsync<PlayerGlobalMailState>(
                 _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
-            var metaTask = CloudSaveHelper.GetPlayerDataAsync<PlayerMailboxMeta>(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyMeta);
 
-            await Task.WhenAll(globalIndexTask, userMailboxTask, globalStateTask, metaTask);
+            await Task.WhenAll(globalIndexTask, userMailboxTask, globalStateTask);
 
             var globalIndex = globalIndexTask.Result ?? new GlobalMailIndex();
             var userMailbox = userMailboxTask.Result ?? new PlayerUserMailbox();
             var globalState = globalStateTask.Result ?? new PlayerGlobalMailState();
-            var meta = metaTask.Result ?? new PlayerMailboxMeta();
 
             var claimedGlobal = new HashSet<string>(globalState.ClaimedIds);
             var readGlobal = new HashSet<string>(globalState.ReadIds);
 
-            var items = new List<MailItemDto>();
+            var mails = new List<MailItemDto>();
 
             foreach (var m in globalIndex.Mails)
             {
                 if (m.IsExpired()) continue;
-                var isRead = readGlobal.Contains(m.GlobalMailId) ||
-                    (meta.LastReadAt != null && string.Compare(m.SentAt, meta.LastReadAt, StringComparison.Ordinal) <= 0);
-                items.Add(new MailItemDto
+                mails.Add(new MailItemDto
                 {
                     MailId = m.GlobalMailId,
-                    MailType = "global",
-                    Title = m.Title,
+                    Subject = m.Subject,
                     Body = m.Body,
                     SentAt = m.SentAt,
                     ExpiresAt = m.ExpiresAt,
-                    Read = isRead,
-                    Claimed = claimedGlobal.Contains(m.GlobalMailId),
-                    Attachment = m.Attachment
+                    IsRead = readGlobal.Contains(m.GlobalMailId),
+                    AttachmentClaimed = claimedGlobal.Contains(m.GlobalMailId),
+                    Attachments = m.Attachments
                 });
             }
 
             foreach (var m in userMailbox.Mails)
             {
                 if (m.IsExpired()) continue;
-                items.Add(new MailItemDto
+                mails.Add(new MailItemDto
                 {
                     MailId = m.MailId,
-                    MailType = "user",
-                    Title = m.Title,
+                    Subject = m.Subject,
                     Body = m.Body,
                     SentAt = m.SentAt,
                     ExpiresAt = m.ExpiresAt,
-                    Read = m.Read,
-                    Claimed = m.Claimed,
-                    Attachment = m.Attachment
+                    IsRead = m.IsRead,
+                    AttachmentClaimed = m.AttachmentClaimed,
+                    Attachments = m.Attachments
                 });
             }
 
-            items.Sort((a, b) => string.Compare(b.SentAt, a.SentAt, StringComparison.Ordinal));
+            mails.Sort((a, b) => string.Compare(b.SentAt, a.SentAt, StringComparison.Ordinal));
 
-            var totalCount = items.Count;
-            var offset = (page - 1) * pageSize;
-            var paged = offset < items.Count
-                ? items.GetRange(offset, Math.Min(pageSize, items.Count - offset))
-                : new List<MailItemDto>();
-
-            _logger.LogInformation("GetMailbox returned {Count}/{Total} items for {PlayerId}", paged.Count, totalCount, playerId);
-            return new GetMailboxResponse
-            {
-                Success = true,
-                Mails = paged,
-                TotalCount = totalCount,
-                Page = page,
-                PageSize = pageSize
-            };
+            _logger.LogInformation("GetMailbox returning {Count} mails for {PlayerId}", mails.Count, playerId);
+            return new GetMailboxResponse { Success = true, Mails = mails };
         }
         catch (Exception ex)
         {
@@ -112,19 +88,4 @@ public class GetMailboxModule
             throw;
         }
     }
-}
-
-public class GetMailboxRequest
-{
-    public int Page { get; set; } = 1;
-    public int PageSize { get; set; } = MailboxConstants.DefaultPageSize;
-}
-
-public class GetMailboxResponse
-{
-    public bool Success { get; set; }
-    public List<MailItemDto> Mails { get; set; } = new();
-    public int TotalCount { get; set; }
-    public int Page { get; set; }
-    public int PageSize { get; set; }
 }

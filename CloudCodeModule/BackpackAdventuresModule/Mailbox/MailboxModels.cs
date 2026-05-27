@@ -8,10 +8,13 @@ public static class MailboxConstants
     public const string KeyGlobalMailIndex = "global_mail_index";
     public const string KeyGlobalState = "mailbox_global_state";
     public const string KeyUserItems = "mailbox_user_items";
+    public const string KeyMeta = "mailbox_meta";
 
     public const int MaxSubjectLength = 128;
     public const int MaxBodyLength = 1024;
     public const int MaxUserMailsStored = 200;
+    public const int DefaultPageSize = 20;
+    public const int MaxPageSize = 50;
 }
 
 // Attachment descriptor — field names match the Unity client MailAttachment model.
@@ -73,6 +76,14 @@ public class PlayerUserMailbox
 {
     public int Version { get; set; } = 1;
     public List<UserMailItem> Mails { get; set; } = new();
+}
+
+public class PlayerMailboxMeta
+{
+    public int Version { get; set; } = 1;
+    public string? LastReadAt { get; set; }
+    public int TotalUserMails { get; set; }
+    public int TotalGlobalMails { get; set; }
 }
 
 // API DTOs — PascalCase properties serialize to camelCase by the UGS SDK,

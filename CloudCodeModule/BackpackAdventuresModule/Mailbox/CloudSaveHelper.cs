@@ -7,62 +7,55 @@ using Unity.Services.CloudSave.Model;
 
 namespace BackpackAdventures.CloudCode;
 
-/// <summary>Thin wrapper around ICloudSaveDataApi for typed JSON round-trips.</summary>
+/// <summary>Typed JSON round-trips over ICloudSaveDataApi.</summary>
 internal static class CloudSaveHelper
 {
-    internal static async Task<T?> GetPlayerDataAsync<T>(
-        IGameApiClient client,
-        IExecutionContext ctx,
-        string playerId,
-        string key)
-    {
-        var response = await client.CloudSaveData.GetItemsAsync(
-            ctx, ctx.AccessToken, ctx.ProjectId, playerId,
-            new List<string> { key });
+    // customId used for project-wide "global" custom data store
+    private const string GlobalCustomId = "default";
 
-        if (response.Data.Results.Count == 0) return default;
-        var raw = response.Data.Results[0].Value?.ToString();
-        if (string.IsNullOrEmpty(raw)) return default;
-        return JsonSerializer.Deserialize<T>(raw);
+    internal static async Task<T?> GetPlayerDataAsync<T>(
+        IGameApiClient client, IExecutionContext ctx, string playerId, string key)
+    {
+        try
+        {
+            var response = await client.CloudSaveData.GetItemsAsync(
+                ctx, ctx.AccessToken, ctx.ProjectId, playerId,
+                new List<string> { key }, after: null);
+            if (response.Data.Results.Count == 0) return default;
+            var raw = response.Data.Results[0].Value?.ToString();
+            return string.IsNullOrEmpty(raw) ? default : JsonSerializer.Deserialize<T>(raw);
+        }
+        catch { return default; }
     }
 
     internal static async Task SetPlayerDataAsync<T>(
-        IGameApiClient client,
-        IExecutionContext ctx,
-        string playerId,
-        string key,
-        T value)
+        IGameApiClient client, IExecutionContext ctx, string playerId, string key, T value)
     {
         var json = JsonSerializer.Serialize(value);
-        var body = new SetItemBody { Key = key, Value = json };
-        await client.CloudSaveData.SetItemAsync(
-            ctx, ctx.AccessToken, ctx.ProjectId, playerId, body);
+        var body = new SetItemBody(key, json, string.Empty);
+        await client.CloudSaveData.SetItemAsync(ctx, ctx.AccessToken, ctx.ProjectId, playerId, body);
     }
 
     internal static async Task<T?> GetCustomDataAsync<T>(
-        IGameApiClient client,
-        IExecutionContext ctx,
-        string key)
+        IGameApiClient client, IExecutionContext ctx, string key)
     {
-        var response = await client.CloudSaveData.GetCustomItemsAsync(
-            ctx, ctx.AccessToken, ctx.ProjectId,
-            new List<string> { key });
-
-        if (response.Data.Results.Count == 0) return default;
-        var raw = response.Data.Results[0].Value?.ToString();
-        if (string.IsNullOrEmpty(raw)) return default;
-        return JsonSerializer.Deserialize<T>(raw);
+        try
+        {
+            var response = await client.CloudSaveData.GetCustomItemsAsync(
+                ctx, ctx.AccessToken, ctx.ProjectId, GlobalCustomId,
+                new List<string> { key }, after: null);
+            if (response.Data.Results.Count == 0) return default;
+            var raw = response.Data.Results[0].Value?.ToString();
+            return string.IsNullOrEmpty(raw) ? default : JsonSerializer.Deserialize<T>(raw);
+        }
+        catch { return default; }
     }
 
     internal static async Task SetCustomDataAsync<T>(
-        IGameApiClient client,
-        IExecutionContext ctx,
-        string key,
-        T value)
+        IGameApiClient client, IExecutionContext ctx, string key, T value)
     {
         var json = JsonSerializer.Serialize(value);
-        var body = new SetItemBody { Key = key, Value = json };
-        await client.CloudSaveData.SetCustomItemAsync(
-            ctx, ctx.AccessToken, ctx.ProjectId, body);
+        var body = new SetItemBody(key, json, string.Empty);
+        await client.CloudSaveData.SetCustomItemAsync(ctx, ctx.AccessToken, ctx.ProjectId, GlobalCustomId, body);
     }
 }

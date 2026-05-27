@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -21,64 +19,81 @@ public class SendMailModule
         _logger = logger;
     }
 
+    /// <summary>Broadcast a mail to all players via Cloud Save custom data (key: global_mail_index).</summary>
     [CloudCodeFunction("SendGlobalMail")]
     public async Task<SendGlobalMailResponse> SendGlobalMailAsync(SendGlobalMailRequest request)
     {
         _logger.LogInformation("SendGlobalMail called by {PlayerId}", _context.PlayerId);
-        ValidateRequest(request.Subject, request.Body);
-
-        var index = await GetCustomDataAsync<GlobalMailIndex>(MailboxConstants.KeyGlobalMailIndex)
-                    ?? new GlobalMailIndex();
-
-        var sentAt = DateTime.UtcNow.ToString("o");
-        var mail = new GlobalMailItem
+        try
         {
-            GlobalMailId = Guid.NewGuid().ToString(),
-            Subject = request.Subject,
-            Body = request.Body,
-            SentAt = sentAt,
-            ExpiresAt = request.ExpiresAt,
-            Attachments = request.Attachments
-        };
+            ValidateRequest(request.Subject, request.Body);
 
-        index.Mails.Add(mail);
-        await SetCustomDataAsync(MailboxConstants.KeyGlobalMailIndex, index);
+            var index = await CloudSaveHelper.GetCustomDataAsync<GlobalMailIndex>(
+                _gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex) ?? new GlobalMailIndex();
 
-        _logger.LogInformation("Global mail {MailId} stored", mail.GlobalMailId);
-        return new SendGlobalMailResponse { Success = true, MailId = mail.GlobalMailId, SentAt = sentAt };
+            var sentAt = DateTime.UtcNow.ToString("o");
+            var mail = new GlobalMailItem
+            {
+                GlobalMailId = Guid.NewGuid().ToString(),
+                Subject = request.Subject,
+                Body = request.Body,
+                SentAt = sentAt,
+                ExpiresAt = request.ExpiresAt,
+                Attachments = request.Attachments
+            };
+
+            index.Mails.Add(mail);
+            await CloudSaveHelper.SetCustomDataAsync(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex, index);
+
+            _logger.LogInformation("Global mail {MailId} stored", mail.GlobalMailId);
+            return new SendGlobalMailResponse { Success = true, MailId = mail.GlobalMailId, SentAt = sentAt };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SendGlobalMail failed");
+            throw;
+        }
     }
 
+    /// <summary>Send a mail directly to a specific player's Cloud Save player data (key: mailbox_user_items).</summary>
     [CloudCodeFunction("SendUserMail")]
     public async Task<SendUserMailResponse> SendUserMailAsync(SendUserMailRequest request)
     {
         _logger.LogInformation("SendUserMail to {UserId} by {PlayerId}", request.UserId, _context.PlayerId);
-
-        if (string.IsNullOrWhiteSpace(request.UserId))
-            throw new ArgumentException(MailboxError.InvalidInput);
-        ValidateRequest(request.Subject, request.Body);
-
-        var mailbox = await GetPlayerDataAsync<PlayerUserMailbox>(request.UserId, MailboxConstants.KeyUserItems)
-                      ?? new PlayerUserMailbox();
-
-        var sentAt = DateTime.UtcNow.ToString("o");
-        var mail = new UserMailItem
+        try
         {
-            MailId = Guid.NewGuid().ToString(),
-            Subject = request.Subject,
-            Body = request.Body,
-            SentAt = sentAt,
-            ExpiresAt = request.ExpiresAt,
-            Attachments = request.Attachments
-        };
+            if (string.IsNullOrWhiteSpace(request.UserId))
+                throw new ArgumentException(MailboxError.InvalidInput);
+            ValidateRequest(request.Subject, request.Body);
 
-        if (mailbox.Mails.Count >= MailboxConstants.MaxUserMailsStored)
-            mailbox.Mails.RemoveAt(0);
+            var mailbox = await CloudSaveHelper.GetPlayerDataAsync<PlayerUserMailbox>(
+                _gameApiClient, _context, request.UserId, MailboxConstants.KeyUserItems) ?? new PlayerUserMailbox();
 
-        mailbox.Mails.Add(mail);
-        await SetPlayerDataAsync(request.UserId, MailboxConstants.KeyUserItems, mailbox);
+            var sentAt = DateTime.UtcNow.ToString("o");
+            var mail = new UserMailItem
+            {
+                MailId = Guid.NewGuid().ToString(),
+                Subject = request.Subject,
+                Body = request.Body,
+                SentAt = sentAt,
+                ExpiresAt = request.ExpiresAt,
+                Attachments = request.Attachments
+            };
 
-        _logger.LogInformation("User mail {MailId} stored for {UserId}", mail.MailId, request.UserId);
-        return new SendUserMailResponse { Success = true, MailId = mail.MailId, SentAt = sentAt };
+            if (mailbox.Mails.Count >= MailboxConstants.MaxUserMailsStored)
+                mailbox.Mails.RemoveAt(0);
+
+            mailbox.Mails.Add(mail);
+            await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, request.UserId, MailboxConstants.KeyUserItems, mailbox);
+
+            _logger.LogInformation("User mail {MailId} stored for {UserId}", mail.MailId, request.UserId);
+            return new SendUserMailResponse { Success = true, MailId = mail.MailId, SentAt = sentAt };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SendUserMail failed for {UserId}", request.UserId);
+            throw;
+        }
     }
 
     private static void ValidateRequest(string subject, string body)
@@ -87,47 +102,5 @@ public class SendMailModule
             throw new ArgumentException(MailboxError.InvalidInput);
         if (string.IsNullOrWhiteSpace(body) || body.Length > MailboxConstants.MaxBodyLength)
             throw new ArgumentException(MailboxError.InvalidInput);
-    }
-
-    private async Task<T?> GetCustomDataAsync<T>(string key)
-    {
-        try
-        {
-            var response = await _gameApiClient.CloudSaveData.GetCustomItemsAsync(
-                _context, _context.AccessToken, _context.ProjectId, new List<string> { key });
-            if (response.Data.Results.Count == 0) return default;
-            var raw = response.Data.Results[0].Value?.ToString();
-            return string.IsNullOrEmpty(raw) ? default : JsonSerializer.Deserialize<T>(raw);
-        }
-        catch { return default; }
-    }
-
-    private async Task SetCustomDataAsync<T>(string key, T value)
-    {
-        var json = JsonSerializer.Serialize(value);
-        var item = new Unity.Services.CloudCode.Apis.CloudSaveData.Model.SetItemBody(key, json);
-        await _gameApiClient.CloudSaveData.SetCustomItemAsync(
-            _context, _context.AccessToken, _context.ProjectId, item);
-    }
-
-    private async Task<T?> GetPlayerDataAsync<T>(string playerId, string key)
-    {
-        try
-        {
-            var response = await _gameApiClient.CloudSaveData.GetItemsAsync(
-                _context, _context.AccessToken, _context.ProjectId, playerId, new List<string> { key });
-            if (response.Data.Results.Count == 0) return default;
-            var raw = response.Data.Results[0].Value?.ToString();
-            return string.IsNullOrEmpty(raw) ? default : JsonSerializer.Deserialize<T>(raw);
-        }
-        catch { return default; }
-    }
-
-    private async Task SetPlayerDataAsync<T>(string playerId, string key, T value)
-    {
-        var json = JsonSerializer.Serialize(value);
-        var item = new Unity.Services.CloudCode.Apis.CloudSaveData.Model.SetItemBody(key, json);
-        await _gameApiClient.CloudSaveData.SetItemAsync(
-            _context, _context.AccessToken, _context.ProjectId, playerId, item);
     }
 }
