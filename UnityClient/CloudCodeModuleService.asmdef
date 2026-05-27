@@ -1,0 +1,29 @@
+{
+    "name": "BackpackAdventures.CloudCodeClient",
+    "rootNamespace": "BackpackAdventures.Client",
+    "references": [
+        "Unity.Services.CloudCode",
+        "Unity.Services.Authentication",
+        "Unity.Services.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.services.cloudcode",
+            "expression": "2.5.0",
+            "define": "CLOUD_CODE_PRESENT"
+        },
+        {
+            "name": "com.unity.services.authentication",
+            "expression": "3.0.0",
+            "define": "AUTHENTICATION_PRESENT"
+        }
+    ],
+    "noEngineReferences": false
+}
