@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
 using Unity.Services.CloudCode.Core;
 
+
 namespace BackpackAdventures.CloudCode;
 
 public class ClaimAttachmentModule
@@ -57,9 +58,11 @@ public class ClaimAttachmentModule
 
     private async Task<ClaimAttachmentResponse> ClaimGlobalAttachmentAsync(string playerId, GlobalMailItem mail)
     {
-        var state = await CloudSaveHelper.GetPlayerDataAsync<PlayerGlobalMailState>(
-            _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState)
-            ?? new PlayerGlobalMailState();
+        // Read with writeLock for optimistic concurrency — prevents double-grant if two
+        // requests race past the claimed check before either write completes.
+        var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(
+            _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
+        state ??= new PlayerGlobalMailState();
 
         if (state.ClaimedIds.Contains(mail.GlobalMailId))
             return new ClaimAttachmentResponse { Success = true, MailId = mail.GlobalMailId, AlreadyClaimed = true };
@@ -74,8 +77,17 @@ public class ClaimAttachmentModule
         if (!state.ReadIds.Contains(mail.GlobalMailId))
             state.ReadIds.Add(mail.GlobalMailId);
 
-        await CloudSaveHelper.SetPlayerDataAsync(
-            _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state);
+        try
+        {
+            await CloudSaveHelper.SetPlayerDataAsync(
+                _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
+        }
+        catch (Exception ex) when (IsWriteLockConflict(ex))
+        {
+            // A concurrent claim won the race and already updated the state.
+            _logger.LogWarning("Write conflict on global claim for mailId={MailId} by {PlayerId}", mail.GlobalMailId, playerId);
+            return new ClaimAttachmentResponse { Success = true, MailId = mail.GlobalMailId, AlreadyClaimed = true };
+        }
 
         _logger.LogInformation("Global attachment claimed for mailId={MailId} by {PlayerId}", mail.GlobalMailId, playerId);
         return new ClaimAttachmentResponse
@@ -99,12 +111,32 @@ public class ClaimAttachmentModule
         if (mail.Attachments == null || mail.Attachments.Count == 0)
             throw new InvalidOperationException(MailboxError.NoAttachment);
 
-        var claimed = new List<MailAttachment>(mail.Attachments);
-        mail.AttachmentClaimed = true;
-        mail.IsRead = true;
+        // Re-read with writeLock for optimistic concurrency on user mailbox.
+        var (freshMailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(
+            _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
+        freshMailbox ??= new PlayerUserMailbox();
 
-        await CloudSaveHelper.SetPlayerDataAsync(
-            _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, mailbox);
+        var freshMail = freshMailbox.Mails.Find(m => m.MailId == mail.MailId);
+        if (freshMail == null)
+            throw new InvalidOperationException(MailboxError.MailNotFound);
+
+        if (freshMail.AttachmentClaimed)
+            return new ClaimAttachmentResponse { Success = true, MailId = mail.MailId, AlreadyClaimed = true };
+
+        var claimed = new List<MailAttachment>(freshMail.Attachments ?? mail.Attachments);
+        freshMail.AttachmentClaimed = true;
+        freshMail.IsRead = true;
+
+        try
+        {
+            await CloudSaveHelper.SetPlayerDataAsync(
+                _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, freshMailbox, writeLock);
+        }
+        catch (Exception ex) when (IsWriteLockConflict(ex))
+        {
+            _logger.LogWarning("Write conflict on user claim for mailId={MailId} by {PlayerId}", mail.MailId, playerId);
+            return new ClaimAttachmentResponse { Success = true, MailId = mail.MailId, AlreadyClaimed = true };
+        }
 
         _logger.LogInformation("User attachment claimed for mailId={MailId} by {PlayerId}", mail.MailId, playerId);
         return new ClaimAttachmentResponse
@@ -115,4 +147,10 @@ public class ClaimAttachmentModule
             ClaimedAttachments = claimed
         };
     }
+
+    private static bool IsWriteLockConflict(Exception ex) =>
+        ex.Message.Contains("409") ||
+        ex.Message.Contains("Conflict", StringComparison.OrdinalIgnoreCase) ||
+        ex.Message.Contains("WriteLock", StringComparison.OrdinalIgnoreCase) ||
+        ex.Message.Contains("write_lock", StringComparison.OrdinalIgnoreCase);
 }
