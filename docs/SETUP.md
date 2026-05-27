@@ -187,7 +187,7 @@ var result = await CloudCodeService.Instance
 Debug.Log($"Server online: {result.success} — {result.message} at {result.timestamp}");
 ```
 
-### PlayerEchoTest
+### PlayerEcho
 
 Validates player authentication and round-trip serialisation.
 
@@ -200,13 +200,13 @@ var args = new Dictionary<string, object>
 var result = await CloudCodeService.Instance
     .CallModuleEndpointAsync<PlayerEchoResponse>(
         "BackpackAdventures",
-        "PlayerEchoTest",
+        "PlayerEcho",
         args);
 
 Debug.Log($"Echo OK: {result.success}, player: {result.playerId}, time: {result.serverTime}");
 ```
 
-### ServerConfigTest
+### ServerConfig
 
 Returns server-side configuration values.
 
@@ -214,7 +214,7 @@ Returns server-side configuration values.
 var result = await CloudCodeService.Instance
     .CallModuleEndpointAsync<ServerConfigResponse>(
         "BackpackAdventures",
-        "ServerConfigTest");
+        "ServerConfig");
 
 Debug.Log($"Env: {result.environment}, version: {result.version}, deployed: {result.deploymentTime}");
 ```
