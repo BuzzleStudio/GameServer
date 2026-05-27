@@ -107,26 +107,19 @@ jobs:
             exit 1
           fi
 
+          echo "ccmr modulePath: $(cat CloudCodeModule/BackpackAdventures.ccmr)"
+
           echo "All required artifacts present."
 
       # ------------------------------------------------------------------
-      # 8. Build .NET module
-      # ------------------------------------------------------------------
-      - name: Build Cloud Code Module (.NET)
-        run: |
-          set -e
-          dotnet restore CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj
-          dotnet publish CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
-            -c Release \
-            --no-restore
-
-      # ------------------------------------------------------------------
-      # 9. Deploy Cloud Code Module via UGS CLI
+      # 8. Deploy Cloud Code Module via UGS CLI
+      #    ugs deploy handles dotnet build+upload internally.
+      #    Pre-building separately causes artifact conflicts.
       # ------------------------------------------------------------------
       - name: Deploy Cloud Code Module
         run: |
           set -e
-          ugs deploy CloudCodeModule/BackpackAdventures.ccmr \
+          ugs deploy CloudCodeModule/ \
             --project-id ${{ secrets.UNITY_PROJECT_ID }} \
             --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
 
