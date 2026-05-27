@@ -1,16 +1,14 @@
-using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Unity.Services.CloudCode.Core;
 
-namespace BackpackAdventures;
+namespace BackpackAdventures.CloudCode;
 
-[ModuleRegistry]
-public class ModuleConfig : IModuleConfig
+public class ModuleConfig : ICloudCodeSetup
 {
-    public async Task<IModuleConfig> Bind(IModuleBuilder builder)
+    public void Setup(ICloudCodeConfig config)
     {
-        builder.CloudCodeModule<HealthCheckModule>();
-        builder.CloudCodeModule<PlayerEchoModule>();
-        builder.CloudCodeModule<ServerConfigModule>();
-        return this;
+        config.Dependencies.AddSingleton<HealthCheckModule>();
+        config.Dependencies.AddSingleton<PlayerEchoModule>();
+        config.Dependencies.AddSingleton<ServerConfigModule>();
     }
 }
