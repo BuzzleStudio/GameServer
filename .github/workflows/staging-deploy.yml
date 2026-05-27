@@ -102,14 +102,14 @@ jobs:
           set -e
           echo "Checking required deployment artifacts..."
 
-          if [ ! -f "CloudCodeModules/BackpackAdventuresModule.ccmr" ]; then
-            echo "ERROR: CloudCodeModules/BackpackAdventuresModule.ccmr not found"
+          if [ ! -f "CloudCodeModule/BackpackAdventures.ccmr" ]; then
+            echo "ERROR: CloudCodeModule/BackpackAdventures.ccmr not found"
             echo "Ensure the backend module was committed to the staging branch."
             exit 1
           fi
 
-          if [ ! -f "CloudCodeModules/BackpackAdventuresModule/BackpackAdventuresModule.csproj" ]; then
-            echo "ERROR: CloudCodeModules/BackpackAdventuresModule/BackpackAdventuresModule.csproj not found"
+          if [ ! -f "CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj" ]; then
+            echo "ERROR: CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj not found"
             exit 1
           fi
 
@@ -121,8 +121,8 @@ jobs:
       - name: Build Cloud Code Module (.NET)
         run: |
           set -e
-          dotnet restore CloudCodeModules/BackpackAdventuresModule/BackpackAdventuresModule.csproj
-          dotnet publish CloudCodeModules/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
+          dotnet restore CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj
+          dotnet publish CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
             -c Release \
             --no-restore
 
@@ -132,7 +132,7 @@ jobs:
       - name: Deploy Cloud Code Module
         run: |
           set -e
-          ugs deploy CloudCodeModules/BackpackAdventuresModule.ccmr \
+          ugs deploy CloudCodeModule/BackpackAdventures.ccmr \
             --project-id ${{ secrets.UNITY_PROJECT_ID }} \
             --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
 
@@ -160,7 +160,7 @@ jobs:
             echo "| Field | Value |"
             echo "|---|---|"
             echo "| **Module** | BackpackAdventures |"
-            echo "| **Artifact** | CloudCodeModules/BackpackAdventuresModule.ccmr |"
+            echo "| **Artifact** | CloudCodeModule/BackpackAdventures.ccmr |"
             echo "| **Environment** | ${{ secrets.UNITY_ENVIRONMENT }} |"
             echo "| **Commit** | ${{ github.sha }} |"
             echo "| **Actor** | ${{ github.actor }} |"

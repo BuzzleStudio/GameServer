@@ -92,7 +92,7 @@ Replace `<PROJECT_ID>` with the Unity project ID from the Unity Dashboard.
 
 ```bash
 dotnet build \
-  CloudCodeModules/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
+  CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
   -c Release
 ```
 
@@ -101,7 +101,7 @@ Fix any build errors before proceeding. Deploying a module that does not compile
 ### Step 4 — Deploy
 
 ```bash
-ugs deploy CloudCodeModules/BackpackAdventuresModule.ccmr
+ugs deploy CloudCodeModule/BackpackAdventures.ccmr
 ```
 
 ### Step 5 — Verify
@@ -137,7 +137,7 @@ The `BackpackAdventures` module should appear in the list with an updated versio
    - Configures the UGS project and environment from repository secrets.
    - Authenticates using the service account credentials stored as secrets.
    - Validates the .NET build in Release configuration.
-   - Deploys `CloudCodeModules/BackpackAdventuresModule.ccmr` to the configured UGS environment.
+   - Deploys `CloudCodeModule/BackpackAdventures.ccmr` to the configured UGS environment.
    - Lists deployed modules to confirm the deployment succeeded.
    - Prints a deployment summary.
 4. Concurrency control (`group: staging-deploy`, `cancel-in-progress: false`) ensures that if multiple pushes arrive quickly, they deploy in sequence rather than racing.
@@ -255,7 +255,7 @@ ugs config set project-id <PROJECT_ID>
 ugs config set environment-name staging
 
 # Deploy the older version
-ugs deploy CloudCodeModules/BackpackAdventuresModule.ccmr
+ugs deploy CloudCodeModule/BackpackAdventures.ccmr
 ```
 
 This redeploys the code from that commit and creates a new module version in UGS with the older logic.
