@@ -1,0 +1,17 @@
+# .NET build artifacts
+bin/
+obj/
+*.user
+.vs/
+
+# Cloud Code compiled module (generated, not committed)
+*.ccm
+
+# Unity generated
+Library/
+Temp/
+Obj/
+Build/
+Builds/
+UserSettings/
+.DS_Store
