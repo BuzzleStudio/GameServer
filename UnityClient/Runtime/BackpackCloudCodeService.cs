@@ -10,7 +10,7 @@ namespace BackpackAdventures.CloudCode.Client
 {
     public static class BackpackCloudCodeService
     {
-        private const string MODULE_NAME = "BackpackAdventuresModule";
+        private const string MODULE_NAME = "BackpackAdventures";
         private const int TIMEOUT_SECONDS = 10;
 
         public static async Task InitializeAsync()
@@ -42,37 +42,37 @@ namespace BackpackAdventures.CloudCode.Client
 
         public static async Task<PlayerEchoResponse> CallPlayerEchoAsync(string playerId)
         {
-            Debug.Log($"[CloudCode] Calling PlayerEcho with playerId={playerId}...");
+            Debug.Log($"[CloudCode] Calling PlayerEchoTest with playerId={playerId}...");
             try
             {
                 var args = new Dictionary<string, object> { { "playerId", playerId } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<PlayerEchoResponse>(
-                    MODULE_NAME, "PlayerEcho", args);
+                    MODULE_NAME, "PlayerEchoTest", args);
                 var result = await WithTimeout(callTask, "PlayerEcho");
-                Debug.Log($"[CloudCode] PlayerEcho: success={result.success}, playerId={result.playerId}, serverTime={result.serverTime}");
+                Debug.Log($"[CloudCode] PlayerEchoTest: success={result.success}, playerId={result.playerId}, serverTime={result.serverTime}");
                 return result;
             }
             catch (Exception ex)
             {
-                Debug.LogError("[CloudCode] PlayerEcho failed: " + ex.Message);
+                Debug.LogError("[CloudCode] PlayerEchoTest failed: " + ex.Message);
                 throw;
             }
         }
 
         public static async Task<ServerConfigResponse> CallServerConfigAsync()
         {
-            Debug.Log("[CloudCode] Calling ServerConfig...");
+            Debug.Log("[CloudCode] Calling ServerConfigTest...");
             try
             {
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<ServerConfigResponse>(
-                    MODULE_NAME, "ServerConfig", null);
+                    MODULE_NAME, "ServerConfigTest", null);
                 var result = await WithTimeout(callTask, "ServerConfig");
-                Debug.Log($"[CloudCode] ServerConfig: environment={result.environment}, version={result.version}, deploymentTime={result.deploymentTime}");
+                Debug.Log($"[CloudCode] ServerConfigTest: environment={result.environment}, version={result.version}, deploymentTime={result.deploymentTime}");
                 return result;
             }
             catch (Exception ex)
             {
-                Debug.LogError("[CloudCode] ServerConfig failed: " + ex.Message);
+                Debug.LogError("[CloudCode] ServerConfigTest failed: " + ex.Message);
                 throw;
             }
         }
