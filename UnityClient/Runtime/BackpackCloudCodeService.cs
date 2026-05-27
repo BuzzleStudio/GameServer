@@ -45,7 +45,7 @@ namespace BackpackAdventures.CloudCode.Client
             Debug.Log($"[CloudCode] Calling PlayerEcho with playerId={playerId}...");
             try
             {
-                var args = new Dictionary<string, object> { { "playerId", playerId } };
+                var args = new Dictionary<string, object> { { "request", new { playerId = playerId } } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<PlayerEchoResponse>(
                     MODULE_NAME, "PlayerEcho", args);
                 var result = await WithTimeout(callTask, "PlayerEcho");
