@@ -131,14 +131,21 @@ jobs:
             --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
 
       # ------------------------------------------------------------------
-      # 10. Verify deployment — list deployed modules
+      # 10. Verify deployment — confirm module is listed
       # ------------------------------------------------------------------
       - name: Verify deployment
         run: |
           set -e
-          ugs cloud-code modules list \
+          echo "Listing modules in project=${{ secrets.UNITY_PROJECT_ID }} env=${{ secrets.UNITY_ENVIRONMENT }}"
+          MODULE_LIST=$(ugs cloud-code modules list \
             --project-id ${{ secrets.UNITY_PROJECT_ID }} \
-            --environment-name ${{ secrets.UNITY_ENVIRONMENT }}
+            --environment-name ${{ secrets.UNITY_ENVIRONMENT }})
+          echo "$MODULE_LIST"
+          if ! echo "$MODULE_LIST" | grep -qi "BackpackAdventures"; then
+            echo "ERROR: BackpackAdventures module not found after deployment. Deploy may have silently failed."
+            exit 1
+          fi
+          echo "Verified: BackpackAdventures is deployed to ${{ secrets.UNITY_ENVIRONMENT }}."
 
       # ------------------------------------------------------------------
       # 11. Write GitHub Actions job summary
