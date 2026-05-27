@@ -139,14 +139,14 @@ Use only when re-deploying without new code changes. Prefer Option A or B.
 
 **Cause:** The UGS CLI changed its flag names in a recent version.
 
-**Fix:** The workflow now uses environment variables instead of flags:
+**Fix:** Pipe the secret via stdin — env vars alone don't work in CI's non-interactive shell:
 ```yaml
-env:
-  UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
-  UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
-run: ugs login
+run: |
+  echo "${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}" | ugs login \
+    --service-key-id "${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}" \
+    --secret-key-stdin
 ```
-For local use, the correct flags are `--service-key-id` and `--secret-key-stdin`.
+For local use: `echo "<SECRET>" | ugs login --service-key-id <KEY_ID> --secret-key-stdin`
 
 ---
 
