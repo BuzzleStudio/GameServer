@@ -47,7 +47,7 @@ namespace BackpackAdventures.CloudCode.Client
             {
                 var args = new Dictionary<string, object> { { "playerId", playerId } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<PlayerEchoResponse>(
-                    MODULE_NAME, "PlayerEchoTest", args);
+                    MODULE_NAME, "PlayerEcho", args);
                 var result = await WithTimeout(callTask, "PlayerEcho");
                 Debug.Log($"[CloudCode] PlayerEcho: success={result.success}, playerId={result.playerId}, serverTime={result.serverTime}");
                 return result;
@@ -65,7 +65,7 @@ namespace BackpackAdventures.CloudCode.Client
             try
             {
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<ServerConfigResponse>(
-                    MODULE_NAME, "ServerConfigTest", null);
+                    MODULE_NAME, "ServerConfig", null);
                 var result = await WithTimeout(callTask, "ServerConfig");
                 Debug.Log($"[CloudCode] ServerConfig: environment={result.environment}, version={result.version}, deploymentTime={result.deploymentTime}");
                 return result;
