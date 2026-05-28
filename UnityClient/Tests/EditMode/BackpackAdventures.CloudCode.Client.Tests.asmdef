@@ -1,0 +1,24 @@
+{
+    "name": "BackpackAdventures.CloudCode.Client.Tests",
+    "rootNamespace": "BackpackAdventures.CloudCode.Client.Tests",
+    "references": [
+        "BackpackAdventures.CloudCode.Client",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -141,7 +141,42 @@ jobs:
           echo "Verified: BackpackAdventures is deployed to ${{ secrets.UNITY_ENVIRONMENT }}."
 
       # ------------------------------------------------------------------
-      # 11. Write GitHub Actions job summary
+      # 11. Post-deploy smoke test
+      #     Exercises the live module immediately after deployment.
+      #     Calls HealthCheck and asserts success=true in the JSON response.
+      #     Uses the same service-account credentials as the deploy step —
+      #     no new secrets are required.
+      #
+      # TODO(QA): When UnityCloudCode/docs/TEST_RUNNER.md is delivered,
+      #           replace the stub invocation below with the full QA test
+      #           runner command (e.g. Unity Test Runner CLI or ugs run).
+      #           The HealthCheck + mailbox endpoint probes below remain
+      #           as fast smoke checks even after the full runner is wired.
+      # ------------------------------------------------------------------
+      - name: Post-deploy smoke test
+        continue-on-error: false
+        run: |
+          set -e
+
+          echo "--- Smoke test: HealthCheck ---"
+          HEALTH_RESPONSE=$(ugs cloud-code run BackpackAdventuresModule HealthCheck \
+            --project-id ${{ secrets.UNITY_PROJECT_ID }} \
+            --environment-name ${{ secrets.UNITY_ENVIRONMENT }})
+          echo "$HEALTH_RESPONSE"
+          if ! echo "$HEALTH_RESPONSE" | grep -q '"success":true'; then
+            echo "ERROR: HealthCheck did not return success:true"
+            echo "Response was: $HEALTH_RESPONSE"
+            exit 1
+          fi
+          echo "HealthCheck passed."
+
+          # TODO(QA): Once QA delivers the full post-deploy test runner,
+          # invoke it here. Until then the HealthCheck probe is the gate.
+          # Example placeholder (do not enable until TEST_RUNNER.md exists):
+          # echo "TODO: invoke QA runner once finalized"
+
+      # ------------------------------------------------------------------
+      # 12. Write GitHub Actions job summary
       # ------------------------------------------------------------------
       - name: Write job summary
         if: always()

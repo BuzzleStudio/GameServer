@@ -95,7 +95,7 @@ public class ClaimAttachmentModule
             Success = true,
             MailId = mail.GlobalMailId,
             AlreadyClaimed = false,
-            ClaimedAttachments = mail.Attachments
+            GrantedAttachments = mail.Attachments
         };
     }
 
@@ -144,7 +144,7 @@ public class ClaimAttachmentModule
             Success = true,
             MailId = mail.MailId,
             AlreadyClaimed = false,
-            ClaimedAttachments = claimed
+            GrantedAttachments = claimed
         };
     }
 

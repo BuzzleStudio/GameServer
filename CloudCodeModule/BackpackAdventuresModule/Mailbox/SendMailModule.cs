@@ -46,7 +46,7 @@ public class SendMailModule
             await CloudSaveHelper.SetCustomDataAsync(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex, index);
 
             _logger.LogInformation("Global mail {MailId} stored", mail.GlobalMailId);
-            return new SendGlobalMailResponse { Success = true, MailId = mail.GlobalMailId, SentAt = sentAt };
+            return new SendGlobalMailResponse { Success = true, GlobalMailId = mail.GlobalMailId, SentAt = sentAt };
         }
         catch (Exception ex)
         {
@@ -59,15 +59,15 @@ public class SendMailModule
     [CloudCodeFunction("SendUserMail")]
     public async Task<SendUserMailResponse> SendUserMailAsync(SendUserMailRequest request)
     {
-        _logger.LogInformation("SendUserMail to {UserId} by {PlayerId}", request.UserId, _context.PlayerId);
+        _logger.LogInformation("SendUserMail to {UserId} by {PlayerId}", request.TargetPlayerId, _context.PlayerId);
         try
         {
-            if (string.IsNullOrWhiteSpace(request.UserId))
+            if (string.IsNullOrWhiteSpace(request.TargetPlayerId))
                 throw new ArgumentException(MailboxError.InvalidInput);
             ValidateRequest(request.Subject, request.Body);
 
             var mailbox = await CloudSaveHelper.GetPlayerDataAsync<PlayerUserMailbox>(
-                _gameApiClient, _context, request.UserId, MailboxConstants.KeyUserItems) ?? new PlayerUserMailbox();
+                _gameApiClient, _context, request.TargetPlayerId, MailboxConstants.KeyUserItems) ?? new PlayerUserMailbox();
 
             var sentAt = DateTime.UtcNow.ToString("o");
             var mail = new UserMailItem
@@ -84,14 +84,14 @@ public class SendMailModule
                 mailbox.Mails.RemoveAt(0);
 
             mailbox.Mails.Add(mail);
-            await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, request.UserId, MailboxConstants.KeyUserItems, mailbox);
+            await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, request.TargetPlayerId, MailboxConstants.KeyUserItems, mailbox);
 
-            _logger.LogInformation("User mail {MailId} stored for {UserId}", mail.MailId, request.UserId);
+            _logger.LogInformation("User mail {MailId} stored for {UserId}", mail.MailId, request.TargetPlayerId);
             return new SendUserMailResponse { Success = true, MailId = mail.MailId, SentAt = sentAt };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SendUserMail failed for {UserId}", request.UserId);
+            _logger.LogError(ex, "SendUserMail failed for {UserId}", request.TargetPlayerId);
             throw;
         }
     }

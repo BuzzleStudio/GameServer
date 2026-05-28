@@ -348,4 +348,53 @@ Confirm the module version matches the expected rollback state. Run the HealthCh
 
 ---
 
+---
+
+## 9. Mailbox Production — Post-Deploy Tests
+
+### Gate Overview
+
+After every staging deployment, the pipeline runs a mandatory smoke test step ("Post-deploy smoke test") that exercises the live module before the job summary is written. This gate blocks promotion if the module is not responding correctly.
+
+**Step behavior:**
+- `continue-on-error: false` — a test failure fails the entire workflow run.
+- No new GitHub Secrets are required. The same `UNITY_PROJECT_ID`, `UNITY_ENVIRONMENT`, `UNITY_SERVICE_ACCOUNT_KEY`, and `UNITY_SERVICE_ACCOUNT_SECRET` used by the deploy step are reused.
+
+### Smoke Test Probes
+
+| Probe | Command | Pass Condition |
+|---|---|---|
+| HealthCheck | `ugs cloud-code run BackpackAdventuresModule HealthCheck` | Response JSON contains `"success":true` |
+
+The HealthCheck probe confirms that:
+1. The module was deployed and is reachable.
+2. The Cloud Code runtime is operational in the target environment.
+3. The service-account credentials used by CI have `Cloud Code Invoke` permission.
+
+### Extending the Test Gate
+
+When QA delivers `docs/TEST_RUNNER.md`, the full post-deploy integration suite should be wired in the step body after the HealthCheck probe. The HealthCheck probe must remain as a fast first-pass check even after the full runner is enabled.
+
+To wire the full runner:
+1. Read `docs/TEST_RUNNER.md` for the exact CLI invocation.
+2. Replace the TODO stub comment in the "Post-deploy smoke test" step with the runner command.
+3. Ensure the runner targets the `BackpackAdventures.CloudCode.Client.Tests.MailboxIntegrationTests` suite as the QA entry point.
+
+### Admin Allowlist Bootstrap Requirement
+
+The `mailbox_admin_allowlist` Cloud Save custom key must be bootstrapped in the UGS Dashboard before any admin-gated mailbox endpoints will accept requests. Until the allowlist is populated, all `SendGlobalMail`, `SendUserMail`, and `PurgeExpired` calls return `401 Unauthorized (NotAdmin)` — this is intentional fail-closed behavior.
+
+**Bootstrap steps:**
+1. Go to [cloud.unity.com](https://cloud.unity.com) and open the project.
+2. Navigate to **LiveOps > Cloud Save > Custom Data**.
+3. Create a new key named `mailbox_admin_allowlist` in the `default` collection (project-wide scope).
+4. Set its value to the following JSON, replacing player IDs with real admin player IDs:
+   ```json
+   {
+     "version": 1,
+     "playerIds": ["<admin-player-id-1>", "<admin-player-id-2>"]
+   }
+   ```
+5. Save. The allowlist takes effect immediately on the next Cloud Code invocation — no redeploy required.
+
 *Last updated: see git log for this file.*
