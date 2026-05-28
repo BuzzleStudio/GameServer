@@ -3,6 +3,9 @@
     "rootNamespace": "BackpackAdventures.CloudCode.Client.Tests",
     "references": [
         "BackpackAdventures.CloudCode.Client",
+        "Unity.Services.CloudCode",
+        "Unity.Services.Authentication",
+        "Unity.Services.Core",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
