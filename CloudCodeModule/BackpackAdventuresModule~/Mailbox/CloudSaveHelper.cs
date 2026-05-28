@@ -126,14 +126,15 @@ internal static class CloudSaveHelper
     private static async Task PostItemAsync<T>(
         IExecutionContext ctx, string url, string key, T value, string? writeLock)
     {
-        // Cloud Save stores `value` as an arbitrary JSON value. Match the legacy behaviour:
-        // serialize the payload as JSON, then send the resulting string verbatim. Reads
-        // expect a string field and JSON-deserialize it again.
-        var valueJson = JsonSerializer.Serialize(value);
-        var payload = new Dictionary<string, object>
+        // Cloud Save's SetItemBody documents `value` as "Any JSON serializable structure"
+        // (NOT a JSON-encoded string). Sending the value as a string produces HTTP 404
+        // error code 54 ("Object could not be found"). Embed the value as a raw JSON
+        // object/array/primitive so the outer JsonSerializer.Serialize(payload) keeps it
+        // structured.
+        var payload = new Dictionary<string, object?>
         {
             ["key"] = key,
-            ["value"] = valueJson,
+            ["value"] = value,
         };
         if (!string.IsNullOrEmpty(writeLock)) payload["writeLock"] = writeLock!;
         var bodyJson = JsonSerializer.Serialize(payload);
@@ -201,15 +202,16 @@ internal static class CloudSaveHelper
     private static T? DeserializeValue<T>(JsonElement item)
     {
         if (!item.TryGetProperty("value", out var val)) return default;
-        // value is typically returned as a JSON string containing escaped JSON
-        // (matching the legacy SDK behaviour). Handle both cases defensively.
+        // Now that we POST `value` as a raw JSON structure, Cloud Save returns it the
+        // same way on read. Legacy data (written as escaped JSON string) still
+        // deserializes when val.ValueKind == String — kept for compat.
+        if (val.ValueKind == JsonValueKind.Null || val.ValueKind == JsonValueKind.Undefined)
+            return default;
         if (val.ValueKind == JsonValueKind.String)
         {
             var s = val.GetString();
             return string.IsNullOrEmpty(s) ? default : JsonSerializer.Deserialize<T>(s);
         }
-        if (val.ValueKind == JsonValueKind.Null || val.ValueKind == JsonValueKind.Undefined)
-            return default;
         return JsonSerializer.Deserialize<T>(val.GetRawText());
     }
 }
