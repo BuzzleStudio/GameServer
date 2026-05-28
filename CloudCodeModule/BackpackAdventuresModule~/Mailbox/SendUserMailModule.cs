@@ -15,18 +15,15 @@ public class SendUserMailModule
     private readonly IExecutionContext _context;
     private readonly IGameApiClient _gameApiClient;
     private readonly ILogger<SendUserMailModule> _logger;
-    private readonly AdminAuthService _adminAuth;
 
     public SendUserMailModule(
         IExecutionContext context,
         IGameApiClient gameApiClient,
-        ILogger<SendUserMailModule> logger,
-        AdminAuthService adminAuth)
+        ILogger<SendUserMailModule> logger)
     {
         _context = context;
         _gameApiClient = gameApiClient;
         _logger = logger;
-        _adminAuth = adminAuth;
     }
 
     [CloudCodeFunction("SendUserMail")]
@@ -35,7 +32,7 @@ public class SendUserMailModule
         var callerId = _context.PlayerId ?? string.Empty;
         _logger.LogInformation("SendUserMail called by {CallerId} for target {TargetPlayerId}", callerId, request.TargetPlayerId);
 
-        await _adminAuth.RequireAdminAsync(callerId);
+        await AdminAuth.RequireAdminAsync(_gameApiClient, _context, callerId, _logger);
 
         if (string.IsNullOrWhiteSpace(request.TargetPlayerId))
             throw new ArgumentException(MailboxError.InvalidInput);

@@ -17,18 +17,15 @@ public class PurgeExpiredModule
     private readonly IExecutionContext _context;
     private readonly IGameApiClient _gameApiClient;
     private readonly ILogger<PurgeExpiredModule> _logger;
-    private readonly AdminAuthService _adminAuth;
 
     public PurgeExpiredModule(
         IExecutionContext context,
         IGameApiClient gameApiClient,
-        ILogger<PurgeExpiredModule> logger,
-        AdminAuthService adminAuth)
+        ILogger<PurgeExpiredModule> logger)
     {
         _context = context;
         _gameApiClient = gameApiClient;
         _logger = logger;
-        _adminAuth = adminAuth;
     }
 
     [CloudCodeFunction("PurgeExpired")]
@@ -37,7 +34,7 @@ public class PurgeExpiredModule
         var callerId = _context.PlayerId ?? string.Empty;
         _logger.LogInformation("PurgeExpired called by {PlayerId}", callerId);
 
-        await _adminAuth.RequireAdminAsync(callerId);
+        await AdminAuth.RequireAdminAsync(_gameApiClient, _context, callerId, _logger);
 
         var (index, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailIndexV2>(
             _gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);

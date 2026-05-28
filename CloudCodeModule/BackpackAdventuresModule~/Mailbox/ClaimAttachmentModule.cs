@@ -22,18 +22,15 @@ public class ClaimAttachmentModule
     private readonly IExecutionContext _context;
     private readonly IGameApiClient _gameApiClient;
     private readonly ILogger<ClaimAttachmentModule> _logger;
-    private readonly IRewardGrantService _rewardGrantService;
 
     public ClaimAttachmentModule(
         IExecutionContext context,
         IGameApiClient gameApiClient,
-        ILogger<ClaimAttachmentModule> logger,
-        IRewardGrantService rewardGrantService)
+        ILogger<ClaimAttachmentModule> logger)
     {
         _context = context;
         _gameApiClient = gameApiClient;
         _logger = logger;
-        _rewardGrantService = rewardGrantService;
     }
 
     [CloudCodeFunction("ClaimAttachment")]
@@ -265,7 +262,7 @@ public class ClaimAttachmentModule
 
         try
         {
-            await _rewardGrantService.GrantRewardsAsync(playerId, attachments, idempotencyKey);
+            await RewardGrant.GrantRewardsAsync(_gameApiClient, _context, playerId, attachments, idempotencyKey, _logger);
         }
         catch (RetryableGrantException ex)
         {
