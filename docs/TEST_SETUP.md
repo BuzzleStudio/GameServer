@@ -1,43 +1,45 @@
 # TEST_SETUP.md — Mailbox Test Environment Setup
 
 Before running any mailbox test that calls an admin-gated endpoint
-(`SendGlobalMail`, `SendUserMail`, `PurgeExpired`), the admin player
-must be seeded into the Cloud Save allowlist on the UGS Dashboard.
+(`SendGlobalMail`, `SendUserMail`, `PurgeExpired`), the `ADMIN_SERVICE_TOKEN`
+must be configured on the UGS Dashboard and `TestConstants.AdminToken` must
+match that value.
 
 ---
 
-## Step 1 — Seed the Admin Allowlist
+## Step 1 — Configure the Admin Service Token
 
-The `mailbox_admin_allowlist` is a **Custom Data** key (project-wide scope).
-It is NOT a player-private key — it lives in the default Cloud Save custom collection.
+The admin gate is now **token-based**, not allowlist-based. There is no Cloud Save
+setup required. Instead, configure an environment variable in the UGS Dashboard
+for the Cloud Code module.
 
 ### Via UGS Dashboard (required before first run)
 
 1. Open the [Unity Gaming Services Dashboard](https://dashboard.unity3d.com).
-2. Navigate to your project > **Cloud Save** > **Custom Data**.
-3. Find or create the key: `mailbox_admin_allowlist`.
-4. Set the value to the following JSON (replace `<admin-player-id>` with the actual UGS PlayerId):
+2. Navigate to your project > **Cloud Code** > **Modules** > **BackpackAdventuresModule**.
+3. Under **Environment Variables** (or **Secrets**), add:
 
-```json
-{
-  "version": 1,
-  "playerIds": [
-    "player_admin_test_001"
-  ]
-}
+```
+Name:  ADMIN_SERVICE_TOKEN
+Value: test-admin-token-staging
 ```
 
-The value `player_admin_test_001` matches `TestConstants.AdminPlayerId` in
+The value `test-admin-token-staging` matches `TestConstants.AdminToken` in
 `Assets/UnityCloudCode/UnityClient/Tests/EditMode/TestConstants.cs`.
 
-If the test suite is run with a different UGS PlayerId (e.g., the
-PlayerId assigned by Unity's anonymous sign-in for a real device),
-update both `TestConstants.AdminPlayerId` and the Dashboard value accordingly.
+For production deployments, replace this with a strong random secret and update
+`TestConstants.AdminToken` (or set it via a CI/CD environment variable) accordingly.
 
-> **Fail-closed behaviour:** If the key is absent or the test PlayerId is
-> not in the list, all admin calls return `Unauthorized (NotAdmin)`.
-> This is intentional per §5.3. Admin positive tests will fail until
-> the allowlist is seeded.
+> **Fail-closed behaviour:** If `ADMIN_SERVICE_TOKEN` is absent or the token is
+> empty/wrong, all admin calls return `Unauthorized`. This is intentional per §5.3.
+> Admin positive tests will fail until the env var is configured.
+
+### How the gate works
+
+`AdminAuth.RequireAdminToolAsync` reads `ADMIN_SERVICE_TOKEN` from the server
+environment at call time. It compares the value to the `adminToken` field in
+the request body using `CryptographicOperations.FixedTimeEquals` (constant-time
+comparison) to prevent timing attacks. The token is never logged.
 
 ---
 
@@ -60,8 +62,8 @@ test harness) and verify the recipient's `GetUserMails` contains the expected ma
 Run the suites in this order to avoid state interference:
 
 1. `MailboxApiPositiveTests` — seeds and validates happy paths
-2. `MailboxApiNegativeTests` — validates error handling
-3. `MailboxApiConcurrencyTests` — fires concurrent calls (admin + regular player)
+2. `MailboxApiNegativeTests` — validates error handling (N01/N02/N15 use invalid tokens)
+3. `MailboxApiConcurrencyTests` — fires concurrent calls
 4. `MailboxApiReliabilityTests` — shape/boundary tests (explicit eviction tests skipped)
 
 Do NOT run `[Explicit]` tests (`R04`, `R05`, `R07`) against production or shared
@@ -78,8 +80,9 @@ stale mails from the run. To reset:
 2. Search for the test player by PlayerId.
 3. Delete the `mailbox_user_items` key to reset the mailbox to empty.
 
-Alternatively, call `PurgeExpired` from the Editor window, then manually
-delete user mails via the `DeleteMail` endpoint for any remaining notifications.
+Alternatively, call `PurgeExpired` from the Editor window (with a valid Admin Token
+entered in the Admin Credentials section), then manually delete user mails via the
+`DeleteMail` endpoint for any remaining notifications.
 
 ---
 

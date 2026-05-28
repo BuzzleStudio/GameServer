@@ -1,10 +1,6 @@
 // MailboxTestHarness.cs
 // Shared setup, sign-in helpers, and cleanup utilities for mailbox test classes.
 // All methods are static async Tasks — no MonoBehaviour, no coroutines.
-//
-// IMPORTANT: EnsureAdminAsync() requires the admin player ID to be present in the
-// mailbox_admin_allowlist Cloud Save custom key. See Assets/UnityCloudCode/docs/TEST_SETUP.md
-// for the manual seeding step that must be completed before admin-gated tests run.
 
 using System;
 using System.Collections.Generic;
@@ -47,28 +43,13 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
 
         /// <summary>
-        /// Signs in as the designated admin test player and verifies UGS is initialised.
-        ///
-        /// PREREQUISITE (manual seed step — see TEST_SETUP.md):
-        ///   The player ID <c>TestConstants.AdminPlayerId</c> must already exist in the
-        ///   mailbox_admin_allowlist Cloud Save custom key on the UGS Dashboard.
-        ///   There is no Unity client SDK surface to programmatically modify the allowlist.
-        ///
-        /// If the allowlist has not been seeded, all admin-gated calls will return
-        /// Unauthorized(NotAdmin) — which is correct fail-closed behaviour per §5.3,
-        /// but will cause admin positive tests (P01, P02, P03, P13, P15) to fail.
+        /// Ensures Unity Services is initialised and the test player is signed in.
+        /// Admin-gated tests no longer require a specific playerId in an allowlist —
+        /// they pass TestConstants.AdminToken directly in the request body.
         /// </summary>
         public static async Task EnsureAdminAsync()
         {
             await EnsureSignedInAsync();
-
-            string playerId = AuthenticationService.Instance.PlayerId;
-            if (string.IsNullOrEmpty(playerId))
-                Assert.Fail("[MailboxTestHarness] EnsureAdminAsync: PlayerId is null after sign-in.");
-
-            // NOTE: If admin tests fail with Unauthorized(NotAdmin), ensure
-            // TestConstants.AdminPlayerId is in mailbox_admin_allowlist on the UGS Dashboard.
-            // This runner cannot programmatically add players to the allowlist.
         }
 
         // -----------------------------------------------------------------------
@@ -195,7 +176,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         {
             try
             {
-                await BackpackCloudCodeService.CallPurgeExpiredAsync();
+                await BackpackCloudCodeService.CallPurgeExpiredAsync(TestConstants.AdminToken, TestConstants.OperatorId);
             }
             catch (Exception ex)
             {

@@ -87,6 +87,8 @@ namespace BackpackAdventures.CloudCode.Client
         public string senderName;                 // optional human-readable sender, e.g. "GM_Ninh"
         public string dedupKey;                   // optional idempotency key
         public List<MailAttachment> attachments;  // nullable
+        public string adminToken;
+        public string operatorId;
     }
 
     [Serializable]
@@ -113,6 +115,8 @@ namespace BackpackAdventures.CloudCode.Client
         public string senderName;
         public string dedupKey;
         public List<MailAttachment> attachments;
+        public string adminToken;
+        public string operatorId;
     }
 
     [Serializable]
@@ -257,6 +261,8 @@ namespace BackpackAdventures.CloudCode.Client
     public class ExpireMailRequest
     {
         public string mailId;
+        public string adminToken;
+        public string operatorId;
     }
 
     [Serializable]
@@ -276,13 +282,10 @@ namespace BackpackAdventures.CloudCode.Client
         public string purgedAt;
     }
 
-    // --- Admin allowlist (read-only display, §5.1) ---
-
     [Serializable]
-    public class AdminAllowlistResponse
+    public class PurgeExpiredRequest
     {
-        public bool success;
-        public int version;
-        public List<string> playerIds;
+        public string adminToken;
+        public string operatorId;
     }
 }

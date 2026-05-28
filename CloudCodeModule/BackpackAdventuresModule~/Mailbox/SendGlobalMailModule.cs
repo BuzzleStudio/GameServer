@@ -29,10 +29,9 @@ public class SendGlobalMailModule
     [CloudCodeFunction("SendGlobalMail")]
     public async Task<SendGlobalMailResponse> SendGlobalMailAsync(SendGlobalMailRequest request)
     {
-        var callerId = _context.PlayerId ?? string.Empty;
-        _logger.LogInformation("SendGlobalMail called by {PlayerId}", callerId);
+        _logger.LogInformation("SendGlobalMail called by operatorId={OperatorId}", request.OperatorId);
 
-        await AdminAuth.RequireAdminAsync(_gameApiClient, _context, callerId, _logger);
+        AdminAuth.RequireAdminToolAsync(request.AdminToken, request.OperatorId, _logger);
 
         ValidateRequest(request.Subject, request.Body, request.Attachments);
 
@@ -139,7 +138,7 @@ public class SendGlobalMailModule
             }
         }
 
-        _logger.LogInformation("Global mail {MailId} stored by admin {PlayerId}", mailId, callerId);
+        _logger.LogInformation("Global mail {MailId} stored by admin {OperatorId}", mailId, request.OperatorId);
         return new SendGlobalMailResponse { Success = true, GlobalMailId = mailId, SentAt = sentAt };
     }
 

@@ -1,86 +1,80 @@
 using System;
-using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Logging;
-using Unity.Services.CloudCode.Apis;
-using Unity.Services.CloudCode.Core;
 
 namespace BackpackAdventures.CloudCode;
 
 /// <summary>
-/// Verifies whether a player ID is in the admin allowlist.
+/// Token-based admin authentication for Cloud Code module endpoints.
 ///
-/// Storage strategy: hybrid.
-///   1. Compile-time hardcoded set (always-honoured, no UGS Dashboard step needed).
-///   2. Optional Cloud Save custom-data override (mailbox_admin_allowlist) for ops
-///      to add/remove admins without a code deploy. Read is best-effort — Cloud Save
-///      404 (e.g. access class not configured in the project) is treated as "no
-///      override; use hardcoded list only".
+/// Strategy: shared-secret comparison using a constant-time byte comparison to
+/// prevent timing attacks. The token value must be set as ADMIN_SERVICE_TOKEN
+/// in the UGS Dashboard Cloud Code module environment variables. There is no
+/// fallback — if the env var is absent the gate is closed.
 ///
-/// Why hybrid: the Cloud Save Custom Data feature requires an Access Class to be
-/// manually defined in the UGS Dashboard (the "default" class is NOT auto-created),
-/// which produces HTTP 404 with error code 54 if the project hasn't set one up.
-/// Hardcoding the bootstrap admin guarantees the gate works out-of-the-box without
-/// blocking on Dashboard configuration.
+/// Call <see cref="RequireAdminToolAsync"/> at the top of every admin endpoint.
+/// It throws <see cref="UnauthorizedAccessException"/>(<see cref="MailboxError.Unauthorized"/>)
+/// on any failure condition. The method is synchronous — no Cloud Save I/O required.
 ///
 /// Static helper — Cloud Code's DI only auto-provides IExecutionContext +
 /// IGameApiClient to module classes, NOT to custom registered services.
 /// </summary>
 public static class AdminAuth
 {
-    // Compile-time admin allowlist. Add player IDs here for new permanent admins.
-    // Operations can additionally promote via Cloud Save custom data when configured.
-    private static readonly System.Collections.Generic.HashSet<string> HardcodedAdmins
-        = new System.Collections.Generic.HashSet<string>
-        {
-            "7gSw1RxzqY6iSCQe99L9tQFFj6Kd", // bootstrap admin — primary dev/test account
-        };
-
-    /// <summary>Returns true when <paramref name="playerId"/> is in the admin allowlist.</summary>
-    public static async Task<bool> IsAdminAsync(
-        IGameApiClient gameApiClient,
-        IExecutionContext context,
-        string playerId,
-        ILogger logger)
-    {
-        if (string.IsNullOrEmpty(playerId)) return false;
-
-        if (HardcodedAdmins.Contains(playerId))
-            return true;
-
-        // Best-effort Cloud Save override (lets ops promote without a code deploy).
-        // Any failure here is treated as "no override available" — the hardcoded
-        // set is the authoritative source.
-        try
-        {
-            var allowlist = await CloudSaveHelper.GetCustomDataAsync<AdminAllowlist>(
-                gameApiClient, context, MailboxConstants.KeyAdminAllowlist);
-
-            if (allowlist?.PlayerIds != null && allowlist.PlayerIds.Contains(playerId))
-                return true;
-        }
-        catch (System.Exception ex)
-        {
-            logger.LogInformation("Cloud Save allowlist read skipped ({Message}); using hardcoded admins only.", ex.Message);
-        }
-
-        logger.LogWarning("Player {PlayerId} is NOT admin (not in hardcoded set or Cloud Save override).", playerId);
-        return false;
-    }
-
     /// <summary>
+    /// Synchronous token-based admin gate. Reads the expected token from the
+    /// <c>ADMIN_SERVICE_TOKEN</c> environment variable and compares it to
+    /// <paramref name="adminToken"/> using a constant-time byte comparison to
+    /// prevent timing attacks.
+    ///
     /// Throws <see cref="UnauthorizedAccessException"/>(<see cref="MailboxError.Unauthorized"/>)
-    /// when the caller is not in the allowlist. Call at the top of every admin endpoint.
+    /// when:
+    ///   - <c>ADMIN_SERVICE_TOKEN</c> env var is null or empty (fail-closed)
+    ///   - <paramref name="adminToken"/> is null or empty
+    ///   - <paramref name="operatorId"/> is null or whitespace
+    ///   - token comparison fails
+    ///
+    /// SECURITY: The token value is NEVER logged. Only <paramref name="operatorId"/> is
+    /// written to the audit log.
     /// </summary>
-    public static async Task RequireAdminAsync(
-        IGameApiClient gameApiClient,
-        IExecutionContext context,
-        string playerId,
-        ILogger logger)
+    /// <param name="adminToken">Token supplied by the caller in the request body.</param>
+    /// <param name="operatorId">Operator identifier for audit logging (e.g. email address).</param>
+    /// <param name="logger">Logger for audit and rejection events.</param>
+    public static void RequireAdminToolAsync(string adminToken, string operatorId, ILogger logger)
     {
-        if (!await IsAdminAsync(gameApiClient, context, playerId, logger))
+        // Reject if operatorId is missing — required for audit log integrity.
+        if (string.IsNullOrWhiteSpace(operatorId))
         {
-            logger.LogWarning("Unauthorized admin call attempt by player {PlayerId}", playerId);
+            logger.LogWarning("Admin call rejected: operatorId is null or whitespace.");
             throw new UnauthorizedAccessException(MailboxError.Unauthorized);
         }
+
+        // Reject if caller did not supply a token.
+        if (string.IsNullOrEmpty(adminToken))
+        {
+            logger.LogWarning("Admin call rejected: adminToken missing (operatorId={OperatorId}).", operatorId);
+            throw new UnauthorizedAccessException(MailboxError.Unauthorized);
+        }
+
+        // Fail-closed: if the env var is not configured, reject all admin calls.
+        string expected = System.Environment.GetEnvironmentVariable("ADMIN_SERVICE_TOKEN");
+        if (string.IsNullOrEmpty(expected))
+        {
+            logger.LogWarning("Admin call rejected: ADMIN_SERVICE_TOKEN env var not configured (operatorId={OperatorId}).", operatorId);
+            throw new UnauthorizedAccessException(MailboxError.Unauthorized);
+        }
+
+        // Constant-time comparison on UTF-8 byte representations to prevent timing attacks.
+        byte[] expectedBytes = Encoding.UTF8.GetBytes(expected);
+        byte[] actualBytes   = Encoding.UTF8.GetBytes(adminToken);
+
+        if (!CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
+        {
+            logger.LogWarning("Admin call rejected: invalid token (operatorId={OperatorId}).", operatorId);
+            throw new UnauthorizedAccessException(MailboxError.Unauthorized);
+        }
+
+        logger.LogInformation("Admin call authorised for operatorId={OperatorId}.", operatorId);
     }
 }
