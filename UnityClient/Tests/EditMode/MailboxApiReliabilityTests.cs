@@ -154,7 +154,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 var s = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                     targetPlayerId: selfId,
                     subject: $"R04 Claimed {i}",
-                    body: "R04 eviction seed — claimed");
+                    body: "R04 eviction seed — claimed",
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
                 if (!s.success)
                     Assert.Fail($"R04: seeding claimed mail {i} failed");
             }
@@ -168,7 +170,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     subject: $"R04 Unclaimed Reward {i}",
                     body: "R04 unclaimed reward — MUST NOT be evicted",
                     expiresAt: MailboxTestHarness.FutureExpiry(),
-                    attachments: MailboxTestHarness.MakeCurrencyAttachment(100));
+                    attachments: MailboxTestHarness.MakeCurrencyAttachment(100),
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
                 if (!s.success) Assert.Fail($"R04: seeding unclaimed reward {i} failed");
                 unclaimedIds.Add(s.mailId);
             }
@@ -177,7 +181,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var insertResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 targetPlayerId: selfId,
                 subject: "R04 Trigger Eviction",
-                body: "R04 this insert should trigger eviction policy");
+                body: "R04 this insert should trigger eviction policy",
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
 
             Assert.IsTrue(insertResp.success,
                 "R04: insert at softCap must succeed (eviction should make room)");
@@ -224,7 +230,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     subject: $"R05 Hard Cap Mail {i}",
                     body: "R05 hard cap seed",
                     expiresAt: MailboxTestHarness.FutureExpiry(),
-                    attachments: MailboxTestHarness.MakeCurrencyAttachment(1));
+                    attachments: MailboxTestHarness.MakeCurrencyAttachment(1),
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
                 if (!s.success) Assert.Fail($"R05: seeding hard-cap mail {i} failed");
             }
 
@@ -237,7 +245,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 var overflowResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                     targetPlayerId: selfId,
                     subject: "R05 Over Hard Cap",
-                    body: "R05 this insert must fail");
+                    body: "R05 this insert must fail",
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
 
                 Assert.Fail(
                     $"R05: Expected MailboxFull error but got success={overflowResp?.success}. " +
@@ -311,7 +321,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     subject: $"R07 Cache Fill {i}",
                     body: "R07 idem cache fill",
                     expiresAt: MailboxTestHarness.FutureExpiry(),
-                    attachments: MailboxTestHarness.MakeCurrencyAttachment(1));
+                    attachments: MailboxTestHarness.MakeCurrencyAttachment(1),
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
                 if (!s.success) Assert.Fail($"R07: seeding mail {i} failed");
 
                 string requestId = $"r07-request-{i:D5}";
@@ -324,7 +336,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "R07 Cache Overflow",
                 body: "R07 this triggers cache prune",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(1));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(1),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(newMail.success, "R07: overflow mail seed failed");
 
             string overflowRequestId = "r07-overflow-request";
@@ -358,7 +372,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 targetPlayerId: selfId,
                 subject: "R08 WriteLock Test",
-                body: "R08 single mark read");
+                body: "R08 single mark read",
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "R08: pre-condition send failed");
 
             var markResp = await BackpackCloudCodeService.CallMarkMailReadAsync(

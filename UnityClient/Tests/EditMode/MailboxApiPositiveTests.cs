@@ -9,7 +9,7 @@
 //   - Assertion
 //
 // These are integration tests: they require a live UGS backend connection and
-// a player account in the mailbox_admin_allowlist.
+// the ADMIN_SERVICE_TOKEN env var configured on the UGS Dashboard.
 // See Assets/UnityCloudCode/docs/TEST_SETUP.md before running.
 
 using System;
@@ -55,7 +55,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             // Steps
             var resp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 subject: TestConstants.DefaultSubject,
-                body: TestConstants.DefaultBody);
+                body: TestConstants.DefaultBody,
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
 
             // Expected result: success=true, mail ID non-empty, sentAt valid UTC
             Assert.IsNotNull(resp, "P01: response must not be null");
@@ -91,7 +93,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 body: "Here is your P02 reward.",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
                 mailCategory: "Compensation",
-                attachments: attachments);
+                attachments: attachments,
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
 
             Assert.IsNotNull(resp, "P02: response must not be null");
             Assert.IsTrue(resp.success, "P02: success must be true");
@@ -127,7 +131,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 targetPlayerId: selfId,
                 subject: "P03 User Mail",
                 body: "P03 test body.",
-                mailCategory: "System");
+                mailCategory: "System",
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
 
             Assert.IsNotNull(resp, "P03: response must not be null");
             Assert.IsTrue(resp.success, "P03: success must be true");
@@ -160,7 +166,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 var sendResp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                     subject: $"P04 Global Mail {i}",
                     body: $"P04 body {i}",
-                    expiresAt: MailboxTestHarness.FutureExpiry());
+                    expiresAt: MailboxTestHarness.FutureExpiry(),
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
                 Assert.IsTrue(sendResp.success, $"P04: pre-condition seed mail {i} failed");
             }
 
@@ -195,7 +203,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                     targetPlayerId: selfId,
                     subject: $"P05 User Mail {i}",
-                    body: $"P05 body {i}");
+                    body: $"P05 body {i}",
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
                 Assert.IsTrue(sendResp.success, $"P05: pre-condition seed mail {i} failed");
             }
 
@@ -224,7 +234,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var expiredResp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 subject: "P06 Expired Mail",
                 body: "P06 expired body",
-                expiresAt: MailboxTestHarness.PastExpiry());
+                expiresAt: MailboxTestHarness.PastExpiry(),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(expiredResp.success, "P06: pre-condition expired send failed");
             string expiredId = expiredResp.globalMailId ?? expiredResp.mailId;
 
@@ -232,7 +244,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var activeResp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 subject: "P06 Active Mail",
                 body: "P06 active body",
-                expiresAt: MailboxTestHarness.FutureExpiry());
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(activeResp.success, "P06: pre-condition active send failed");
             string activeId = activeResp.globalMailId ?? activeResp.mailId;
 
@@ -266,7 +280,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 targetPlayerId: selfId,
                 subject: "P07 Read Me",
-                body: "P07 mark read test");
+                body: "P07 mark read test",
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "P07: pre-condition send failed");
             string mailId = sendResp.mailId;
 
@@ -299,7 +315,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             for (int i = 1; i <= 2; i++)
             {
                 var s = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
-                    targetPlayerId: selfId, subject: $"P08 Mail {i}", body: "P08 body");
+                    targetPlayerId: selfId, subject: $"P08 Mail {i}", body: "P08 body",
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
                 Assert.IsTrue(s.success, $"P08: pre-condition seed {i} failed");
             }
 
@@ -328,7 +346,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "P09 Global Reward",
                 body: "P09 claim this",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(100));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(100),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "P09: pre-condition send failed");
             string mailId = sendResp.globalMailId ?? sendResp.mailId;
 
@@ -365,7 +385,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "P10 User Reward",
                 body: "P10 claim this",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(50));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(50),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "P10: pre-condition send failed");
 
             var claimResp = await BackpackCloudCodeService.CallClaimAttachmentAsync(
@@ -398,7 +420,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "P11 Idempotent",
                 body: "P11 claim twice",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(75));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(75),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "P11: pre-condition send failed");
             string mailId = sendResp.globalMailId ?? sendResp.mailId;
 
@@ -433,7 +457,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "P12 Idempotency Key",
                 body: "P12 body",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(25));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(25),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "P12: pre-condition send failed");
 
             string requestId = Guid.NewGuid().ToString();
@@ -471,7 +497,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 targetPlayerId: selfId,
                 subject: "P13 Delete Me",
-                body: "P13 deletion test — notification only");
+                body: "P13 deletion test — notification only",
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "P13: pre-condition send failed");
 
             var deleteResp = await BackpackCloudCodeService.CallDeleteMailAsync(sendResp.mailId);
@@ -535,19 +563,24 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var s1 = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 subject: "P15 Expired 1",
                 body: "P15 expired body 1",
-                expiresAt: MailboxTestHarness.PastExpiry());
+                expiresAt: MailboxTestHarness.PastExpiry(),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(s1.success, "P15: pre-condition expired seed 1 failed");
             expiredId1 = s1.globalMailId ?? s1.mailId;
 
             var s2 = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 subject: "P15 Expired 2",
                 body: "P15 expired body 2",
-                expiresAt: MailboxTestHarness.PastExpiry());
+                expiresAt: MailboxTestHarness.PastExpiry(),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(s2.success, "P15: pre-condition expired seed 2 failed");
             expiredId2 = s2.globalMailId ?? s2.mailId;
 
             // Purge
-            var purgeResp = await BackpackCloudCodeService.CallPurgeExpiredAsync();
+            var purgeResp = await BackpackCloudCodeService.CallPurgeExpiredAsync(
+                TestConstants.AdminToken, TestConstants.OperatorId);
 
             Assert.IsNotNull(purgeResp, "P15: PurgeExpired response must not be null");
             Assert.IsTrue(purgeResp.success, "P15: PurgeExpired success must be true");
@@ -582,7 +615,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "P16 DedupKey Test",
                 body: "P16 dedup body",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                dedupKey: dedupKey);
+                dedupKey: dedupKey,
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(first.success, "P16: first send must succeed");
             string firstMailId = first.globalMailId ?? first.mailId;
             Assert.IsFalse(string.IsNullOrEmpty(firstMailId), "P16: first mailId must be non-empty");
@@ -592,7 +627,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "P16 DedupKey Test",
                 body: "P16 dedup body",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                dedupKey: dedupKey);
+                dedupKey: dedupKey,
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(second.success, "P16: second send must return success=true");
             string secondMailId = second.globalMailId ?? second.mailId;
 
@@ -604,6 +641,27 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             int matchCount = getResp?.mails?.Count(m => m.mailId == firstMailId) ?? 0;
             Assert.AreEqual(1, matchCount,
                 $"P16: exactly 1 mail with id={firstMailId} must appear in the index, not {matchCount}");
+        }
+        [Test]
+        [Description("P17 — Any authenticated UGS player holding the correct adminToken can call admin endpoints. " +
+                     "Player identity (playerId) no longer determines admin access — the token alone is the gate. " +
+                     "This test signs in as an anonymous player (NOT a pre-seeded admin player) and verifies " +
+                     "that SendGlobalMail succeeds with a valid token.")]
+        public async Task P17_AnyPlayer_WithValidAdminToken_AdminOperationSucceeds()
+        {
+            // Sign in as any anonymous player — not a specific pre-seeded admin account.
+            await MailboxTestHarness.EnsureSignedInAsync();
+
+            var resp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                subject: "P17 any-player-admin-token test",
+                body: "P17 body — sent by any anonymous player holding the correct token",
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            Assert.IsTrue(resp.success,
+                "P17: Admin operation failed — token-based auth should succeed for any UGS player holding the correct token.");
+            Assert.IsFalse(string.IsNullOrEmpty(resp.mailId ?? resp.globalMailId),
+                "P17: Expected a non-empty mailId in the response.");
         }
     }
 }

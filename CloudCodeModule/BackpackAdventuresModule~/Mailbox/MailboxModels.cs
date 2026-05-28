@@ -18,9 +18,6 @@ public static class MailboxConstants
     // per-mail payload key template: string.Format(KeyGlobalMailPayloadFmt, mailId)
     public const string KeyGlobalMailPayloadFmt = "mail_global_{0}";
 
-    // Admin allowlist (custom data, project-wide)
-    public const string KeyAdminAllowlist = "mailbox_admin_allowlist";
-
     // Player-private keys
     public const string KeyGlobalState = "mailbox_global_state";
     public const string KeyUserItems   = "mailbox_user_items";
@@ -76,7 +73,7 @@ public enum MailCategory
 public enum SenderType
 {
     System, // automated Cloud Code call
-    Admin,  // admin player from allowlist
+    Admin,  // admin operator authenticated via ADMIN_SERVICE_TOKEN
     Player  // player-to-player gift sender
 }
 
@@ -214,14 +211,6 @@ public class PlayerMailboxMeta
     public string? LastGiftResetAt   { get; set; }
 }
 
-// ── Admin allowlist ────────────────────────────────────────────────────────
-
-public class AdminAllowlist
-{
-    public int          Version   { get; set; } = 1;
-    public List<string> PlayerIds { get; set; } = new();
-}
-
 // ── Idempotency cache ──────────────────────────────────────────────────────
 
 public class IdemCacheEntry
@@ -284,6 +273,8 @@ public class SendGlobalMailRequest
     [JsonPropertyName("senderName")]   public string? SenderName        { get; set; }
     [JsonPropertyName("dedupKey")]     public string? DedupKey          { get; set; }
     [JsonPropertyName("attachments")]  public List<MailAttachment>? Attachments { get; set; }
+    [JsonPropertyName("adminToken")]   public string AdminToken         { get; set; } = string.Empty;
+    [JsonPropertyName("operatorId")]   public string OperatorId         { get; set; } = string.Empty;
 }
 
 public class SendUserMailRequest
@@ -298,6 +289,8 @@ public class SendUserMailRequest
     [JsonPropertyName("senderName")]     public string? SenderName    { get; set; }
     [JsonPropertyName("dedupKey")]       public string? DedupKey      { get; set; }
     [JsonPropertyName("attachments")]    public List<MailAttachment>? Attachments { get; set; }
+    [JsonPropertyName("adminToken")]     public string AdminToken     { get; set; } = string.Empty;
+    [JsonPropertyName("operatorId")]     public string OperatorId     { get; set; } = string.Empty;
 }
 
 public class GiftMailRequest
@@ -393,6 +386,12 @@ public class PurgeExpiredResponse
     public bool Success      { get; set; }
     public int  PurgedCount  { get; set; }
     public string PurgedAt   { get; set; } = string.Empty;
+}
+
+public class PurgeExpiredRequest
+{
+    [JsonPropertyName("adminToken")]  public string AdminToken  { get; set; } = string.Empty;
+    [JsonPropertyName("operatorId")]  public string OperatorId  { get; set; } = string.Empty;
 }
 
 // ── Error codes ────────────────────────────────────────────────────────────

@@ -29,10 +29,9 @@ public class SendUserMailModule
     [CloudCodeFunction("SendUserMail")]
     public async Task<SendUserMailResponse> SendUserMailAsync(SendUserMailRequest request)
     {
-        var callerId = _context.PlayerId ?? string.Empty;
-        _logger.LogInformation("SendUserMail called by {CallerId} for target {TargetPlayerId}", callerId, request.TargetPlayerId);
+        _logger.LogInformation("SendUserMail called by operatorId={OperatorId} for target {TargetPlayerId}", request.OperatorId, request.TargetPlayerId);
 
-        await AdminAuth.RequireAdminAsync(_gameApiClient, _context, callerId, _logger);
+        AdminAuth.RequireAdminToolAsync(request.AdminToken, request.OperatorId, _logger);
 
         if (string.IsNullOrWhiteSpace(request.TargetPlayerId))
             throw new ArgumentException(MailboxError.InvalidInput);
@@ -63,7 +62,7 @@ public class SendUserMailModule
 
         await InsertMailWithRetryAsync(request.TargetPlayerId, newMail);
 
-        _logger.LogInformation("Admin user mail {MailId} sent to {TargetPlayerId}", mailId, request.TargetPlayerId);
+        _logger.LogInformation("Admin user mail {MailId} sent to {TargetPlayerId} by {OperatorId}", mailId, request.TargetPlayerId, request.OperatorId);
         return new SendUserMailResponse { Success = true, MailId = mailId, SentAt = sentAt };
     }
 

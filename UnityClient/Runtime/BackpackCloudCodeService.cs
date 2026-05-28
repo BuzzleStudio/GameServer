@@ -77,62 +77,6 @@ namespace BackpackAdventures.CloudCode.Client
             }
         }
 
-        // --- Mailbox API (legacy — kept for backward compatibility) ---
-
-        public static async Task<SendGlobalMailResponse> SendGlobalMailAsync(
-            string subject, string body, string expiresAt = null,
-            List<MailAttachment> attachments = null)
-        {
-            Debug.Log($"[CloudCode] Calling SendGlobalMail subject={subject}");
-            try
-            {
-                var request = new SendGlobalMailRequest
-                {
-                    subject = subject,
-                    body = body,
-                    expiresAt = expiresAt,
-                    attachments = attachments
-                };
-                var args = new Dictionary<string, object> { { "request", request } };
-                var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<SendGlobalMailResponse>(
-                    MODULE_NAME, "SendGlobalMail", args);
-                return await WithTimeout(callTask, "SendGlobalMail");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError("[CloudCode] SendGlobalMail failed: " + ex.Message);
-                throw;
-            }
-        }
-
-        public static async Task<SendUserMailResponse> SendUserMailAsync(
-            string userId, string subject, string body, string expiresAt = null,
-            List<MailAttachment> attachments = null)
-        {
-            Debug.Log($"[CloudCode] Calling SendUserMail userId={userId} subject={subject}");
-            try
-            {
-                var request = new SendUserMailRequest
-                {
-                    userId = userId,
-                    targetPlayerId = userId,
-                    subject = subject,
-                    body = body,
-                    expiresAt = expiresAt,
-                    attachments = attachments
-                };
-                var args = new Dictionary<string, object> { { "request", request } };
-                var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<SendUserMailResponse>(
-                    MODULE_NAME, "SendUserMail", args);
-                return await WithTimeout(callTask, "SendUserMail");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError("[CloudCode] SendUserMail failed: " + ex.Message);
-                throw;
-            }
-        }
-
         public static async Task<GetMailboxResponse> GetMailboxAsync()
         {
             Debug.Log("[CloudCode] Calling GetMailbox");
@@ -304,7 +248,9 @@ namespace BackpackAdventures.CloudCode.Client
             string mailCategory = null,
             string senderName = null,
             string dedupKey = null,
-            List<MailAttachment> attachments = null)
+            List<MailAttachment> attachments = null,
+            string adminToken = null,
+            string operatorId = null)
         {
             Debug.Log($"[CloudCode] Calling SendGlobalMail (v2) subject={subject}");
             try
@@ -317,7 +263,9 @@ namespace BackpackAdventures.CloudCode.Client
                     mailCategory = mailCategory,
                     senderName = senderName,
                     dedupKey = dedupKey,
-                    attachments = attachments
+                    attachments = attachments,
+                    adminToken = adminToken ?? string.Empty,
+                    operatorId = operatorId ?? string.Empty
                 };
                 var args = new Dictionary<string, object> { { "request", request } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<SendGlobalMailResponse>(
@@ -342,7 +290,9 @@ namespace BackpackAdventures.CloudCode.Client
             string mailCategory = null,
             string senderName = null,
             string dedupKey = null,
-            List<MailAttachment> attachments = null)
+            List<MailAttachment> attachments = null,
+            string adminToken = null,
+            string operatorId = null)
         {
             Debug.Log($"[CloudCode] Calling SendUserMail (v2) targetPlayerId={targetPlayerId} subject={subject}");
             try
@@ -357,7 +307,9 @@ namespace BackpackAdventures.CloudCode.Client
                     mailCategory = mailCategory,
                     senderName = senderName,
                     dedupKey = dedupKey,
-                    attachments = attachments
+                    attachments = attachments,
+                    adminToken = adminToken ?? string.Empty,
+                    operatorId = operatorId ?? string.Empty
                 };
                 var args = new Dictionary<string, object> { { "request", request } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<SendUserMailResponse>(
@@ -422,12 +374,20 @@ namespace BackpackAdventures.CloudCode.Client
         }
 
         /// <summary>ExpireMail — admin forces expiry of a specific mail (§5.11).</summary>
-        public static async Task<ExpireMailResponse> CallExpireMailAsync(string mailId)
+        public static async Task<ExpireMailResponse> CallExpireMailAsync(
+            string mailId,
+            string adminToken = null,
+            string operatorId = null)
         {
             Debug.Log($"[CloudCode] Calling ExpireMail mailId={mailId}");
             try
             {
-                var request = new ExpireMailRequest { mailId = mailId };
+                var request = new ExpireMailRequest
+                {
+                    mailId = mailId,
+                    adminToken = adminToken ?? string.Empty,
+                    operatorId = operatorId ?? string.Empty
+                };
                 var args = new Dictionary<string, object> { { "request", request } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<ExpireMailResponse>(
                     MODULE_NAME, "ExpireMail", args);
@@ -443,13 +403,21 @@ namespace BackpackAdventures.CloudCode.Client
         }
 
         /// <summary>PurgeExpired — admin removes all expired global mail refs (§5.9).</summary>
-        public static async Task<PurgeExpiredResponse> CallPurgeExpiredAsync()
+        public static async Task<PurgeExpiredResponse> CallPurgeExpiredAsync(
+            string adminToken = null,
+            string operatorId = null)
         {
             Debug.Log("[CloudCode] Calling PurgeExpired");
             try
             {
+                var request = new PurgeExpiredRequest
+                {
+                    adminToken = adminToken ?? string.Empty,
+                    operatorId = operatorId ?? string.Empty
+                };
+                var args = new Dictionary<string, object> { { "request", request } };
                 var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<PurgeExpiredResponse>(
-                    MODULE_NAME, "PurgeExpired", null);
+                    MODULE_NAME, "PurgeExpired", args);
                 var result = await WithTimeout(callTask, "PurgeExpired");
                 Debug.Log($"[CloudCode] PurgeExpired: success={result.success} purgedCount={result.purgedCount}");
                 return result;

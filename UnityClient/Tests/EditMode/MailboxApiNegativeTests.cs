@@ -5,8 +5,8 @@
 // (Section "Negative Tests").
 //
 // These are integration tests: they require a live UGS backend.
-// Admin-gated tests sign in as TestConstants.AdminPlayerId.
-// Non-admin / permission tests rely on the regular player NOT being in the allowlist.
+// Admin-gated tests pass TestConstants.AdminToken in the request body.
+// Non-admin / permission tests pass an invalid/empty token to trigger the rejection path.
 // See Assets/UnityCloudCode/docs/TEST_SETUP.md.
 
 using System;
@@ -46,11 +46,11 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -----------------------------------------------------------------------
 
         [Test]
-        [Description("N01 — Non-admin player calls SendGlobalMail. " +
-                     "Expected: Unauthorized (NotAdmin) error thrown.")]
+        [Description("N01 — Caller sends SendGlobalMail with an invalid token. " +
+                     "Expected: Unauthorized error thrown by the token-based admin gate.")]
         public async Task N01_SendGlobalMail_NonAdmin_Rejected()
         {
-            // Signed in as regular (non-admin) player from [SetUp]
+            // Pass an invalid token — the server's ADMIN_SERVICE_TOKEN check must reject it
             bool threwUnauthorized = false;
             Exception caught = null;
 
@@ -58,7 +58,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             {
                 var resp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                     subject: "N01 Unauthorized",
-                    body: "N01 body — must be rejected");
+                    body: "N01 body — must be rejected",
+                    adminToken: "invalid-token",
+                    operatorId: "test@invalid.test");
 
                 // If call succeeds, the admin gate is missing — test failure
                 Assert.Fail(
@@ -82,8 +84,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -----------------------------------------------------------------------
 
         [Test]
-        [Description("N02 — Non-admin player calls SendUserMail. " +
-                     "Expected: Unauthorized (NotAdmin) error thrown.")]
+        [Description("N02 — Caller sends SendUserMail with an invalid token. " +
+                     "Expected: Unauthorized error thrown by the token-based admin gate.")]
         public async Task N02_SendUserMail_NonAdmin_Rejected()
         {
             bool threwUnauthorized = false;
@@ -94,7 +96,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 var resp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                     targetPlayerId: TestConstants.TargetPlayerId,
                     subject: "N02 Unauthorized",
-                    body: "N02 body — must be rejected");
+                    body: "N02 body — must be rejected",
+                    adminToken: "invalid-token",
+                    operatorId: "test@invalid.test");
 
                 Assert.Fail(
                     $"N02: Expected Unauthorized error but got success={resp?.success}. " +
@@ -130,7 +134,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             {
                 var resp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                     subject: "",
-                    body: "N03 body");
+                    body: "N03 body",
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
 
                 Assert.Fail(
                     $"N03: Expected InvalidInput error but got success={resp?.success}. " +
@@ -166,7 +172,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             {
                 var resp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                     subject: TestConstants.SubjectOverLimit,  // 129 chars
-                    body: "N04 body");
+                    body: "N04 body",
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
 
                 Assert.Fail(
                     $"N04: Expected InvalidInput for 129-char subject but got success={resp?.success}.");
@@ -201,7 +209,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             {
                 var resp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                     subject: TestConstants.DefaultSubject,
-                    body: TestConstants.BodyOverLimit);  // 1025 chars
+                    body: TestConstants.BodyOverLimit,  // 1025 chars
+                    adminToken: TestConstants.AdminToken,
+                    operatorId: TestConstants.OperatorId);
 
                 Assert.Fail(
                     $"N05: Expected InvalidInput for 1025-char body but got success={resp?.success}.");
@@ -267,7 +277,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 targetPlayerId: selfId,
                 subject: "N07 Notification Only",
-                body: "N07 no attachment");
+                body: "N07 no attachment",
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "N07: pre-condition send failed");
 
             bool threwNoAttachment = false;
@@ -310,7 +322,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "N08 Expired Reward",
                 body: "N08 should not be claimable",
                 expiresAt: MailboxTestHarness.PastExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(10));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(10),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "N08: pre-condition expired send failed");
             string mailId = sendResp.globalMailId ?? sendResp.mailId;
 
@@ -358,7 +372,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "N09 Double Claim",
                 body: "N09 body",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(100));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(100),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "N09: pre-condition send failed");
 
             // First claim
@@ -404,7 +420,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "N10 Do Not Delete",
                 body: "N10 has unclaimed reward",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(200));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(200),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "N10: pre-condition send failed");
 
             bool threwCannotDelete = false;
@@ -444,7 +462,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             // Seed a global mail (no attachment so this test isolates the global-type rejection)
             var sendResp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 subject: "N11 Global Mail Delete Attempt",
-                body: "N11 should not be deletable via DeleteMail");
+                body: "N11 should not be deletable via DeleteMail",
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "N11: pre-condition send failed");
             string globalMailId = sendResp.globalMailId ?? sendResp.mailId;
 
@@ -605,17 +625,19 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -----------------------------------------------------------------------
 
         [Test]
-        [Description("N15 — Non-admin player calls PurgeExpired. " +
-                     "Expected: Unauthorized (NotAdmin) error.")]
+        [Description("N15 — Caller sends PurgeExpired with an invalid token. " +
+                     "Expected: Unauthorized error thrown by the token-based admin gate.")]
         public async Task N15_PurgeExpired_NonAdmin_Rejected()
         {
-            // Signed in as regular (non-admin) player from [SetUp]
+            // Pass an invalid token — the server's ADMIN_SERVICE_TOKEN check must reject it
             bool threwUnauthorized = false;
             Exception caught = null;
 
             try
             {
-                var resp = await BackpackCloudCodeService.CallPurgeExpiredAsync();
+                var resp = await BackpackCloudCodeService.CallPurgeExpiredAsync(
+                    adminToken: "invalid-token",
+                    operatorId: "test@invalid.test");
                 Assert.Fail(
                     $"N15: Expected Unauthorized error but got success={resp?.success}. " +
                     "SECURITY: Non-admin must not be able to call PurgeExpired.");
@@ -627,38 +649,96 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             }
 
             Assert.IsTrue(threwUnauthorized,
-                $"N15: Expected Unauthorized (NotAdmin) for non-admin PurgeExpired. " +
+                $"N15: Expected Unauthorized for PurgeExpired with invalid token. " +
                 $"Actual: {caught?.GetType().Name} — {caught?.Message}");
         }
 
         // -----------------------------------------------------------------------
-        // N16 — AdminAllowlist missing -> all admin calls rejected (fail-closed)
-        // Devlog row: N15 — AdminAllowlist_Missing_AllAdminCallsRejected
+        // N16 — ADMIN_SERVICE_TOKEN absent/invalid -> all admin calls rejected (fail-closed)
+        // Devlog row: N15 — AdminToken_Invalid_AllAdminCallsRejected
         // -----------------------------------------------------------------------
 
         [Test]
-        [Description("N16 — When mailbox_admin_allowlist key is absent, all admin " +
-                     "calls must return Unauthorized per §5.3 fail-closed behaviour. " +
-                     "This test is validated by observing N01/N02/N15 pass — those tests " +
-                     "use a regular player who is NOT in the allowlist, which exercises " +
-                     "the same fail-closed path as a missing allowlist key. " +
-                     "Documented as a static-analysis test: no backend state change required.")]
-        public void N16_AdminAllowlist_Missing_AllAdminCallsRejected_StaticValidation()
+        [Description("N17 — Empty adminToken must be rejected by SendGlobalMail, SendUserMail, and PurgeExpired. " +
+                     "Validates fail-closed behaviour: missing token = Unauthorized per §5.3.")]
+        public async Task N17_AdminEndpoints_EmptyToken_Rejected()
         {
-            // The fail-closed behaviour is exercised by N01, N02, N15 which use a player
-            // not in the allowlist. The code-path for "allowlist key absent" is identical
-            // to "player not in allowlist" because the IsAdmin gate returns false for both.
+            await MailboxTestHarness.EnsureSignedInAsync();
+            bool allRejected = true;
+            string failures = string.Empty;
+
+            try
+            {
+                await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                    "N17 empty-token global", "N17 body",
+                    adminToken: string.Empty, operatorId: TestConstants.OperatorId);
+                allRejected = false; failures += "SendGlobalMail accepted empty token; ";
+            }
+            catch (Exception ex) when (MailboxTestHarness.IsUnauthorizedError(ex)) { }
+
+            try
+            {
+                await BackpackCloudCodeService.CallAdminSendUserMailAsync(
+                    TestConstants.TargetPlayerId, "N17 empty-token user", "N17 body",
+                    adminToken: string.Empty, operatorId: TestConstants.OperatorId);
+                allRejected = false; failures += "SendUserMail accepted empty token; ";
+            }
+            catch (Exception ex) when (MailboxTestHarness.IsUnauthorizedError(ex)) { }
+
+            try
+            {
+                await BackpackCloudCodeService.CallPurgeExpiredAsync(
+                    adminToken: string.Empty, operatorId: TestConstants.OperatorId);
+                allRejected = false; failures += "PurgeExpired accepted empty token; ";
+            }
+            catch (Exception ex) when (MailboxTestHarness.IsUnauthorizedError(ex)) { }
+
+            Assert.IsTrue(allRejected,
+                $"N17: One or more admin endpoints accepted an empty adminToken: {failures}");
+        }
+
+        [Test]
+        [Description("N18 — Empty operatorId must be rejected. " +
+                     "Validates that audit accountability (operatorId required) is enforced per §5.3.")]
+        public async Task N18_AdminEndpoints_EmptyOperatorId_Rejected()
+        {
+            await MailboxTestHarness.EnsureSignedInAsync();
+
+            try
+            {
+                await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                    "N18 empty-operatorId global", "N18 body",
+                    adminToken: TestConstants.AdminToken, operatorId: string.Empty);
+                Assert.Fail("N18: SendGlobalMail accepted empty operatorId — audit gate missing.");
+            }
+            catch (Exception ex)
+            {
+                Assert.IsTrue(MailboxTestHarness.IsUnauthorizedError(ex),
+                    $"N18: Expected Unauthorized error but got: {ex.Message}");
+            }
+        }
+
+        [Test]
+        [Description("N16 — When ADMIN_SERVICE_TOKEN env var is absent or the token is invalid, " +
+                     "all admin calls must return Unauthorized per §5.3 fail-closed behaviour. " +
+                     "This test is validated by observing N01/N02/N15 pass — those tests " +
+                     "pass an invalid token which exercises the same fail-closed path as a " +
+                     "missing env var. Documented as a static-analysis test: no backend state change required.")]
+        public void N16_AdminToken_Invalid_AllAdminCallsRejected_StaticValidation()
+        {
+            // The fail-closed behaviour is exercised by N01, N02, N15 which pass an
+            // invalid token ("invalid-token"). The code-path for "env var absent" is
+            // identical to "token mismatch" — both throw Unauthorized before any comparison.
             //
-            // Architectural reference: Devlog §5.3
-            //   allowlist = GetCustomDataAsync("mailbox_admin_allowlist")
-            //   if allowlist == null || !allowlist.PlayerIds.Contains(ctx.PlayerId):
-            //       throw Unauthorized("NotAdmin")
+            // Architectural reference: AdminAuth.RequireAdminToolAsync
+            //   if (string.IsNullOrEmpty(expected)) -> throw Unauthorized
+            //   if (!CryptographicOperations.FixedTimeEquals(expected, actual)) -> throw Unauthorized
             //
             // This test acts as a documentation assertion. If the gate logic changes,
             // this test must be updated and N01/N02/N15 re-run.
             Assert.Pass(
-                "N16: Fail-closed behaviour (absent allowlist = Unauthorized) is verified " +
-                "structurally by N01, N02, and N15 using a non-allowlisted player. " +
+                "N16: Fail-closed behaviour (missing/invalid token = Unauthorized) is verified " +
+                "structurally by N01, N02, and N15 using an invalid token. " +
                 "No separate backend seeding required for this test.");
         }
     }

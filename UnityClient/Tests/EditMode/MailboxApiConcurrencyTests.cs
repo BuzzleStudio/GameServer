@@ -9,7 +9,7 @@
 //
 // REQUIREMENTS:
 //   - Live UGS backend.
-//   - Admin player in mailbox_admin_allowlist (see TEST_SETUP.md).
+//   - ADMIN_SERVICE_TOKEN env var configured on the UGS Dashboard (see TEST_SETUP.md).
 //   - Concurrency tests must be run individually or in a dedicated suite pass
 //     to avoid cross-test state interference.
 //
@@ -65,7 +65,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "C01 Race Condition",
                 body: "C01 concurrency test",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(999));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(999),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "C01: pre-condition send failed");
             string mailId = sendResp.mailId;
 
@@ -120,11 +122,15 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var t1 = BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 subject: "C02 Concurrent Global 1",
                 body: "C02 body 1",
-                expiresAt: MailboxTestHarness.FutureExpiry());
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             var t2 = BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 subject: "C02 Concurrent Global 2",
                 body: "C02 body 2",
-                expiresAt: MailboxTestHarness.FutureExpiry());
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
 
             SendGlobalMailResponse r1 = null, r2 = null;
             Exception ex1 = null, ex2 = null;
@@ -181,7 +187,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "C03 Idempotency Concurrent",
                 body: "C03 body",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(50));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(50),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "C03: pre-condition send failed");
 
             string requestId = Guid.NewGuid().ToString();
@@ -233,7 +241,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "C04 Mail A",
                 body: "C04 mail A body",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(10));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(10),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(send1.success, "C04: pre-condition send A failed");
 
             var send2 = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -241,7 +251,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 subject: "C04 Mail B",
                 body: "C04 mail B body",
                 expiresAt: MailboxTestHarness.FutureExpiry(),
-                attachments: MailboxTestHarness.MakeCurrencyAttachment(20));
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(20),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(send2.success, "C04: pre-condition send B failed");
 
             // Claim both simultaneously
@@ -285,7 +297,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 targetPlayerId: selfId,
                 subject: "C05 Concurrent Read",
-                body: "C05 mark read concurrently");
+                body: "C05 mark read concurrently",
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
             Assert.IsTrue(sendResp.success, "C05: pre-condition send failed");
 
             // Fire two MarkMailRead simultaneously

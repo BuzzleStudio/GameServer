@@ -29,12 +29,11 @@ public class PurgeExpiredModule
     }
 
     [CloudCodeFunction("PurgeExpired")]
-    public async Task<PurgeExpiredResponse> PurgeExpiredAsync()
+    public async Task<PurgeExpiredResponse> PurgeExpiredAsync(PurgeExpiredRequest request)
     {
-        var callerId = _context.PlayerId ?? string.Empty;
-        _logger.LogInformation("PurgeExpired called by {PlayerId}", callerId);
+        _logger.LogInformation("PurgeExpired called by operatorId={OperatorId}", request.OperatorId);
 
-        await AdminAuth.RequireAdminAsync(_gameApiClient, _context, callerId, _logger);
+        AdminAuth.RequireAdminToolAsync(request.AdminToken, request.OperatorId, _logger);
 
         var (index, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailIndexV2>(
             _gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
@@ -91,7 +90,7 @@ public class PurgeExpiredModule
             _logger.LogWarning(ex, "PurgeExpired: some payload key deletions failed (non-fatal — refs already removed from index)");
         }
 
-        _logger.LogInformation("PurgeExpired: removed {Count} expired refs by admin {PlayerId}", expiredRefs.Count, callerId);
+        _logger.LogInformation("PurgeExpired: removed {Count} expired refs by operatorId={OperatorId}", expiredRefs.Count, request.OperatorId);
         return new PurgeExpiredResponse
         {
             Success     = true,

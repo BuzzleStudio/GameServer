@@ -1,7 +1,7 @@
 // TestConstants.cs
 // Test player IDs and shared constants for mailbox test suites.
-// AdminPlayerId must be present in the mailbox_admin_allowlist Cloud Save custom key
-// before admin-gated tests can pass. See Assets/UnityCloudCode/docs/TEST_SETUP.md.
+// Admin-gated tests pass TestConstants.AdminToken directly in the request body.
+// See Assets/UnityCloudCode/docs/TEST_SETUP.md.
 
 namespace BackpackAdventures.CloudCode.Client.Tests
 {
@@ -12,20 +12,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -------------------------------------------------------------------
 
         /// <summary>
-        /// A player that has been added to the mailbox_admin_allowlist Cloud Save key.
-        /// Admin-gated tests (SendGlobalMail, SendUserMail, PurgeExpired) sign in
-        /// as this player. Must be seeded manually — see TEST_SETUP.md.
-        ///
-        /// Set to the real allowlisted production player ID (post-PR-merge).
-        /// The Unity Editor's cached anonymous credentials must resolve to this
-        /// player ID for admin tests to succeed; otherwise tests will fail with
-        /// "Unauthorized" by design.
-        /// </summary>
-        public const string AdminPlayerId = "7gSw1RxzqY6iSCQe99L9tQFFj6Kd";
-
-        /// <summary>
         /// A regular (non-admin) player used for negative/permission tests.
-        /// Must NOT be in the mailbox_admin_allowlist.
+        /// Must NOT have a valid admin token for admin tests to be meaningful.
         /// </summary>
         public const string RegularPlayerId = "player_regular_test_002";
 
@@ -33,6 +21,19 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         /// A second regular player used as a gift/mail target in send tests.
         /// </summary>
         public const string TargetPlayerId = "player_target_test_003";
+
+        // -------------------------------------------------------------------
+        // Admin credentials
+        // -------------------------------------------------------------------
+
+        /// <summary>
+        /// Admin service token matching ADMIN_SERVICE_TOKEN env var on UGS staging.
+        /// Must match what is configured in the UGS Dashboard Cloud Code module secrets.
+        /// </summary>
+        public const string AdminToken = "test-admin-token-staging";
+
+        /// <summary>Operator ID used for admin audit logging in tests.</summary>
+        public const string OperatorId = "tester@backpackadventures.test";
 
         // -------------------------------------------------------------------
         // Mail content fixtures
@@ -90,7 +91,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // Cloud Save key names (read-only reference for test harness)
         // -------------------------------------------------------------------
 
-        public const string KeyAdminAllowlist = "mailbox_admin_allowlist";
         public const string KeyUserItems = "mailbox_user_items";
         public const string KeyGlobalState = "mailbox_global_state";
         public const string KeyGlobalIndexV2 = "global_mail_index_v2";
