@@ -57,10 +57,17 @@ internal static class CloudSaveHelper
     internal static async Task<T?> GetCustomDataAsync<T>(
         IGameApiClient client, IExecutionContext ctx, string key)
     {
+        // Diagnostic null checks — surface a clear message instead of a bare NRE.
+        if (client == null)              throw new InvalidOperationException("CloudSaveHelper: client is null");
+        if (client.CloudSaveData == null) throw new InvalidOperationException("CloudSaveHelper: client.CloudSaveData is null (Cloud Save SDK surface unavailable)");
+        if (ctx == null)                 throw new InvalidOperationException("CloudSaveHelper: ctx is null");
+        if (ctx.AccessToken == null)     throw new InvalidOperationException("CloudSaveHelper: ctx.AccessToken is null");
+        if (ctx.ProjectId == null)       throw new InvalidOperationException("CloudSaveHelper: ctx.ProjectId is null");
+
         var response = await client.CloudSaveData.GetCustomItemsAsync(
             ctx, ctx.AccessToken, ctx.ProjectId, GlobalCustomId,
             new List<string> { key }, after: null);
-        if (response.Data.Results.Count == 0) return default;
+        if (response?.Data?.Results == null || response.Data.Results.Count == 0) return default;
         var raw = response.Data.Results[0].Value?.ToString();
         return string.IsNullOrEmpty(raw) ? default : JsonSerializer.Deserialize<T>(raw);
     }
