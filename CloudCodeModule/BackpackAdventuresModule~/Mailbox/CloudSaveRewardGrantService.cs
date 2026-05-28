@@ -1,9 +1,8 @@
-// TODO(economy-sdk): replace CloudSaveRewardGrantService with EconomyRewardGrantService
-// and wire IRewardGrantService in DI once Com.Unity.Services.Economy is added to BackpackAdventuresModule.csproj.
+// TODO(economy-sdk): replace this static helper with an EconomyRewardGrant call
+// once Com.Unity.Services.Economy is added to BackpackAdventuresModule.csproj.
 
 using System;
 using System.Collections.Generic;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -14,41 +13,31 @@ namespace BackpackAdventures.CloudCode;
 /// <summary>
 /// Placeholder reward-grant implementation backed by Cloud Save player data (key: player_wallet).
 /// Increments currency and item counts in the wallet document.
-/// This is a seam — swap for a real Economy SDK call when the package is available.
+/// Static helper — Cloud Code's DI does not auto-provide IExecutionContext/IGameApiClient
+/// to registered services; module classes pass them as method args instead.
 /// </summary>
-public sealed class CloudSaveRewardGrantService : IRewardGrantService
+public static class RewardGrant
 {
-    private readonly IGameApiClient _gameApiClient;
-    private readonly IExecutionContext _context;
-    private readonly ILogger<CloudSaveRewardGrantService> _logger;
-
-    public CloudSaveRewardGrantService(
+    /// <summary>Grants attachments to the player's wallet. Throws <see cref="RetryableGrantException"/> on transient failure.</summary>
+    public static async Task<bool> GrantRewardsAsync(
         IGameApiClient gameApiClient,
         IExecutionContext context,
-        ILogger<CloudSaveRewardGrantService> logger)
-    {
-        _gameApiClient = gameApiClient;
-        _context = context;
-        _logger = logger;
-    }
-
-    public async Task<bool> GrantRewardsAsync(
         string playerId,
         IReadOnlyList<MailAttachment> attachments,
-        string idempotencyKey)
+        string idempotencyKey,
+        ILogger logger)
     {
         if (string.IsNullOrEmpty(playerId)) throw new ArgumentException("playerId is required", nameof(playerId));
         if (attachments == null || attachments.Count == 0) return true;
 
-        _logger.LogInformation(
-            "CloudSaveRewardGrantService: granting {Count} attachment(s) for player {PlayerId}, idempotencyKey={Key}",
+        logger.LogInformation(
+            "RewardGrant: granting {Count} attachment(s) for player {PlayerId}, idempotencyKey={Key}",
             attachments.Count, playerId, idempotencyKey);
 
         try
         {
-            // Read existing wallet, increment, write back (no writeLock on wallet — last-write-wins acceptable for placeholder).
             var wallet = await CloudSaveHelper.GetPlayerDataAsync<Dictionary<string, int>>(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyPlayerWallet)
+                gameApiClient, context, playerId, MailboxConstants.KeyPlayerWallet)
                 ?? new Dictionary<string, int>();
 
             foreach (var att in attachments)
@@ -59,15 +48,14 @@ public sealed class CloudSaveRewardGrantService : IRewardGrantService
             }
 
             await CloudSaveHelper.SetPlayerDataAsync(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyPlayerWallet, wallet);
+                gameApiClient, context, playerId, MailboxConstants.KeyPlayerWallet, wallet);
 
-            _logger.LogInformation(
-                "CloudSaveRewardGrantService: wallet updated for player {PlayerId}", playerId);
+            logger.LogInformation("RewardGrant: wallet updated for player {PlayerId}", playerId);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "CloudSaveRewardGrantService: transient failure for player {PlayerId}", playerId);
+            logger.LogError(ex, "RewardGrant: transient failure for player {PlayerId}", playerId);
             throw new RetryableGrantException($"Transient grant failure for player {playerId}", ex);
         }
     }

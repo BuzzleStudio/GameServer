@@ -15,18 +15,15 @@ public class SendGlobalMailModule
     private readonly IExecutionContext _context;
     private readonly IGameApiClient _gameApiClient;
     private readonly ILogger<SendGlobalMailModule> _logger;
-    private readonly AdminAuthService _adminAuth;
 
     public SendGlobalMailModule(
         IExecutionContext context,
         IGameApiClient gameApiClient,
-        ILogger<SendGlobalMailModule> logger,
-        AdminAuthService adminAuth)
+        ILogger<SendGlobalMailModule> logger)
     {
         _context = context;
         _gameApiClient = gameApiClient;
         _logger = logger;
-        _adminAuth = adminAuth;
     }
 
     [CloudCodeFunction("SendGlobalMail")]
@@ -35,7 +32,7 @@ public class SendGlobalMailModule
         var callerId = _context.PlayerId ?? string.Empty;
         _logger.LogInformation("SendGlobalMail called by {PlayerId}", callerId);
 
-        await _adminAuth.RequireAdminAsync(callerId);
+        await AdminAuth.RequireAdminAsync(_gameApiClient, _context, callerId, _logger);
 
         ValidateRequest(request.Subject, request.Body, request.Attachments);
 
