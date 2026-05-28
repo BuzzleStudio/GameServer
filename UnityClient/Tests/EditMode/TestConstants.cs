@@ -15,8 +15,13 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         /// A player that has been added to the mailbox_admin_allowlist Cloud Save key.
         /// Admin-gated tests (SendGlobalMail, SendUserMail, PurgeExpired) sign in
         /// as this player. Must be seeded manually — see TEST_SETUP.md.
+        ///
+        /// Set to the real allowlisted production player ID (post-PR-merge).
+        /// The Unity Editor's cached anonymous credentials must resolve to this
+        /// player ID for admin tests to succeed; otherwise tests will fail with
+        /// "Unauthorized" by design.
         /// </summary>
-        public const string AdminPlayerId = "player_admin_test_001";
+        public const string AdminPlayerId = "7gSw1RxzqY6iSCQe99L9tQFFj6Kd";
 
         /// <summary>
         /// A regular (non-admin) player used for negative/permission tests.
