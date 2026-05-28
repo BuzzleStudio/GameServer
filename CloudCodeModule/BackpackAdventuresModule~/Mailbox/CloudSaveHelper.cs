@@ -35,7 +35,9 @@ internal static class CloudSaveHelper
     // Must match the Cloud Save custom data access-class name configured in the UGS dashboard.
     internal const string GlobalCustomId = "default";
 
-    private const string BaseHost = "https://services.api.unity.com";
+    // Cloud Save uses a dedicated subdomain (matches the SDK's
+    // Configuration default: "https://cloud-save.services.api.unity.com").
+    private const string BaseHost = "https://cloud-save.services.api.unity.com";
 
     // One static HttpClient per module lifetime — required to avoid socket exhaustion.
     private static readonly HttpClient _http = new HttpClient
@@ -48,7 +50,7 @@ internal static class CloudSaveHelper
     internal static async Task<T?> GetPlayerDataAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string playerId, string key)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items?keys={Uri.EscapeDataString(key)}";
+        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items?keys={Uri.EscapeDataString(key)}";
         var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
         return ExtractFirstValue<T>(json);
     }
@@ -56,7 +58,7 @@ internal static class CloudSaveHelper
     internal static async Task<(T? data, string writeLock)> GetPlayerDataWithLockAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string playerId, string key)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items?keys={Uri.EscapeDataString(key)}";
+        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items?keys={Uri.EscapeDataString(key)}";
         var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
         return ExtractFirstWithLock<T>(json);
     }
@@ -65,7 +67,7 @@ internal static class CloudSaveHelper
         IGameApiClient _, IExecutionContext ctx, string playerId, string key, T value,
         string? writeLock = null)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items";
+        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items";
         await PostItemAsync(ctx, url, key, value, writeLock);
     }
 
@@ -74,7 +76,7 @@ internal static class CloudSaveHelper
     internal static async Task<T?> GetCustomDataAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items?keys={Uri.EscapeDataString(key)}";
+        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items?keys={Uri.EscapeDataString(key)}";
         var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
         return ExtractFirstValue<T>(json);
     }
@@ -82,14 +84,14 @@ internal static class CloudSaveHelper
     internal static async Task SetCustomDataAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key, T value)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
+        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
         await PostItemAsync(ctx, url, key, value, writeLock: null);
     }
 
     internal static async Task<(T? data, string writeLock)> GetCustomDataWithLockAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items?keys={Uri.EscapeDataString(key)}";
+        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items?keys={Uri.EscapeDataString(key)}";
         var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
         return ExtractFirstWithLock<T>(json);
     }
@@ -97,14 +99,14 @@ internal static class CloudSaveHelper
     internal static async Task SetCustomDataWithLockAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key, T value, string writeLock)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
+        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
         await PostItemAsync(ctx, url, key, value, writeLock);
     }
 
     internal static async Task DeleteCustomDataAsync(
         IGameApiClient _, IExecutionContext ctx, string key)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items/{Uri.EscapeDataString(key)}";
+        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items/{Uri.EscapeDataString(key)}";
         var (_, status, _) = await SendAsync(HttpMethod.Delete, ctx, url, body: null, treat404AsSuccess: true);
         if ((int)status >= 400 && status != HttpStatusCode.NotFound)
             throw new InvalidOperationException($"DeleteCustomDataAsync failed: HTTP {(int)status} on {key}");
