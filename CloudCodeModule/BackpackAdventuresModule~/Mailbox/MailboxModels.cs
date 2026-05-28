@@ -278,7 +278,9 @@ public class SendGlobalMailRequest
     [JsonPropertyName("subject")]      public string Subject            { get; set; } = string.Empty;
     [JsonPropertyName("body")]         public string Body               { get; set; } = string.Empty;
     [JsonPropertyName("expiresAt")]    public string? ExpiresAt         { get; set; }
-    [JsonPropertyName("mailCategory")] public MailCategory MailCategory { get; set; } = MailCategory.System;
+    [JsonPropertyName("mailCategory")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public MailCategory MailCategory { get; set; } = MailCategory.System;
     [JsonPropertyName("senderName")]   public string? SenderName        { get; set; }
     [JsonPropertyName("dedupKey")]     public string? DedupKey          { get; set; }
     [JsonPropertyName("attachments")]  public List<MailAttachment>? Attachments { get; set; }
@@ -290,7 +292,9 @@ public class SendUserMailRequest
     [JsonPropertyName("subject")]        public string Subject        { get; set; } = string.Empty;
     [JsonPropertyName("body")]           public string Body           { get; set; } = string.Empty;
     [JsonPropertyName("expiresAt")]      public string? ExpiresAt     { get; set; }
-    [JsonPropertyName("mailCategory")]   public MailCategory MailCategory { get; set; } = MailCategory.System;
+    [JsonPropertyName("mailCategory")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public MailCategory MailCategory { get; set; } = MailCategory.System;
     [JsonPropertyName("senderName")]     public string? SenderName    { get; set; }
     [JsonPropertyName("dedupKey")]       public string? DedupKey      { get; set; }
     [JsonPropertyName("attachments")]    public List<MailAttachment>? Attachments { get; set; }
