@@ -1,0 +1,21 @@
+{
+    "name": "BackpackAdventures.CloudCode.Client.Editor",
+    "rootNamespace": "BackpackAdventures.CloudCode.Client.Editor",
+    "references": [
+        "BackpackAdventures.CloudCode.Client",
+        "Unity.Services.CloudCode",
+        "Unity.Services.Authentication",
+        "Unity.Services.Core"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

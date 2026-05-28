@@ -167,7 +167,7 @@ For local use: `echo "<SECRET>" | ugs login --service-key-id <KEY_ID> --secret-k
 
 **Fixes:**
 - Confirm `CloudCodeModule/BackpackAdventures.ccmr` is committed and pushed to the `staging` branch.
-- Confirm `CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj` exists.
+- Confirm `CloudCodeModule/BackpackAdventuresModule~/BackpackAdventuresModule.csproj` exists.
 - Run `git status` locally to confirm the files are tracked.
 
 ---

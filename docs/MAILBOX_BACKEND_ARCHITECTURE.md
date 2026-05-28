@@ -453,7 +453,7 @@ Supported `type` values:
 
 ## 10. Implementation Handoff for Teammate 2
 
-Teammate 2 (Unity Developer) should implement these Cloud Code function files under `CloudCodeModule/BackpackAdventuresModule/Mailbox/`:
+Teammate 2 (Unity Developer) should implement these Cloud Code function files under `CloudCodeModule/BackpackAdventuresModule~/Mailbox/`:
 
 | File | Function |
 |------|----------|
