@@ -65,7 +65,7 @@ internal static class CloudSaveHelper
         IGameApiClient _, IExecutionContext ctx, string playerId, string key, T value,
         string? writeLock = null)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/item";
+        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items";
         await PostItemAsync(ctx, url, key, value, writeLock);
     }
 
@@ -82,7 +82,7 @@ internal static class CloudSaveHelper
     internal static async Task SetCustomDataAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key, T value)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/item";
+        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
         await PostItemAsync(ctx, url, key, value, writeLock: null);
     }
 
@@ -97,7 +97,7 @@ internal static class CloudSaveHelper
     internal static async Task SetCustomDataWithLockAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key, T value, string writeLock)
     {
-        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/item";
+        var url = $"{BaseHost}/cloud-save/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
         await PostItemAsync(ctx, url, key, value, writeLock);
     }
 
