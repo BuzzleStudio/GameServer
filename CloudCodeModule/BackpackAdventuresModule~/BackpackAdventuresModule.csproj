@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net7.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Configurations>Debug;Release</Configurations>
+        <AssemblyName>BackpackAdventuresModule</AssemblyName>
+    </PropertyGroup>
+
+    <!-- TODO(economy): When Com.Unity.Services.Economy is available, replace CloudSaveRewardGrantService
+         with EconomyRewardGrantService and wire IRewardGrantService in DI. -->
+    <ItemGroup>
+        <PackageReference Include="Com.Unity.Services.CloudCode.Apis" Version="1.0.2-alpha" />
+        <PackageReference Include="Com.Unity.Services.CloudCode.Core" Version="0.0.4" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="7.0.1" />
+    </ItemGroup>
+
+    <PropertyGroup>
+        <PublishReadyToRunComposite>true</PublishReadyToRunComposite>
+    </PropertyGroup>
+
+</Project>
