@@ -102,8 +102,8 @@ jobs:
             exit 1
           fi
 
-          if [ ! -f "CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj" ]; then
-            echo "ERROR: CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj not found"
+          if [ ! -f "CloudCodeModule/BackpackAdventuresModule~/BackpackAdventuresModule.csproj" ]; then
+            echo "ERROR: CloudCodeModule/BackpackAdventuresModule~/BackpackAdventuresModule.csproj not found"
             exit 1
           fi
 

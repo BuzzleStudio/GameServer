@@ -105,7 +105,7 @@ Replace `<PROJECT_ID>` with the Unity project ID from the Unity Dashboard.
 
 ```bash
 dotnet build \
-  CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
+  CloudCodeModule/BackpackAdventuresModule~/BackpackAdventuresModule.csproj \
   -c Release
 ```
 
