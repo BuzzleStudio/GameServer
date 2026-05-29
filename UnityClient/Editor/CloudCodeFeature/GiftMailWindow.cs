@@ -8,7 +8,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 {
     /// <summary>
     /// Editor window for sending player-to-player gift mail.
-    /// MenuItem: Tool/CloudCodeFeature/Gift Mail
+    /// MenuItem: CloudCode/Gift Mail
     ///
     /// GiftMail restrictions (§5.3):
     ///   - Sender must not equal target player (no self-gift)
@@ -35,7 +35,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         // MenuItem
         // -----------------------------------------------------------------------
 
-        [MenuItem("Tool/CloudCodeFeature/Gift Mail")]
+        [MenuItem("CloudCode/Gift Mail")]
         public static void Open()
         {
             var window = GetWindow<GiftMailWindow>("Gift Mail");
