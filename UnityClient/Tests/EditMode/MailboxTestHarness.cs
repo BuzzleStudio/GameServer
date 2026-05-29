@@ -1,62 +1,75 @@
 // MailboxTestHarness.cs
-// Shared setup, sign-in helpers, and cleanup utilities for mailbox test classes.
-// All methods are static async Tasks — no MonoBehaviour, no coroutines.
+// Hermetic test harness — installs an in-memory FakeCloudCodeBackend with a frozen clock.
+// No UGS network calls. No real authentication. Deterministic per-test state.
 
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using NUnit.Framework;
-using Unity.Services.Authentication;
-using Unity.Services.Core;
-using UnityEngine;
 
 namespace BackpackAdventures.CloudCode.Client.Tests
 {
     /// <summary>
-    /// Shared test infrastructure for all mailbox EditMode tests.
-    /// Does not extend any MonoBehaviour. Intended for use inside NUnit [SetUp] methods.
+    /// Shared test infrastructure. Installs a fresh FakeCloudCodeBackend at every [SetUp]
+    /// so each test runs against isolated in-memory state with a deterministic clock.
     /// </summary>
     public static class MailboxTestHarness
     {
         // -----------------------------------------------------------------------
-        // Authentication helpers
+        // Deterministic identity + clock
+        // -----------------------------------------------------------------------
+
+        /// <summary>Stable player id used by all tests instead of AuthenticationService.</summary>
+        public const string CurrentPlayerId = "test-player-self";
+
+        private static readonly DateTimeOffset _baseTime =
+            new DateTimeOffset(2025, 6, 15, 12, 0, 0, TimeSpan.Zero);
+
+        /// <summary>Frozen clock for the current test (set in EnsureSignedInAsync).</summary>
+        public static FakeClock Clock { get; private set; }
+
+        /// <summary>The fake backend installed for the current test (hook access).</summary>
+        internal static FakeCloudCodeBackend CurrentFake { get; private set; }
+
+        // -----------------------------------------------------------------------
+        // Setup helpers (replace the old UGS sign-in)
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Initialises Unity Services and signs in anonymously if not already signed in.
-        /// Call from [SetUp] or at the start of each integration test.
+        /// Installs a fresh FakeCloudCodeBackend (zero state) into BackpackCloudCodeService.
+        /// Call from [SetUp]. No network, no auth.
         /// </summary>
         public static async Task EnsureSignedInAsync()
         {
-            try
-            {
-                if (UnityServices.State == ServicesInitializationState.Uninitialized)
-                    await UnityServices.InitializeAsync();
-
-                if (!AuthenticationService.Instance.IsSignedIn)
-                    await AuthenticationService.Instance.SignInAnonymouslyAsync();
-            }
-            catch (Exception ex)
-            {
-                Assert.Fail($"[MailboxTestHarness] EnsureSignedInAsync failed: {ex.Message}");
-            }
+            Clock = new FakeClock(_baseTime);
+            CurrentFake = new FakeCloudCodeBackend(Clock);
+            CurrentFake.CurrentPlayerId = CurrentPlayerId;
+            BackpackCloudCodeService.Backend = CurrentFake;
+            await Task.CompletedTask;
         }
 
-        /// <summary>
-        /// Ensures Unity Services is initialised and the test player is signed in.
-        /// Admin-gated tests no longer require a specific playerId in an allowlist —
-        /// they pass TestConstants.AdminToken directly in the request body.
-        /// </summary>
+        /// <summary>Admin setup — same as sign-in for the fake (token passed per-call).</summary>
         public static async Task EnsureAdminAsync()
         {
             await EnsureSignedInAsync();
+        }
+
+        /// <summary>
+        /// [TearDown] cleanup: restore the production backend. No network — state is
+        /// discarded with the per-test fake instance.
+        /// </summary>
+        public static async Task CleanupAsync()
+        {
+            BackpackCloudCodeService.ResetToDefault();
+            CurrentFake = null;
+            Clock = null;
+            await Task.CompletedTask;
         }
 
         // -----------------------------------------------------------------------
         // Fixture builders
         // -----------------------------------------------------------------------
 
-        /// <summary>Creates a single currency attachment list for use in send requests.</summary>
+        /// <summary>Currency attachment list for send requests.</summary>
         public static List<MailAttachment> MakeCurrencyAttachment(int quantity = 100)
         {
             return new List<MailAttachment>
@@ -66,14 +79,13 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     itemId = TestConstants.CurrencyItemId,
                     type = TestConstants.CurrencyType,
                     quantity = quantity,
-                    // Legacy field aliases kept for backward compatibility
                     id = TestConstants.CurrencyItemId,
                     amount = quantity
                 }
             };
         }
 
-        /// <summary>Creates a single item attachment list for use in send requests.</summary>
+        /// <summary>Item attachment list for send requests.</summary>
         public static List<MailAttachment> MakeItemAttachment(string itemId = null, int quantity = 1)
         {
             string resolvedId = itemId ?? TestConstants.ItemId;
@@ -90,99 +102,72 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             };
         }
 
-        /// <summary>Returns an ISO-8601 UTC timestamp offset from now by <paramref name="seconds"/>.</summary>
+        /// <summary>ISO-8601 UTC timestamp offset from the frozen clock.</summary>
         public static string FutureExpiry(int seconds = 3600) =>
-            DateTime.UtcNow.AddSeconds(seconds).ToString("o");
+            Clock.UtcNow.AddSeconds(seconds).ToString("o");
 
-        /// <summary>Returns an ISO-8601 UTC timestamp that is already in the past.</summary>
+        /// <summary>ISO-8601 UTC timestamp already in the past relative to the frozen clock.</summary>
         public static string PastExpiry(int secondsAgo = 120) =>
-            DateTime.UtcNow.AddSeconds(-secondsAgo).ToString("o");
+            Clock.UtcNow.AddSeconds(-secondsAgo).ToString("o");
 
         // -----------------------------------------------------------------------
-        // Error classification helpers
+        // Error classification helpers (match FakeCloudCodeBackend exception messages)
         // -----------------------------------------------------------------------
+
+        private static string Msg(Exception ex) => (ex?.Message ?? string.Empty).ToLowerInvariant();
 
         public static bool IsUnauthorizedError(Exception ex)
         {
-            string msg = (ex?.Message ?? "").ToLowerInvariant();
-            return msg.Contains("401") || msg.Contains("unauthorized") || msg.Contains("notadmin");
+            string m = Msg(ex);
+            return m.Contains("401") || m.Contains("unauthorized") || m.Contains("notadmin");
         }
 
         public static bool IsInvalidInputError(Exception ex)
         {
-            string msg = (ex?.Message ?? "").ToLowerInvariant();
-            return msg.Contains("400") || msg.Contains("invalid") || msg.Contains("invalidinput")
-                   || msg.Contains("bad request") || msg.Contains("validation");
+            string m = Msg(ex);
+            return m.Contains("400") || m.Contains("invalid") || m.Contains("invalidinput")
+                   || m.Contains("bad request") || m.Contains("validation");
         }
 
         public static bool IsNotFoundError(Exception ex)
         {
-            string msg = (ex?.Message ?? "").ToLowerInvariant();
-            return msg.Contains("404") || msg.Contains("notfound") || msg.Contains("mailnotfound");
+            string m = Msg(ex);
+            return m.Contains("404") || m.Contains("notfound") || m.Contains("mailnotfound");
         }
 
         public static bool IsMailExpiredError(Exception ex)
         {
-            string msg = (ex?.Message ?? "").ToLowerInvariant();
-            return msg.Contains("mailexpired") || msg.Contains("expired");
+            string m = Msg(ex);
+            return m.Contains("mailexpired") || m.Contains("expired");
         }
 
         public static bool IsAlreadyClaimedError(Exception ex)
         {
-            string msg = (ex?.Message ?? "").ToLowerInvariant();
-            return msg.Contains("alreadyclaimed");
+            return Msg(ex).Contains("alreadyclaimed");
         }
 
         public static bool IsMailboxFullError(Exception ex)
         {
-            string msg = (ex?.Message ?? "").ToLowerInvariant();
-            return msg.Contains("mailboxfull");
+            return Msg(ex).Contains("mailboxfull");
         }
 
         public static bool IsGiftRateLimitedError(Exception ex)
         {
-            string msg = (ex?.Message ?? "").ToLowerInvariant();
-            return msg.Contains("giftquotaexceeded") || msg.Contains("ratelimited") || msg.Contains("quota");
+            string m = Msg(ex);
+            return m.Contains("giftquotaexceeded") || m.Contains("ratelimited") || m.Contains("quota");
         }
 
         public static bool IsCannotDeleteError(Exception ex)
         {
-            string msg = (ex?.Message ?? "").ToLowerInvariant();
-            return msg.Contains("cannotdelete") || msg.Contains("cannotdeleteunclaimedreward")
-                   || msg.Contains("cannotdeleteglobal");
+            string m = Msg(ex);
+            return m.Contains("cannotdelete") || m.Contains("cannotdeleteunclaimedreward")
+                   || m.Contains("cannotdeleteglobal");
         }
 
         public static bool IsNoAttachmentError(Exception ex)
         {
-            string msg = (ex?.Message ?? "").ToLowerInvariant();
-            return msg.Contains("noattachment") || msg.Contains("no attachment");
-        }
-
-        // -----------------------------------------------------------------------
-        // Cleanup
-        // -----------------------------------------------------------------------
-
-        /// <summary>
-        /// Best-effort cleanup: purges expired global mail refs via admin PurgeExpired.
-        ///
-        /// Not guaranteed to clean all state because:
-        ///   - PurgeExpired requires admin privileges.
-        ///   - User-mail state (mailbox_user_items) persists per player across tests unless
-        ///     explicitly deleted or the test player account is reset via UGS Dashboard.
-        ///
-        /// Call from [TearDown] after integration tests.
-        /// </summary>
-        public static async Task CleanupAsync()
-        {
-            try
-            {
-                await BackpackCloudCodeService.CallPurgeExpiredAsync(TestConstants.AdminToken, TestConstants.OperatorId);
-            }
-            catch (Exception ex)
-            {
-                // Cleanup failure is non-fatal; log but do not fail the test.
-                Debug.LogWarning($"[MailboxTestHarness] CleanupAsync — PurgeExpired failed (non-fatal): {ex.Message}");
-            }
+            string m = Msg(ex);
+            return m.Contains("noattachment") || m.Contains("no attachment");
         }
     }
 }

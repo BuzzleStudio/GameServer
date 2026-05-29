@@ -20,7 +20,6 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
-using Unity.Services.Authentication;
 
 namespace BackpackAdventures.CloudCode.Client.Tests
 {
@@ -57,7 +56,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "the other returns alreadyClaimed=true or throws. Reward granted exactly once.")]
         public async Task C01_ClaimAttachment_ConcurrentDoubleFire_ExactlyOneGrant()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed a user mail with a currency attachment
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -179,7 +178,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "both responses are semantically equivalent (no double-grant).")]
         public async Task C03_ClaimAttachment_SameRequestId_NoDoubleGrant()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed user mail with attachment
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -233,7 +232,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "writeLock on one mail must not block the other.")]
         public async Task C04_ClaimAttachment_ConcurrentDifferentMails_BothSucceed()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed two distinct user mails with attachments
             var send1 = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -291,7 +290,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "mail is marked read exactly once (no duplicate readIds in global_state).")]
         public async Task C05_MarkMailRead_ConcurrentDoubleFire_NoDuplicate()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed a user mail
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(

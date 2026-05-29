@@ -13,7 +13,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using NUnit.Framework;
-using Unity.Services.Authentication;
 
 namespace BackpackAdventures.CloudCode.Client.Tests
 {
@@ -271,7 +270,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         public async Task N07_ClaimAttachment_NoAttachment_Error()
         {
             await MailboxTestHarness.EnsureAdminAsync();
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed a notification-only user mail
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -364,7 +363,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         public async Task N09_ClaimAttachment_Twice_AlreadyClaimed()
         {
             await MailboxTestHarness.EnsureAdminAsync();
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed user mail with attachment
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -412,7 +411,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         public async Task N10_DeleteMail_WithUnclaimedReward_Rejected()
         {
             await MailboxTestHarness.EnsureAdminAsync();
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed user mail with unclaimed attachment
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -534,7 +533,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "Expected: InvalidInput error (no self-gift per §5.3).")]
         public async Task N13_GiftMail_ToSelf_Rejected()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             bool threwInvalid = false;
             Exception caught = null;
