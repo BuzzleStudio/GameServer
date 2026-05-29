@@ -217,10 +217,10 @@ jobs:
             "$HEALTH_URL")
           echo "Response: $HEALTH_RESPONSE"
 
-          # HealthCheckResponse is { success, message, timestamp }; the
-          # Cloud Code API wraps it: {"output":{"success":true,...}}.
-          if ! echo "$HEALTH_RESPONSE" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
-            echo "ERROR: HealthCheck did not return success:true"
+          # HealthCheckResponse is { message, timestamp }; the
+          # Cloud Code API wraps it: {"output":{"message":...,"timestamp":...}}.
+          if ! echo "$HEALTH_RESPONSE" | grep -q '"message":"Cloud Code module online"'; then
+            echo "ERROR: HealthCheck did not return expected message"
             exit 1
           fi
           echo "HealthCheck passed."
@@ -260,8 +260,8 @@ jobs:
           )
           GLOBAL_RESPONSE=$(call_module "SendGlobalMail" "$GLOBAL_PAYLOAD")
           GLOBAL_MAIL_ID=$(echo "$GLOBAL_RESPONSE" | extract_mail_id)
-          if [ -z "$GLOBAL_MAIL_ID" ] || ! echo "$GLOBAL_RESPONSE" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
-            echo "ERROR: SendGlobalMail did not return success:true with a mail id"
+          if [ -z "$GLOBAL_MAIL_ID" ]; then
+            echo "ERROR: SendGlobalMail did not return a mail id"
             echo "Response: $GLOBAL_RESPONSE"
             exit 1
           fi
@@ -288,8 +288,8 @@ jobs:
             )
             USER_RESPONSE=$(call_module "SendUserMail" "$USER_PAYLOAD")
             USER_MAIL_ID=$(echo "$USER_RESPONSE" | extract_mail_id)
-            if [ -z "$USER_MAIL_ID" ] || ! echo "$USER_RESPONSE" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
-              echo "ERROR: SendUserMail did not return success:true with a mail id"
+            if [ -z "$USER_MAIL_ID" ]; then
+              echo "ERROR: SendUserMail did not return a mail id"
               echo "Response: $USER_RESPONSE"
               exit 1
             fi
