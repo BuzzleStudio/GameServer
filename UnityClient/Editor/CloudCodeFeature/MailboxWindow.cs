@@ -9,7 +9,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 {
     /// <summary>
     /// Editor window for browsing a player's mailbox.
-    /// MenuItem: Tool/CloudCodeFeature/Mailbox
+    /// MenuItem: CloudCode/Mailbox
     /// Supports paginated fetch of user/global mails; per-mail Mark Read and Claim Attachment actions.
     /// </summary>
     public class MailboxWindow : EditorWindow
@@ -38,7 +38,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         // MenuItem
         // -----------------------------------------------------------------------
 
-        [MenuItem("Tool/CloudCodeFeature/Mailbox")]
+        [MenuItem("CloudCode/Mailbox")]
         public static void Open()
         {
             var window = GetWindow<MailboxWindow>("Mailbox");

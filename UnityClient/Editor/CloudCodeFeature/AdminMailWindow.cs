@@ -13,7 +13,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 {
     /// <summary>
     /// Editor window for admin mail operations.
-    /// MenuItem: Tool/CloudCodeFeature/Admin Mail
+    /// MenuItem: CloudCode/Admin Mail
     ///
     /// Tabs:
     ///   - Send Global: broadcast mail to all players (admin-gated)
@@ -45,7 +45,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private bool _isBusy;
         private string _statusMessage = string.Empty;
         private string _rawJson = string.Empty;
-        private bool _showRawJson;
+        private bool _showRawJson = true;
         private Vector2 _scroll;
 
         // -----------------------------------------------------------------------
@@ -112,7 +112,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         // MenuItem
         // -----------------------------------------------------------------------
 
-        [MenuItem("Tool/CloudCodeFeature/Admin Mail")]
+        [MenuItem("CloudCode/Admin Mail")]
         public static void Open()
         {
             var window = GetWindow<AdminMailWindow>("Admin Mail");
@@ -328,9 +328,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 expiresAt, category, sender, dedupKey, attachments,
                 adminToken: null, operatorId: _operatorId);
 
-            _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
+            _rawJson = backendScope.Backend.FormatSuccessResponse("SendGlobalMail", result);
             string mailId = string.IsNullOrEmpty(result.mailId) ? result.globalMailId : result.mailId;
-            _statusMessage = $"SendGlobalMail: mailId={mailId} sentAt={result.sentAt}";
+            _statusMessage = $"SendGlobalMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={mailId} sentAt={result.sentAt}";
         }
 
         private async Task SendUserMailAsync()
@@ -351,8 +351,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 expiresAt, category, sender, dedupKey, attachments,
                 adminToken: null, operatorId: _operatorId);
 
-            _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"SendUserMail: mailId={result.mailId} sentAt={result.sentAt}";
+            _rawJson = backendScope.Backend.FormatSuccessResponse("SendUserMail", result);
+            _statusMessage = $"SendUserMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId} sentAt={result.sentAt}";
         }
 
         private async Task DeleteMailAsync()
@@ -361,8 +361,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 throw new ArgumentException("Mail ID is required for Delete.");
             using var backendScope = UseRestBackend();
             var result = await BackpackCloudCodeService.CallDeleteMailAsync(_manageMailId.Trim());
-            _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"DeleteMail: mailId={result.mailId}";
+            _rawJson = backendScope.Backend.FormatSuccessResponse("DeleteMail", result);
+            _statusMessage = $"DeleteMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId}";
         }
 
         private async Task ExpireMailAsync()
@@ -371,16 +371,16 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 throw new ArgumentException("Mail ID is required for Expire.");
             using var backendScope = UseRestBackend();
             var result = await BackpackCloudCodeService.CallExpireMailAsync(_manageMailId.Trim(), adminToken: null, operatorId: _operatorId);
-            _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"ExpireMail: mailId={result.mailId}";
+            _rawJson = backendScope.Backend.FormatSuccessResponse("ExpireMail", result);
+            _statusMessage = $"ExpireMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId}";
         }
 
         private async Task PurgeExpiredAsync()
         {
             using var backendScope = UseRestBackend();
             var result = await BackpackCloudCodeService.CallPurgeExpiredAsync(adminToken: null, operatorId: _operatorId);
-            _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"PurgeExpired: purgedCount={result.purgedCount}";
+            _rawJson = backendScope.Backend.FormatSuccessResponse("PurgeExpired", result);
+            _statusMessage = $"PurgeExpired: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} purgedCount={result.purgedCount}";
         }
 
         // -----------------------------------------------------------------------
@@ -389,7 +389,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
         private void DrawRawJsonFoldout()
         {
-            _showRawJson = EditorGUILayout.Foldout(_showRawJson, "Server Response JSON (debug)", true);
+            _showRawJson = EditorGUILayout.Foldout(_showRawJson, "Server Response JSON (status/details)", true);
             if (_showRawJson && !string.IsNullOrEmpty(_rawJson))
             {
                 EditorGUILayout.TextArea(_rawJson, EditorStyles.textArea, GUILayout.MinHeight(80));
@@ -474,7 +474,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             return !string.IsNullOrWhiteSpace(_operatorId);
         }
 
-        private IDisposable UseRestBackend()
+        private BackendScope UseRestBackend()
         {
             if (!HasRestCredentials())
                 throw new InvalidOperationException("Project ID, Environment ID, Service Key ID, and Service Secret are required.");
@@ -500,12 +500,26 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             {
                 await action();
             }
+            catch (CloudCodeRestException ex)
+            {
+                _statusMessage = $"Error: HTTP {ex.StatusCode} {ex.ReasonPhrase}";
+                _rawJson = ex.FormatErrorResponse();
+                Debug.LogError("[AdminMailWindow] " + ex.Message);
+            }
+            catch (ArgumentException ex)
+            {
+                _statusMessage = "Error: HTTP 400 Bad Request";
+                _rawJson = FormatLocalErrorResponse(400, "Bad Request", "LocalValidation", ex.Message);
+                Debug.LogError("[AdminMailWindow] " + ex.Message);
+            }
             catch (Exception ex)
             {
                 _statusMessage = ex is CloudCodeApiException apiEx
                     ? $"Error: HTTP {apiEx.StatusCode} {apiEx.ErrorCode}"
                     : $"Error: {ex.Message}";
-                _rawJson = ex.ToString();
+                _rawJson = ex is CloudCodeApiException apiException
+                    ? FormatLocalErrorResponse(apiException.StatusCode, apiException.ErrorCode, apiException.Endpoint, apiException.Message)
+                    : FormatLocalErrorResponse(500, "InternalError", "Editor", ex.Message);
                 Debug.LogError("[AdminMailWindow] " + ex.Message);
             }
             finally
@@ -513,6 +527,18 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 _isBusy = false;
                 Repaint();
             }
+        }
+
+        private static string FormatLocalErrorResponse(int status, string statusText, string endpoint, string details)
+        {
+            var wrapper = new JObject
+            {
+                ["status"] = status,
+                ["statusText"] = statusText,
+                ["endpoint"] = endpoint,
+                ["details"] = details
+            };
+            return wrapper.ToString(Formatting.Indented);
         }
 
         // -----------------------------------------------------------------------
@@ -528,9 +554,11 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private sealed class BackendScope : IDisposable
         {
             private readonly ICloudCodeBackend _previousBackend;
+            public EditorRestCloudCodeBackend Backend { get; }
 
-            public BackendScope(ICloudCodeBackend backend)
+            public BackendScope(EditorRestCloudCodeBackend backend)
             {
+                Backend = backend;
                 _previousBackend = BackpackCloudCodeService.Backend;
                 BackpackCloudCodeService.Backend = backend;
             }
@@ -553,6 +581,10 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             private readonly string _serviceSecret;
             private string _accessToken;
             private DateTime _accessTokenExpiresAtUtc;
+            public int LastStatusCode { get; private set; }
+            public string LastReasonPhrase { get; private set; } = string.Empty;
+            private string LastEndpoint { get; set; } = string.Empty;
+            private string LastResponseBody { get; set; } = string.Empty;
 
             public EditorRestCloudCodeBackend(string projectId, string environmentId, string serviceKeyId, string serviceSecret)
             {
@@ -575,15 +607,48 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                             : new JObject { ["request"] = JToken.FromObject(request) }
                     };
 
-                    string responseJson = await PostJsonAsync(url, payload.ToString(Formatting.None), accessToken, useBearer: true);
-                    var response = JObject.Parse(responseJson);
+                    var httpResponse = await PostJsonAsync(url, payload.ToString(Formatting.None), accessToken, useBearer: true);
+                    SetLastResponse(endpoint, httpResponse);
+                    if (!httpResponse.IsSuccessStatusCode)
+                        throw new CloudCodeRestException(endpoint, httpResponse);
+
+                    var response = JObject.Parse(httpResponse.Body);
                     JToken output = response["output"] ?? response;
                     return output.ToObject<T>();
+                }
+                catch (CloudCodeRestException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
                     throw CloudCodeApiException.From(endpoint, ex);
                 }
+            }
+
+            public string FormatSuccessResponse<T>(string endpoint, T output)
+            {
+                var wrapper = new JObject
+                {
+                    ["status"] = LastStatusCode,
+                    ["statusText"] = LastReasonPhrase,
+                    ["endpoint"] = string.IsNullOrEmpty(LastEndpoint) ? endpoint : LastEndpoint,
+                    ["details"] = "Cloud Code REST call succeeded.",
+                    ["output"] = output == null ? JValue.CreateNull() : JToken.FromObject(output)
+                };
+
+                if (!string.IsNullOrWhiteSpace(LastResponseBody))
+                    wrapper["rawResponse"] = ParseJsonOrString(LastResponseBody);
+
+                return wrapper.ToString(Formatting.Indented);
+            }
+
+            private void SetLastResponse(string endpoint, RestHttpResponse response)
+            {
+                LastEndpoint = endpoint;
+                LastStatusCode = response.StatusCode;
+                LastReasonPhrase = response.ReasonPhrase;
+                LastResponseBody = response.Body;
             }
 
             private async Task<string> GetAccessTokenAsync()
@@ -601,7 +666,11 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 using HttpResponseMessage response = await HttpClient.SendAsync(message);
                 string responseJson = await response.Content.ReadAsStringAsync();
                 if (!response.IsSuccessStatusCode)
-                    throw new InvalidOperationException($"Token exchange failed ({(int)response.StatusCode}): {responseJson}");
+                    throw new CloudCodeRestException("TokenExchange", new RestHttpResponse(
+                        (int)response.StatusCode,
+                        response.ReasonPhrase,
+                        responseJson,
+                        false));
 
                 var tokenResponse = JObject.Parse(responseJson);
                 _accessToken = tokenResponse.Value<string>("accessToken");
@@ -612,7 +681,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 return _accessToken;
             }
 
-            private static async Task<string> PostJsonAsync(string url, string json, string authToken, bool useBearer)
+            private static async Task<RestHttpResponse> PostJsonAsync(string url, string json, string authToken, bool useBearer)
             {
                 using var message = new HttpRequestMessage(HttpMethod.Post, url);
                 message.Headers.Authorization = new AuthenticationHeaderValue(useBearer ? "Bearer" : "Basic", authToken);
@@ -620,10 +689,92 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
                 using HttpResponseMessage response = await HttpClient.SendAsync(message);
                 string responseJson = await response.Content.ReadAsStringAsync();
-                if (!response.IsSuccessStatusCode)
-                    throw new InvalidOperationException($"Cloud Code REST call failed ({(int)response.StatusCode}): {responseJson}");
+                return new RestHttpResponse(
+                    (int)response.StatusCode,
+                    response.ReasonPhrase,
+                    responseJson,
+                    response.IsSuccessStatusCode);
+            }
+        }
 
-                return responseJson;
+        private sealed class RestHttpResponse
+        {
+            public RestHttpResponse(int statusCode, string reasonPhrase, string body, bool isSuccessStatusCode)
+            {
+                StatusCode = statusCode;
+                ReasonPhrase = string.IsNullOrWhiteSpace(reasonPhrase) ? StatusCode.ToString() : reasonPhrase;
+                Body = body ?? string.Empty;
+                IsSuccessStatusCode = isSuccessStatusCode;
+            }
+
+            public int StatusCode { get; }
+            public string ReasonPhrase { get; }
+            public string Body { get; }
+            public bool IsSuccessStatusCode { get; }
+        }
+
+        private sealed class CloudCodeRestException : Exception
+        {
+            public CloudCodeRestException(string endpoint, RestHttpResponse response)
+                : base($"HTTP {response.StatusCode} {response.ReasonPhrase}: {response.Body}")
+            {
+                Endpoint = endpoint;
+                StatusCode = response.StatusCode;
+                ReasonPhrase = response.ReasonPhrase;
+                ResponseBody = response.Body;
+            }
+
+            public string Endpoint { get; }
+            public int StatusCode { get; }
+            public string ReasonPhrase { get; }
+            public string ResponseBody { get; }
+
+            public string FormatErrorResponse()
+            {
+                var wrapper = new JObject
+                {
+                    ["status"] = StatusCode,
+                    ["statusText"] = ReasonPhrase,
+                    ["endpoint"] = Endpoint,
+                    ["details"] = ExtractDetails(ResponseBody),
+                    ["error"] = ParseJsonOrString(ResponseBody)
+                };
+                return wrapper.ToString(Formatting.Indented);
+            }
+        }
+
+        private static JToken ParseJsonOrString(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return JValue.CreateString(string.Empty);
+
+            try
+            {
+                return JToken.Parse(value);
+            }
+            catch (JsonException)
+            {
+                return JValue.CreateString(value);
+            }
+        }
+
+        private static string ExtractDetails(string responseBody)
+        {
+            if (string.IsNullOrWhiteSpace(responseBody))
+                return "Cloud Code REST call failed with an empty response body.";
+
+            try
+            {
+                var token = JToken.Parse(responseBody);
+                return token.SelectToken("details")?.ToString()
+                       ?? token.SelectToken("detail")?.ToString()
+                       ?? token.SelectToken("message")?.ToString()
+                       ?? token.SelectToken("error.message")?.ToString()
+                       ?? responseBody;
+            }
+            catch (JsonException)
+            {
+                return responseBody;
             }
         }
     }

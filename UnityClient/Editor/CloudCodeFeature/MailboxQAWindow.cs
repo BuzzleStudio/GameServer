@@ -9,7 +9,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 {
     /// <summary>
     /// Editor window for triggering QA smoke tests.
-    /// MenuItem: Tool/CloudCodeFeature/QA Smoke
+    /// MenuItem: CloudCode/QA Smoke
     ///
     /// Invokes BackpackAdventures.CloudCode.Client.Tests.MailboxTestRunner.RunAllAsync (and
     /// similar entry points) via reflection. If the class is absent at compile time the buttons
@@ -41,7 +41,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         // MenuItem
         // -----------------------------------------------------------------------
 
-        [MenuItem("Tool/CloudCodeFeature/QA Smoke")]
+        [MenuItem("CloudCode/QA Smoke")]
         public static void Open()
         {
             var window = GetWindow<MailboxQAWindow>("QA Smoke");
