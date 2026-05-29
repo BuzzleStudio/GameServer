@@ -60,9 +60,9 @@ Configure these secrets in the repository at:
 | `UNITY_ENVIRONMENT` | Unity Dashboard → your project → LiveOps → **Environments** → environment name | Target environment (e.g. `production`, `staging`) |
 | `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | Unity Dashboard > Organization > Settings > **Service Accounts** > project-scoped account > Keys > **Key ID** | Key ID half of the project-scoped service account credential pair |
 | `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | Same page - **Secret Key**, shown once at creation time | Secret half of the credential pair; store immediately |
-| `ADMIN_SERVICE_TOKEN` | Unity Secret Manager > target environment > `ADMIN_SERVICE_TOKEN` | Admin token used by post-deploy SendGlobalMail/SendUserMail smoke tests |
-
 `SendUserMail` smoke test uses the optional `workflow_dispatch` input `admin_test_player_id`; no extra secret is required.
+
+`UNITY_PROJECT_SERVICE_ACCOUNT_KEY` and `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` must be the key pair from a Unity service account scoped to this project. They are not arbitrary Unity Secret Manager project secrets.
 
 ### How to create a service account and generate a key
 

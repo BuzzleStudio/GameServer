@@ -70,11 +70,9 @@ Concurrency control (`group: staging-deploy`, `cancel-in-progress: false`) seria
 | `UNITY_ENVIRONMENT` | The UGS target environment name, e.g. `production` or `staging` (UGS Dashboard > Environments) |
 | `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | The project-scoped service account key ID from UGS Dashboard (UGS Dashboard > Service Accounts > Keys) |
 | `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | The secret paired with `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` - shown once at key creation time |
-| `ADMIN_SERVICE_TOKEN` | The Unity Secret Manager value configured as `ADMIN_SERVICE_TOKEN` for the target environment |
-
 `SendUserMail` smoke test uses the optional `workflow_dispatch` input `admin_test_player_id`; no extra secret is required.
 
-The service account must have the **Cloud Code Editor** role assigned in the Unity Dashboard.
+The service account must have the **Cloud Code Editor** role assigned on the target Unity project. These values are the service account key pair, not arbitrary Unity Secret Manager project secrets.
 
 ---
 

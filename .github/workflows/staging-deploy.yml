@@ -8,7 +8,6 @@
 #   UNITY_ENVIRONMENT             — UGS target environment name (e.g. "production")
 #   UNITY_PROJECT_SERVICE_ACCOUNT_KEY     - Project-scoped service account key ID
 #   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET  - Project-scoped service account secret
-#   ADMIN_SERVICE_TOKEN                   - Unity Secret Manager value used by admin endpoints
 
 name: Deploy Cloud Code Modules to Staging
 
@@ -80,7 +79,6 @@ jobs:
           ENVIRONMENT: ${{ secrets.UNITY_ENVIRONMENT }}
           ACCOUNT_KEY: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
           ACCOUNT_SECRET: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
-          ADMIN_TOKEN: ${{ secrets.ADMIN_SERVICE_TOKEN }}
         run: |
           set -e
           MISSING=""
@@ -88,7 +86,6 @@ jobs:
           [ -z "$ENVIRONMENT" ]    && MISSING="$MISSING UNITY_ENVIRONMENT"
           [ -z "$ACCOUNT_KEY" ]    && MISSING="$MISSING UNITY_PROJECT_SERVICE_ACCOUNT_KEY"
           [ -z "$ACCOUNT_SECRET" ] && MISSING="$MISSING UNITY_PROJECT_SERVICE_ACCOUNT_SECRET"
-          [ -z "$ADMIN_TOKEN" ]    && MISSING="$MISSING ADMIN_SERVICE_TOKEN"
           if [ -n "$MISSING" ]; then
             echo "ERROR: Missing required GitHub Secrets:$MISSING"
             echo "Configure them as repository secrets or attach this workflow to a GitHub Environment that provides them."
@@ -176,7 +173,6 @@ jobs:
           ENV_NAME:    ${{ secrets.UNITY_ENVIRONMENT }}
           SA_KEY:      ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
           SA_SECRET:   ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
-          ADMIN_TOKEN: ${{ secrets.ADMIN_SERVICE_TOKEN }}
           ADMIN_TEST_PLAYER_ID: ${{ inputs.admin_test_player_id }}
         run: |
           set -e
@@ -257,7 +253,7 @@ jobs:
             "senderName": "CI Deploy",
             "dedupKey": f"{run_tag}-global",
             "attachments": None,
-            "adminToken": os.environ["ADMIN_TOKEN"],
+            "adminToken": "",
             "operatorId": "github-actions"
           }}}))
           PY
@@ -285,7 +281,7 @@ jobs:
             "senderName": "CI Deploy",
             "dedupKey": f"{run_tag}-user",
             "attachments": None,
-            "adminToken": os.environ["ADMIN_TOKEN"],
+            "adminToken": "",
             "operatorId": "github-actions"
           }}}))
           PY

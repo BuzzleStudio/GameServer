@@ -53,8 +53,6 @@ Configure these as GitHub repository secrets or GitHub Environment secrets for w
 | `UNITY_ENVIRONMENT` | Unity Dashboard → your project → LiveOps → Environments → environment name |
 | `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | Unity Dashboard > Organization > Settings > Service Accounts > project-scoped account > **Key ID** |
 | `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | Same page - **Secret Key** (shown only once at key creation, store immediately) |
-| `ADMIN_SERVICE_TOKEN` | Unity Secret Manager > target environment > `ADMIN_SERVICE_TOKEN` |
-
 `SendUserMail` smoke test uses the optional `workflow_dispatch` input `admin_test_player_id`; no extra secret is required.
 
 **To create a service account:** Unity Dashboard > Organization > Settings > Service Accounts > Create service account > assign **Cloud Code Editor** only on this project > Add key.

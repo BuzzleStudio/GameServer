@@ -22,7 +22,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
     ///
     /// IMPORTANT: This editor tool calls Cloud Code through the UGS REST API using a
     /// project-scoped Unity service account as transport. Admin authorization is still
-    /// enforced server-side by ADMIN_SERVICE_TOKEN from Unity Secret Manager.
+    /// enforced server-side by the project-scoped service-account context.
     /// </summary>
     public class AdminMailWindow : EditorWindow
     {
@@ -61,7 +61,6 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         // Admin metadata
         // -----------------------------------------------------------------------
 
-        private string _adminToken  = string.Empty;
         private string _operatorId  = string.Empty;
 
         // -----------------------------------------------------------------------
@@ -165,9 +164,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawAdminWarning()
         {
             EditorGUILayout.HelpBox(
-                "Admin calls use UGS REST with a project-scoped Unity service account for transport. " +
-                "Authorization uses the ADMIN_SERVICE_TOKEN environment secret on the deployed Cloud Code module. " +
-                "Project/Environment/Key ID can be saved locally; secrets are session-only.",
+                "Admin calls use UGS REST with a project-scoped Unity service account. " +
+                "Project/Environment/Key ID can be saved locally; the service account secret is session-only.",
                 MessageType.Warning);
         }
 
@@ -190,7 +188,6 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawAdminCredentials()
         {
             EditorGUILayout.LabelField("Admin Metadata", EditorStyles.boldLabel);
-            _adminToken = EditorGUILayout.PasswordField("Admin Token (ADMIN_SERVICE_TOKEN)", _adminToken);
             _operatorId = EditorGUILayout.TextField("Operator ID (email)", _operatorId);
         }
 
@@ -239,7 +236,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _globalAttachmentsJson = EditorGUILayout.TextArea(_globalAttachmentsJson, GUILayout.MinHeight(50));
 
             EditorGUILayout.Space(4);
-            GUI.enabled = !_isBusy && HasRestCredentials() && HasAdminCredentials();
+            GUI.enabled = !_isBusy && HasRestCredentials() && HasOperatorId();
             if (GUILayout.Button("Send Global Mail"))
                 RunAsync(SendGlobalMailAsync);
             GUI.enabled = true;
@@ -267,7 +264,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _userAttachmentsJson = EditorGUILayout.TextArea(_userAttachmentsJson, GUILayout.MinHeight(50));
 
             EditorGUILayout.Space(4);
-            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_userTargetId) && HasAdminCredentials();
+            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_userTargetId) && HasOperatorId();
             if (GUILayout.Button("Send User Mail"))
                 RunAsync(SendUserMailAsync);
             GUI.enabled = true;
@@ -289,7 +286,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             GUI.enabled = false;
             if (GUILayout.Button("Delete Mail", GUILayout.Width(110)))
                 RunAsync(DeleteMailAsync);
-            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_manageMailId) && HasAdminCredentials();
+            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_manageMailId) && HasOperatorId();
             if (GUILayout.Button("Expire Global", GUILayout.Width(110)))
                 RunAsync(ExpireMailAsync);
             GUI.enabled = true;
@@ -305,7 +302,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 "PurgeExpired removes all expired refs from global_mail_index_v2 and deletes their mail_global_{id} keys. " +
                 "Run periodically for housekeeping.",
                 MessageType.Info);
-            GUI.enabled = !_isBusy && HasRestCredentials() && HasAdminCredentials();
+            GUI.enabled = !_isBusy && HasRestCredentials() && HasOperatorId();
             if (GUILayout.Button("Purge Expired", GUILayout.Width(120)))
                 RunAsync(PurgeExpiredAsync);
             GUI.enabled = true;
@@ -329,7 +326,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 _globalSubject.Trim(), _globalBody.Trim(),
                 expiresAt, category, sender, dedupKey, attachments,
-                _adminToken, _operatorId);
+                adminToken: null, operatorId: _operatorId);
 
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             string mailId = string.IsNullOrEmpty(result.mailId) ? result.globalMailId : result.mailId;
@@ -352,7 +349,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 _userTargetId.Trim(), _userSubject.Trim(), _userBody.Trim(),
                 expiresAt, category, sender, dedupKey, attachments,
-                _adminToken, _operatorId);
+                adminToken: null, operatorId: _operatorId);
 
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"SendUserMail: success={result.success} mailId={result.mailId} sentAt={result.sentAt}";
@@ -373,7 +370,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (string.IsNullOrWhiteSpace(_manageMailId))
                 throw new ArgumentException("Mail ID is required for Expire.");
             using var backendScope = UseRestBackend();
-            var result = await BackpackCloudCodeService.CallExpireMailAsync(_manageMailId.Trim(), _adminToken, _operatorId);
+            var result = await BackpackCloudCodeService.CallExpireMailAsync(_manageMailId.Trim(), adminToken: null, operatorId: _operatorId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"ExpireMail: success={result.success} mailId={result.mailId}";
         }
@@ -381,7 +378,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private async Task PurgeExpiredAsync()
         {
             using var backendScope = UseRestBackend();
-            var result = await BackpackCloudCodeService.CallPurgeExpiredAsync(_adminToken, _operatorId);
+            var result = await BackpackCloudCodeService.CallPurgeExpiredAsync(adminToken: null, operatorId: _operatorId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"PurgeExpired: success={result.success} purgedCount={result.purgedCount}";
         }
@@ -472,10 +469,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                    !string.IsNullOrWhiteSpace(_serviceSecret);
         }
 
-        private bool HasAdminCredentials()
+        private bool HasOperatorId()
         {
-            return !string.IsNullOrWhiteSpace(_operatorId) &&
-                   !string.IsNullOrWhiteSpace(_adminToken);
+            return !string.IsNullOrWhiteSpace(_operatorId);
         }
 
         private IDisposable UseRestBackend()
