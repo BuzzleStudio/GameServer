@@ -1,7 +1,10 @@
 using System;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Unity.Services.CloudCode.Apis;
+using Unity.Services.CloudCode.Core;
 
 namespace BackpackAdventures.CloudCode;
 
@@ -15,22 +18,23 @@ namespace BackpackAdventures.CloudCode;
 ///
 /// Call <see cref="RequireAdminToolAsync"/> at the top of every admin endpoint.
 /// It throws <see cref="UnauthorizedAccessException"/>(<see cref="MailboxError.Unauthorized"/>)
-/// on any failure condition. The method is synchronous — no Cloud Save I/O required.
+/// on any failure condition.
 ///
 /// Static helper — Cloud Code's DI only auto-provides IExecutionContext +
 /// IGameApiClient to module classes, NOT to custom registered services.
+/// Callers pass their injected _gameApiClient + _context through.
 /// </summary>
 public static class AdminAuth
 {
     /// <summary>
-    /// Synchronous token-based admin gate. Reads the expected token from the
-    /// <c>ADMIN_SERVICE_TOKEN</c> environment variable and compares it to
+    /// Async token-based admin gate. Reads the expected token from the
+    /// <c>ADMIN_SERVICE_TOKEN</c> Secret Manager secret and compares it to
     /// <paramref name="adminToken"/> using a constant-time byte comparison to
     /// prevent timing attacks.
     ///
     /// Throws <see cref="UnauthorizedAccessException"/>(<see cref="MailboxError.Unauthorized"/>)
     /// when:
-    ///   - <c>ADMIN_SERVICE_TOKEN</c> env var is null or empty (fail-closed)
+    ///   - secret fetch fails or returns null/empty (fail-closed)
     ///   - <paramref name="adminToken"/> is null or empty
     ///   - <paramref name="operatorId"/> is null or whitespace
     ///   - token comparison fails
@@ -38,10 +42,12 @@ public static class AdminAuth
     /// SECURITY: The token value is NEVER logged. Only <paramref name="operatorId"/> is
     /// written to the audit log.
     /// </summary>
+    /// <param name="gameApiClient">Injected game API client (provides SecretManager).</param>
+    /// <param name="context">Execution context passed to SecretManager.</param>
     /// <param name="adminToken">Token supplied by the caller in the request body.</param>
     /// <param name="operatorId">Operator identifier for audit logging (e.g. email address).</param>
     /// <param name="logger">Logger for audit and rejection events.</param>
-    public static void RequireAdminToolAsync(string adminToken, string operatorId, ILogger logger)
+    public static async Task RequireAdminToolAsync(IGameApiClient gameApiClient, IExecutionContext context, string adminToken, string operatorId, ILogger logger)
     {
         // Reject if operatorId is missing — required for audit log integrity.
         if (string.IsNullOrWhiteSpace(operatorId))
@@ -57,11 +63,21 @@ public static class AdminAuth
             throw new UnauthorizedAccessException(MailboxError.Unauthorized);
         }
 
-        // Fail-closed: if the env var is not configured, reject all admin calls.
-        string expected = System.Environment.GetEnvironmentVariable("ADMIN_SERVICE_TOKEN");
+        string? expected;
+        try
+        {
+            var secret = await gameApiClient.SecretManager.GetSecret(context, "ADMIN_SERVICE_TOKEN");
+            expected = secret?.Value;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Admin call rejected: failed to read ADMIN_SERVICE_TOKEN secret ({Message}) (operatorId={OperatorId}).", ex.Message, operatorId);
+            throw new UnauthorizedAccessException(MailboxError.Unauthorized);
+        }
+
         if (string.IsNullOrEmpty(expected))
         {
-            logger.LogWarning("Admin call rejected: ADMIN_SERVICE_TOKEN env var not configured (operatorId={OperatorId}).", operatorId);
+            logger.LogWarning("Admin call rejected: ADMIN_SERVICE_TOKEN secret empty/not found (operatorId={OperatorId}).", operatorId);
             throw new UnauthorizedAccessException(MailboxError.Unauthorized);
         }
 
