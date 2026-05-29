@@ -54,7 +54,6 @@ public class SendGlobalMailModule
                         request.DedupKey, existingRef.MailId);
                     return new SendGlobalMailResponse
                     {
-                        Success = true,
                         GlobalMailId = existingRef.MailId,
                         SentAt = existingRef.SentAt
                     };
@@ -139,7 +138,7 @@ public class SendGlobalMailModule
         }
 
         _logger.LogInformation("Global mail {MailId} stored by admin {OperatorId}", mailId, request.OperatorId);
-        return new SendGlobalMailResponse { Success = true, GlobalMailId = mailId, SentAt = sentAt };
+        return new SendGlobalMailResponse { GlobalMailId = mailId, SentAt = sentAt };
     }
 
     private static void ValidateRequest(string subject, string body, System.Collections.Generic.List<MailAttachment>? attachments)
@@ -159,3 +158,4 @@ public class SendGlobalMailModule
         }
     }
 }
+

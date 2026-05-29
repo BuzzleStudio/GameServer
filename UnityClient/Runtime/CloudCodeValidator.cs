@@ -12,11 +12,6 @@ namespace BackpackAdventures.CloudCode.Client
                 Debug.LogError("[CloudCodeValidator] HealthCheck: response is null");
                 return false;
             }
-            if (!response.success)
-            {
-                Debug.LogError("[CloudCodeValidator] HealthCheck: success=false, message=" + response.message);
-                return false;
-            }
             if (string.IsNullOrEmpty(response.message))
             {
                 Debug.LogError("[CloudCodeValidator] HealthCheck: message is missing");
@@ -35,11 +30,6 @@ namespace BackpackAdventures.CloudCode.Client
             if (response == null)
             {
                 Debug.LogError("[CloudCodeValidator] PlayerEcho: response is null");
-                return false;
-            }
-            if (!response.success)
-            {
-                Debug.LogError("[CloudCodeValidator] PlayerEcho: success=false");
                 return false;
             }
             if (string.IsNullOrEmpty(response.playerId))

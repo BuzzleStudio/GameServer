@@ -123,7 +123,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     if (existing.DedupKey == req.dedupKey)
                         return new SendGlobalMailResponse
                         {
-                            success = true,
                             globalMailId = existing.MailId,
                             mailId = existing.MailId,
                             sentAt = existing.SentAt
@@ -159,7 +158,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             return new SendGlobalMailResponse
             {
-                success      = true,
                 globalMailId = mailId,
                 mailId       = mailId,
                 sentAt       = sentAt
@@ -199,7 +197,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             EvictUserMailbox(mailbox);
             mailbox.Add(mail);
 
-            return new SendUserMailResponse { success = true, mailId = mailId, sentAt = sentAt };
+            return new SendUserMailResponse { mailId = mailId, sentAt = sentAt };
         }
 
         // ── GiftMail ───────────────────────────────────────────────────────────
@@ -249,7 +247,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             _giftsSentToday[senderId] = sent + 1;
 
-            return new GiftMailResponse { success = true, mailId = mailId, sentAt = sentAt };
+            return new GiftMailResponse { mailId = mailId, sentAt = sentAt };
         }
 
         // ── GetGlobalMails ─────────────────────────────────────────────────────
@@ -348,7 +346,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 mail.IsRead = true; // idempotent
             }
 
-            return new MarkMailReadResponse { success = true, mailId = req.mailId, isRead = true };
+            return new MarkMailReadResponse { mailId = req.mailId, isRead = true };
         }
 
         // ── MarkAllRead ────────────────────────────────────────────────────────
@@ -361,7 +359,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             return new MarkAllReadResponse
             {
-                success    = true,
                 lastReadAt = _clock.UtcNow.ToString("o")
             };
         }
@@ -389,7 +386,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 bool actuallyAlreadyClaimed = IsAlreadyClaimed(playerId, req.mailId, isGlobal);
                 return new ClaimAttachmentResponse
                 {
-                    success        = true,
                     mailId         = req.mailId,
                     alreadyClaimed = actuallyAlreadyClaimed
                 };
@@ -407,7 +403,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             var claimedIds = GetPlayerGlobalClaimedIds(playerId);
             if (claimedIds.Contains(mailId))
-                return new ClaimAttachmentResponse { success = true, mailId = mailId, alreadyClaimed = true };
+                return new ClaimAttachmentResponse { mailId = mailId, alreadyClaimed = true };
 
             if (gm.IsExpired(_clock.UtcNow))
                 throw new InvalidOperationException("MailExpired");
@@ -425,7 +421,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             return new ClaimAttachmentResponse
             {
-                success              = true,
                 mailId               = mailId,
                 alreadyClaimed       = false,
                 grantedAttachments   = gm.Attachments,
@@ -440,7 +435,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             if (mail == null) throw new InvalidOperationException("MailNotFound");
 
             if (mail.AttachmentClaimed)
-                return new ClaimAttachmentResponse { success = true, mailId = mailId, alreadyClaimed = true };
+                return new ClaimAttachmentResponse { mailId = mailId, alreadyClaimed = true };
 
             if (mail.IsExpired(_clock.UtcNow))
                 throw new InvalidOperationException("MailExpired");
@@ -460,7 +455,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             return new ClaimAttachmentResponse
             {
-                success              = true,
                 mailId               = mailId,
                 alreadyClaimed       = false,
                 grantedAttachments   = attachments,
@@ -487,7 +481,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 throw new InvalidOperationException("CannotDeleteUnclaimedReward");
 
             mailbox.Remove(mail);
-            return new DeleteMailResponse { success = true, mailId = req.mailId };
+            return new DeleteMailResponse { mailId = req.mailId };
         }
 
         // ── PurgeExpired ───────────────────────────────────────────────────────
@@ -512,7 +506,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             return new PurgeExpiredResponse
             {
-                success      = true,
                 purgedCount  = purgedCount,
                 purgedAt     = now.ToString("o")
             };
@@ -524,7 +517,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         {
             RequireAdmin(req.adminToken, req.operatorId);
             // Stub — known prod bug, no test currently exercises this path
-            return new ExpireMailResponse { success = true, mailId = req.mailId };
+            return new ExpireMailResponse { mailId = req.mailId };
         }
 
         // ── Eviction policy (§5.7 MailboxEviction) ────────────────────────────
@@ -682,7 +675,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var slice      = mails.Skip(startIdx).Take(pageSize).ToList();
             return new GetMailboxPageResponse
             {
-                success    = true,
                 mails      = slice,
                 totalCount = totalCount,
                 page       = page,
@@ -792,3 +784,6 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
     }
 }
+
+
+

@@ -43,7 +43,7 @@ public class DeleteMailModule
         await DeleteWithRetryAsync(playerId, request.MailId);
 
         _logger.LogInformation("DeleteMail success for mailId={MailId} by {PlayerId}", request.MailId, playerId);
-        return new DeleteMailResponse { Success = true, MailId = request.MailId };
+        return new DeleteMailResponse { MailId = request.MailId };
     }
 
     private async Task DeleteWithRetryAsync(string playerId, string mailId)
@@ -79,3 +79,4 @@ public class DeleteMailModule
         throw new InvalidOperationException(MailboxError.Conflict);
     }
 }
+

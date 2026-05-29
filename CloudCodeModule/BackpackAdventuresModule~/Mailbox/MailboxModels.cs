@@ -252,7 +252,6 @@ public class MailItemDto
 
 public class PagedMailResponse
 {
-    public bool          Success    { get; set; }
     public List<MailItemDto> Mails  { get; set; } = new();
     public int           TotalCount { get; set; }
     public int           Page       { get; set; }
@@ -336,47 +335,40 @@ public class ExpireMailRequest
 
 public class SendGlobalMailResponse
 {
-    public bool   Success      { get; set; }
     public string GlobalMailId { get; set; } = string.Empty;
     public string SentAt       { get; set; } = string.Empty;
 }
 
 public class SendUserMailResponse
 {
-    public bool   Success { get; set; }
     public string MailId  { get; set; } = string.Empty;
     public string SentAt  { get; set; } = string.Empty;
 }
 
 public class GiftMailResponse
 {
-    public bool   Success { get; set; }
     public string MailId  { get; set; } = string.Empty;
     public string SentAt  { get; set; } = string.Empty;
 }
 
 public class GetMailboxResponse
 {
-    public bool Success { get; set; }
     public List<MailItemDto> Mails { get; set; } = new();
 }
 
 public class MarkMailReadResponse
 {
-    public bool   Success { get; set; }
     public string MailId  { get; set; } = string.Empty;
     public bool   IsRead  { get; set; }
 }
 
 public class MarkAllReadResponse
 {
-    public bool   Success    { get; set; }
     public string LastReadAt { get; set; } = string.Empty;
 }
 
 public class ClaimAttachmentResponse
 {
-    public bool   Success          { get; set; }
     public string MailId           { get; set; } = string.Empty;
     public bool   AlreadyClaimed   { get; set; }
     public List<MailAttachment>? GrantedAttachments { get; set; }
@@ -384,20 +376,17 @@ public class ClaimAttachmentResponse
 
 public class DeleteMailResponse
 {
-    public bool   Success { get; set; }
     public string MailId  { get; set; } = string.Empty;
 }
 
 public class ExpireMailResponse
 {
-    public bool   Success { get; set; }
     public string MailId  { get; set; } = string.Empty;
     public string ExpiredAt { get; set; } = string.Empty;
 }
 
 public class PurgeExpiredResponse
 {
-    public bool Success      { get; set; }
     public int  PurgedCount  { get; set; }
     public string PurgedAt   { get; set; } = string.Empty;
 }

@@ -92,7 +92,7 @@ public class GiftMailModule
         }
 
         _logger.LogInformation("Gift mail {MailId} delivered from {SenderId} to {TargetPlayerId}", mailId, senderId, request.TargetPlayerId);
-        return new GiftMailResponse { Success = true, MailId = mailId, SentAt = sentAt };
+        return new GiftMailResponse { MailId = mailId, SentAt = sentAt };
     }
 
     private async Task InsertIntoTargetMailboxAsync(string targetPlayerId, UserMailItem newMail)
@@ -162,3 +162,4 @@ public class GiftMailModule
         }
     }
 }
+

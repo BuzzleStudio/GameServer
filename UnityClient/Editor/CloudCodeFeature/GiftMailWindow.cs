@@ -147,7 +147,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
             var result = await BackpackCloudCodeService.CallUserSendGiftMailAsync(targetId, subject, body);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"GiftMail: success={result.success} mailId={result.mailId} sentAt={result.sentAt}";
+            _statusMessage = $"GiftMail: mailId={result.mailId} sentAt={result.sentAt}";
         }
 
         // -----------------------------------------------------------------------
@@ -175,7 +175,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             }
             catch (Exception ex)
             {
-                _statusMessage = $"Error: {ex.Message}";
+                _statusMessage = ex is CloudCodeApiException apiEx
+                    ? $"Error: HTTP {apiEx.StatusCode} {apiEx.ErrorCode}"
+                    : $"Error: {ex.Message}";
                 _rawJson = ex.ToString();
                 Debug.LogError("[GiftMailWindow] " + ex.Message);
             }
@@ -187,3 +189,4 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         }
     }
 }
+

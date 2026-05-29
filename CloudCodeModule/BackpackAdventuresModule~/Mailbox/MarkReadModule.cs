@@ -45,7 +45,7 @@ public class MarkReadModule
             if (cached != null)
             {
                 _logger.LogInformation("MarkMailRead: idempotent replay for requestId={RequestId}", request.RequestId);
-                return new MarkMailReadResponse { Success = true, MailId = request.MailId, IsRead = true };
+                return new MarkMailReadResponse { MailId = request.MailId, IsRead = true };
             }
         }
 
@@ -63,7 +63,7 @@ public class MarkReadModule
             {
                 await IdempotencyService.StoreResponseAsync(
                     _gameApiClient, _context, playerId, request.RequestId, "MarkMailRead", request.MailId,
-                    new { success = true, isRead = true });
+                    new { isRead = true });
             }
             catch (Exception ex)
             {
@@ -72,7 +72,7 @@ public class MarkReadModule
         }
 
         _logger.LogInformation("MarkMailRead success for mailId={MailId}", request.MailId);
-        return new MarkMailReadResponse { Success = true, MailId = request.MailId, IsRead = true };
+        return new MarkMailReadResponse { MailId = request.MailId, IsRead = true };
     }
 
     [CloudCodeFunction("MarkAllRead")]
@@ -90,7 +90,7 @@ public class MarkReadModule
         await UpdateMetaLastReadAtWithRetryAsync(playerId, now);
 
         _logger.LogInformation("MarkAllRead complete for {PlayerId}", playerId);
-        return new MarkAllReadResponse { Success = true, LastReadAt = now };
+        return new MarkAllReadResponse { LastReadAt = now };
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
@@ -216,3 +216,4 @@ public class MarkReadModule
         state.ReadIds.RemoveAll(id => !liveIds.Contains(id));
     }
 }
+

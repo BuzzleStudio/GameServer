@@ -63,7 +63,7 @@ public class SendUserMailModule
         await InsertMailWithRetryAsync(request.TargetPlayerId, newMail);
 
         _logger.LogInformation("Admin user mail {MailId} sent to {TargetPlayerId} by {OperatorId}", mailId, request.TargetPlayerId, request.OperatorId);
-        return new SendUserMailResponse { Success = true, MailId = mailId, SentAt = sentAt };
+        return new SendUserMailResponse { MailId = mailId, SentAt = sentAt };
     }
 
     private async Task InsertMailWithRetryAsync(string targetPlayerId, UserMailItem newMail)
@@ -120,3 +120,4 @@ public class SendUserMailModule
         }
     }
 }
+

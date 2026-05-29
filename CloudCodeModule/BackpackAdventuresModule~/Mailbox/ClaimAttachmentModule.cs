@@ -55,7 +55,6 @@ public class ClaimAttachmentModule
                 _logger.LogInformation("ClaimAttachment: idempotent replay for requestId={RequestId}", requestId);
                 return new ClaimAttachmentResponse
                 {
-                    Success        = true,
                     MailId         = request.MailId,
                     AlreadyClaimed = false
                 };
@@ -77,7 +76,7 @@ public class ClaimAttachmentModule
             {
                 await IdempotencyService.StoreResponseAsync(
                     _gameApiClient, _context, playerId, requestId, "ClaimAttachment", request.MailId,
-                    new { success = true, alreadyClaimed = false });
+                    new { alreadyClaimed = false });
             }
             catch (Exception ex)
             {
@@ -115,7 +114,7 @@ public class ClaimAttachmentModule
 
         // Already claimed — return immediately without Economy call
         if (state.ClaimedIds.Contains(mailId))
-            return new ClaimAttachmentResponse { Success = true, MailId = mailId, AlreadyClaimed = true };
+            return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
 
         // Step 3: Validate
         if (payload.IsExpired())
@@ -142,13 +141,12 @@ public class ClaimAttachmentModule
             _logger.LogWarning(
                 "ClaimAttachment (global): write conflict after grant for mailId={MailId} — returning AlreadyClaimed (at-most-once tradeoff)",
                 mailId);
-            return new ClaimAttachmentResponse { Success = true, MailId = mailId, AlreadyClaimed = true };
+            return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
         }
 
         _logger.LogInformation("Global attachment claimed for mailId={MailId} by {PlayerId}", mailId, playerId);
         return new ClaimAttachmentResponse
         {
-            Success            = true,
             MailId             = mailId,
             AlreadyClaimed     = false,
             GrantedAttachments = payload.Attachments
@@ -163,7 +161,7 @@ public class ClaimAttachmentModule
         state ??= new PlayerGlobalMailState();
 
         if (state.ClaimedIds.Contains(v1Mail.GlobalMailId))
-            return new ClaimAttachmentResponse { Success = true, MailId = v1Mail.GlobalMailId, AlreadyClaimed = true };
+            return new ClaimAttachmentResponse { MailId = v1Mail.GlobalMailId, AlreadyClaimed = true };
 
         if (v1Mail.IsExpired())
             throw new InvalidOperationException(MailboxError.MailExpired);
@@ -184,12 +182,11 @@ public class ClaimAttachmentModule
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
             _logger.LogWarning("ClaimAttachment (v1 global): write conflict after grant — returning AlreadyClaimed");
-            return new ClaimAttachmentResponse { Success = true, MailId = v1Mail.GlobalMailId, AlreadyClaimed = true };
+            return new ClaimAttachmentResponse { MailId = v1Mail.GlobalMailId, AlreadyClaimed = true };
         }
 
         return new ClaimAttachmentResponse
         {
-            Success            = true,
             MailId             = v1Mail.GlobalMailId,
             AlreadyClaimed     = false,
             GrantedAttachments = v1Mail.Attachments
@@ -209,7 +206,7 @@ public class ClaimAttachmentModule
 
         // Already claimed — return immediately without Economy call
         if (mail.AttachmentClaimed)
-            return new ClaimAttachmentResponse { Success = true, MailId = mailId, AlreadyClaimed = true };
+            return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
 
         // Step 3: Validate
         if (mail.IsExpired())
@@ -238,13 +235,12 @@ public class ClaimAttachmentModule
             _logger.LogWarning(
                 "ClaimAttachment (user): write conflict after grant for mailId={MailId} — returning AlreadyClaimed",
                 mailId);
-            return new ClaimAttachmentResponse { Success = true, MailId = mailId, AlreadyClaimed = true };
+            return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
         }
 
         _logger.LogInformation("User attachment claimed for mailId={MailId} by {PlayerId}", mailId, playerId);
         return new ClaimAttachmentResponse
         {
-            Success            = true,
             MailId             = mailId,
             AlreadyClaimed     = false,
             GrantedAttachments = attachments
@@ -271,3 +267,4 @@ public class ClaimAttachmentModule
         }
     }
 }
+

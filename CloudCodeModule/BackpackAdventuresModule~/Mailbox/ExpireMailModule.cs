@@ -71,9 +71,9 @@ public class ExpireMailModule
 
         return new ExpireMailResponse
         {
-            Success = true,
             MailId = request.MailId,
             ExpiredAt = expiredAt
         };
     }
 }
+
