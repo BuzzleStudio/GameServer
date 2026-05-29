@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Threading.Tasks;
-using Unity.Services.Authentication;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -16,12 +20,16 @@ namespace BackpackAdventures.CloudCode.Client.Editor
     ///   - Send User:   targeted user mail (admin-gated)
     ///   - Manage:      delete / expire / purge expired (admin-gated)
     ///
-    /// IMPORTANT: Admin endpoints require a valid Admin Token (ADMIN_SERVICE_TOKEN env var
-    /// on the UGS Dashboard) and an Operator ID for audit logging. The token is never stored
-    /// persistently. All admin calls return 401 Unauthorized when the token is missing or invalid.
+    /// IMPORTANT: This editor tool calls Cloud Code through the UGS REST API with a Unity
+    /// service account. It does not use Play Mode, AuthenticationService, or CloudCodeService.
     /// </summary>
     public class AdminMailWindow : EditorWindow
     {
+        private const string ModuleName = "BackpackAdventuresModule";
+        private const string ProjectIdPrefKey = "BackpackAdventures.AdminMail.ProjectId";
+        private const string EnvironmentIdPrefKey = "BackpackAdventures.AdminMail.EnvironmentId";
+        private const string ServiceKeyIdPrefKey = "BackpackAdventures.AdminMail.ServiceKeyId";
+
         // -----------------------------------------------------------------------
         // Tabs
         // -----------------------------------------------------------------------
@@ -40,7 +48,16 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private Vector2 _scroll;
 
         // -----------------------------------------------------------------------
-        // Admin credentials (session-only, never persisted)
+        // REST/service-account credentials
+        // -----------------------------------------------------------------------
+
+        private string _projectId = string.Empty;
+        private string _environmentId = string.Empty;
+        private string _serviceKeyId = string.Empty;
+        private string _serviceSecret = string.Empty;
+
+        // -----------------------------------------------------------------------
+        // Admin metadata
         // -----------------------------------------------------------------------
 
         private string _adminToken  = string.Empty;
@@ -103,6 +120,13 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             window.Show();
         }
 
+        private void OnEnable()
+        {
+            _projectId = EditorPrefs.GetString(ProjectIdPrefKey, _projectId);
+            _environmentId = EditorPrefs.GetString(EnvironmentIdPrefKey, _environmentId);
+            _serviceKeyId = EditorPrefs.GetString(ServiceKeyIdPrefKey, _serviceKeyId);
+        }
+
         // -----------------------------------------------------------------------
         // GUI
         // -----------------------------------------------------------------------
@@ -111,8 +135,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             DrawHeader();
             DrawAdminWarning();
+            DrawServiceAccountCredentials();
             DrawAdminCredentials();
-            DrawSignInStatus();
+            DrawRestStatus();
             EditorGUILayout.Space(4);
             DrawTabs();
             EditorGUILayout.Space(4);
@@ -139,27 +164,42 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawAdminWarning()
         {
             EditorGUILayout.HelpBox(
-                "Admin endpoints require a valid Admin Token (ADMIN_SERVICE_TOKEN env var on the UGS Dashboard)\n" +
-                "and an Operator ID for audit logging. The token is never stored persistently.\n" +
-                "All admin calls return 401 Unauthorized when the token is missing or invalid.",
+                "Admin calls use UGS REST with a Unity service account. Project/Environment/Key ID can be saved locally; " +
+                "the service account secret and legacy admin token are session-only.",
                 MessageType.Warning);
+        }
+
+        private void DrawServiceAccountCredentials()
+        {
+            EditorGUILayout.LabelField("Service Account REST", EditorStyles.boldLabel);
+            _projectId = EditorGUILayout.TextField("Project ID", _projectId);
+            _environmentId = EditorGUILayout.TextField("Environment ID", _environmentId);
+            _serviceKeyId = EditorGUILayout.TextField("Service Key ID", _serviceKeyId);
+            _serviceSecret = EditorGUILayout.PasswordField("Service Secret", _serviceSecret);
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Save Project/Env/Key ID", GUILayout.Width(190)))
+                SaveRestPrefs();
+            if (GUILayout.Button("Clear Saved", GUILayout.Width(100)))
+                ClearRestPrefs();
+            EditorGUILayout.EndHorizontal();
         }
 
         private void DrawAdminCredentials()
         {
-            EditorGUILayout.LabelField("Admin Credentials", EditorStyles.boldLabel);
-            _adminToken = EditorGUILayout.PasswordField("Admin Token", _adminToken);
+            EditorGUILayout.LabelField("Admin Metadata", EditorStyles.boldLabel);
+            _adminToken = EditorGUILayout.PasswordField("Admin Token (legacy optional)", _adminToken);
             _operatorId = EditorGUILayout.TextField("Operator ID (email)", _operatorId);
         }
 
-        private void DrawSignInStatus()
+        private void DrawRestStatus()
         {
-            bool signedIn = IsSignedIn();
-            string label = signedIn
-                ? $"Signed in as: {AuthenticationService.Instance.PlayerId}"
-                : "Not signed in.";
+            bool ready = HasRestCredentials();
+            string label = ready
+                ? "REST service-account config ready. Play Mode is not required."
+                : "REST service-account config is incomplete.";
             Color prev = GUI.color;
-            GUI.color = signedIn ? Color.green : Color.yellow;
+            GUI.color = ready ? Color.green : Color.yellow;
             EditorGUILayout.LabelField(label, EditorStyles.miniLabel);
             GUI.color = prev;
         }
@@ -197,7 +237,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _globalAttachmentsJson = EditorGUILayout.TextArea(_globalAttachmentsJson, GUILayout.MinHeight(50));
 
             EditorGUILayout.Space(4);
-            GUI.enabled = !_isBusy && IsSignedIn() && HasAdminCredentials();
+            GUI.enabled = !_isBusy && HasRestCredentials() && HasOperatorId();
             if (GUILayout.Button("Send Global Mail"))
                 RunAsync(SendGlobalMailAsync);
             GUI.enabled = true;
@@ -225,7 +265,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _userAttachmentsJson = EditorGUILayout.TextArea(_userAttachmentsJson, GUILayout.MinHeight(50));
 
             EditorGUILayout.Space(4);
-            GUI.enabled = !_isBusy && IsSignedIn() && !string.IsNullOrWhiteSpace(_userTargetId) && HasAdminCredentials();
+            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_userTargetId) && HasOperatorId();
             if (GUILayout.Button("Send User Mail"))
                 RunAsync(SendUserMailAsync);
             GUI.enabled = true;
@@ -244,14 +284,18 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             EditorGUILayout.Space(4);
 
             EditorGUILayout.BeginHorizontal();
-            GUI.enabled = !_isBusy && IsSignedIn() && !string.IsNullOrWhiteSpace(_manageMailId);
+            GUI.enabled = false;
             if (GUILayout.Button("Delete Mail", GUILayout.Width(110)))
                 RunAsync(DeleteMailAsync);
-            GUI.enabled = !_isBusy && IsSignedIn() && !string.IsNullOrWhiteSpace(_manageMailId) && HasAdminCredentials();
+            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_manageMailId) && HasOperatorId();
             if (GUILayout.Button("Expire Global", GUILayout.Width(110)))
                 RunAsync(ExpireMailAsync);
             GUI.enabled = true;
             EditorGUILayout.EndHorizontal();
+            EditorGUILayout.HelpBox(
+                "Delete Mail is player-scoped and still requires a player-authenticated runtime call. " +
+                "Service-account editor flow supports admin global operations only.",
+                MessageType.Info);
 
             EditorGUILayout.Space(6);
             EditorGUILayout.LabelField("Purge All Expired Global Mails (admin)", EditorStyles.boldLabel);
@@ -259,7 +303,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 "PurgeExpired removes all expired refs from global_mail_index_v2 and deletes their mail_global_{id} keys. " +
                 "Run periodically for housekeeping.",
                 MessageType.Info);
-            GUI.enabled = !_isBusy && IsSignedIn() && HasAdminCredentials();
+            GUI.enabled = !_isBusy && HasRestCredentials() && HasOperatorId();
             if (GUILayout.Button("Purge Expired", GUILayout.Width(120)))
                 RunAsync(PurgeExpiredAsync);
             GUI.enabled = true;
@@ -272,7 +316,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private async Task SendGlobalMailAsync()
         {
             ValidateSubjectBody(_globalSubject, _globalBody);
-            await EnsureInitializedAsync();
+            using var backendScope = UseRestBackend();
 
             var attachments = ParseAttachmentsJson(_globalAttachmentsJson);
             string expiresAt = string.IsNullOrWhiteSpace(_globalExpiresAt) ? null : _globalExpiresAt.Trim();
@@ -295,7 +339,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (string.IsNullOrWhiteSpace(_userTargetId))
                 throw new ArgumentException("Target Player ID is required.");
             ValidateSubjectBody(_userSubject, _userBody);
-            await EnsureInitializedAsync();
+            using var backendScope = UseRestBackend();
 
             var attachments = ParseAttachmentsJson(_userAttachmentsJson);
             string expiresAt = string.IsNullOrWhiteSpace(_userExpiresAt) ? null : _userExpiresAt.Trim();
@@ -316,7 +360,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             if (string.IsNullOrWhiteSpace(_manageMailId))
                 throw new ArgumentException("Mail ID is required for Delete.");
-            await EnsureInitializedAsync();
+            using var backendScope = UseRestBackend();
             var result = await BackpackCloudCodeService.CallDeleteMailAsync(_manageMailId.Trim());
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"DeleteMail: success={result.success} mailId={result.mailId}";
@@ -326,7 +370,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             if (string.IsNullOrWhiteSpace(_manageMailId))
                 throw new ArgumentException("Mail ID is required for Expire.");
-            await EnsureInitializedAsync();
+            using var backendScope = UseRestBackend();
             var result = await BackpackCloudCodeService.CallExpireMailAsync(_manageMailId.Trim(), _adminToken, _operatorId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"ExpireMail: success={result.success} mailId={result.mailId}";
@@ -334,7 +378,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
         private async Task PurgeExpiredAsync()
         {
-            await EnsureInitializedAsync();
+            using var backendScope = UseRestBackend();
             var result = await BackpackCloudCodeService.CallPurgeExpiredAsync(_adminToken, _operatorId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"PurgeExpired: success={result.success} purgedCount={result.purgedCount}";
@@ -399,21 +443,49 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             }
         }
 
-        private static async Task EnsureInitializedAsync()
+        private void SaveRestPrefs()
         {
-            await BackpackCloudCodeService.InitializeAsync();
+            EditorPrefs.SetString(ProjectIdPrefKey, _projectId?.Trim() ?? string.Empty);
+            EditorPrefs.SetString(EnvironmentIdPrefKey, _environmentId?.Trim() ?? string.Empty);
+            EditorPrefs.SetString(ServiceKeyIdPrefKey, _serviceKeyId?.Trim() ?? string.Empty);
+            _statusMessage = "Saved Project ID, Environment ID, and Service Key ID.";
         }
 
-        private static bool IsSignedIn()
+        private void ClearRestPrefs()
         {
-            try { return AuthenticationService.Instance.IsSignedIn; }
-            catch { return false; }
+            EditorPrefs.DeleteKey(ProjectIdPrefKey);
+            EditorPrefs.DeleteKey(EnvironmentIdPrefKey);
+            EditorPrefs.DeleteKey(ServiceKeyIdPrefKey);
+            _projectId = string.Empty;
+            _environmentId = string.Empty;
+            _serviceKeyId = string.Empty;
+            _statusMessage = "Cleared saved REST config.";
         }
 
-        private bool HasAdminCredentials()
+        private bool HasRestCredentials()
         {
-            return !string.IsNullOrWhiteSpace(_adminToken) &&
-                   !string.IsNullOrWhiteSpace(_operatorId);
+            return !string.IsNullOrWhiteSpace(_projectId) &&
+                   !string.IsNullOrWhiteSpace(_environmentId) &&
+                   !string.IsNullOrWhiteSpace(_serviceKeyId) &&
+                   !string.IsNullOrWhiteSpace(_serviceSecret);
+        }
+
+        private bool HasOperatorId()
+        {
+            return !string.IsNullOrWhiteSpace(_operatorId);
+        }
+
+        private IDisposable UseRestBackend()
+        {
+            if (!HasRestCredentials())
+                throw new InvalidOperationException("Project ID, Environment ID, Service Key ID, and Service Secret are required.");
+
+            SaveRestPrefs();
+            return new BackendScope(new EditorRestCloudCodeBackend(
+                _projectId.Trim(),
+                _environmentId.Trim(),
+                _serviceKeyId.Trim(),
+                _serviceSecret));
         }
 
         private void RunAsync(Func<Task> action)
@@ -450,6 +522,101 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private class AttachmentListWrapper
         {
             public List<MailAttachment> items;
+        }
+
+        private sealed class BackendScope : IDisposable
+        {
+            private readonly ICloudCodeBackend _previousBackend;
+
+            public BackendScope(ICloudCodeBackend backend)
+            {
+                _previousBackend = BackpackCloudCodeService.Backend;
+                BackpackCloudCodeService.Backend = backend;
+            }
+
+            public void Dispose()
+            {
+                BackpackCloudCodeService.Backend = _previousBackend;
+            }
+        }
+
+        private sealed class EditorRestCloudCodeBackend : ICloudCodeBackend
+        {
+            private const string TokenExchangeUrl = "https://services.api.unity.com/auth/v1/token-exchange";
+            private const string CloudCodeBaseUrl = "https://cloud-code.services.api.unity.com";
+            private static readonly HttpClient HttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+
+            private readonly string _projectId;
+            private readonly string _environmentId;
+            private readonly string _serviceKeyId;
+            private readonly string _serviceSecret;
+            private string _accessToken;
+            private DateTime _accessTokenExpiresAtUtc;
+
+            public EditorRestCloudCodeBackend(string projectId, string environmentId, string serviceKeyId, string serviceSecret)
+            {
+                _projectId = projectId;
+                _environmentId = environmentId;
+                _serviceKeyId = serviceKeyId;
+                _serviceSecret = serviceSecret;
+            }
+
+            public async Task<T> CallEndpointAsync<T>(string endpoint, object request)
+            {
+                string accessToken = await GetAccessTokenAsync();
+                string url = $"{CloudCodeBaseUrl}/v1/projects/{Uri.EscapeDataString(_projectId)}/modules/{ModuleName}/{Uri.EscapeDataString(endpoint)}";
+                var payload = new JObject
+                {
+                    ["params"] = request == null
+                        ? new JObject()
+                        : new JObject { ["request"] = JToken.FromObject(request) }
+                };
+
+                string responseJson = await PostJsonAsync(url, payload.ToString(Formatting.None), accessToken, useBearer: true);
+                var response = JObject.Parse(responseJson);
+                JToken output = response["output"] ?? response;
+                return output.ToObject<T>();
+            }
+
+            private async Task<string> GetAccessTokenAsync()
+            {
+                if (!string.IsNullOrEmpty(_accessToken) && DateTime.UtcNow < _accessTokenExpiresAtUtc)
+                    return _accessToken;
+
+                string url = $"{TokenExchangeUrl}?projectId={Uri.EscapeDataString(_projectId)}&environmentId={Uri.EscapeDataString(_environmentId)}";
+                string credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_serviceKeyId}:{_serviceSecret}"));
+
+                using var message = new HttpRequestMessage(HttpMethod.Post, url);
+                message.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+                message.Content = new StringContent("{\"scopes\":[]}", Encoding.UTF8, "application/json");
+
+                using HttpResponseMessage response = await HttpClient.SendAsync(message);
+                string responseJson = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                    throw new InvalidOperationException($"Token exchange failed ({(int)response.StatusCode}): {responseJson}");
+
+                var tokenResponse = JObject.Parse(responseJson);
+                _accessToken = tokenResponse.Value<string>("accessToken");
+                if (string.IsNullOrEmpty(_accessToken))
+                    throw new InvalidOperationException("Token exchange response did not contain accessToken.");
+
+                _accessTokenExpiresAtUtc = DateTime.UtcNow.AddMinutes(5);
+                return _accessToken;
+            }
+
+            private static async Task<string> PostJsonAsync(string url, string json, string authToken, bool useBearer)
+            {
+                using var message = new HttpRequestMessage(HttpMethod.Post, url);
+                message.Headers.Authorization = new AuthenticationHeaderValue(useBearer ? "Bearer" : "Basic", authToken);
+                message.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                using HttpResponseMessage response = await HttpClient.SendAsync(message);
+                string responseJson = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                    throw new InvalidOperationException($"Cloud Code REST call failed ({(int)response.StatusCode}): {responseJson}");
+
+                return responseJson;
+            }
         }
     }
 }
