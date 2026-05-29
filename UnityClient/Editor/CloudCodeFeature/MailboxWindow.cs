@@ -10,16 +10,19 @@ namespace BackpackAdventures.CloudCode.Client.Editor
     /// <summary>
     /// Editor window for browsing a player's mailbox.
     /// MenuItem: Tool/CloudCodeFeature/Mailbox
-    /// Supports paginated fetch of user mails; per-mail Mark Read and Claim Attachment actions.
+    /// Supports paginated fetch of user/global mails; per-mail Mark Read and Claim Attachment actions.
     /// </summary>
     public class MailboxWindow : EditorWindow
     {
+        private enum MailboxScope { User, Global }
+        private static readonly string[] MailboxScopeLabels = { "User Mails", "Global Mails" };
         // -----------------------------------------------------------------------
         // State
         // -----------------------------------------------------------------------
 
         private int _page = 0;
         private int _pageSize = 20;
+        private MailboxScope _mailboxScope = MailboxScope.User;
         private bool _isBusy;
         private string _statusMessage = string.Empty;
         private string _rawJson = string.Empty;
@@ -62,8 +65,10 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
         private void DrawHeader()
         {
-            EditorGUILayout.LabelField("Mailbox — User Mails", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField("Reads GetUserMails with pagination. Mark Read / Claim per mail.",
+            string scopeLabel = _mailboxScope == MailboxScope.Global ? "Global Mails" : "User Mails";
+            string endpointLabel = _mailboxScope == MailboxScope.Global ? "GetGlobalMails" : "GetUserMails";
+            EditorGUILayout.LabelField($"Mailbox - {scopeLabel}", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"Reads {endpointLabel} with pagination. Mark Read / Claim per mail.",
                 EditorStyles.miniLabel);
             EditorGUILayout.Space(2);
         }
@@ -83,6 +88,18 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawPaginationControls()
         {
             EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Scope", GUILayout.Width(42));
+            EditorGUI.BeginChangeCheck();
+            int selectedScope = EditorGUILayout.Popup((int)_mailboxScope, MailboxScopeLabels, GUILayout.Width(110));
+            if (EditorGUI.EndChangeCheck())
+            {
+                _mailboxScope = (MailboxScope)selectedScope;
+                _page = 0;
+                _lastResponse = null;
+                _rawJson = string.Empty;
+                _mailFoldouts.Clear();
+            }
+            EditorGUILayout.Space(8);
             EditorGUILayout.LabelField("Page", GUILayout.Width(36));
             _page = EditorGUILayout.IntField(_page, GUILayout.Width(50));
             EditorGUILayout.LabelField("Page Size", GUILayout.Width(64));
@@ -107,7 +124,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             if (_lastResponse?.mails == null || _lastResponse.mails.Count == 0)
             {
-                EditorGUILayout.HelpBox("No mails loaded. Click 'Fetch Mailbox' to retrieve.", MessageType.Info);
+                EditorGUILayout.HelpBox("No mails loaded. Select scope and click 'Fetch Mailbox' to retrieve.", MessageType.Info);
                 return;
             }
 
@@ -130,6 +147,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 _mailFoldouts[index] = false;
 
             string foldLabel = $"[{mail.mailType ?? "?"}] {mail.subject ?? "(no subject)"}  |  " +
+                               $"Scope: {GetCurrentMailOwnershipType()}  " +
                                $"From: {mail.sender ?? mail.senderType ?? "?"}  " +
                                $"  Sent: {FormatDate(mail.sentAt)}" +
                                $"  Read: {(mail.isRead ? "Yes" : "No")}" +
@@ -160,16 +178,16 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (GUILayout.Button("Mark Read", GUILayout.Width(90)))
             {
                 string mailId = mail.mailId;
-                string mailType = mail.mailType ?? "Notification";
-                RunAsync(() => MarkReadAsync(mailId, mailType));
+                string ownershipType = GetCurrentMailOwnershipType();
+                RunAsync(() => MarkReadAsync(mailId, ownershipType));
             }
             GUI.enabled = !_isBusy && !mail.attachmentClaimed
                 && mail.attachments != null && mail.attachments.Count > 0;
             if (GUILayout.Button("Claim Attachment", GUILayout.Width(130)))
             {
                 string mailId = mail.mailId;
-                string mailType = mail.mailType ?? "Attachment";
-                RunAsync(() => ClaimAttachmentAsync(mailId, mailType));
+                string ownershipType = GetCurrentMailOwnershipType();
+                RunAsync(() => ClaimAttachmentAsync(mailId, ownershipType));
             }
             GUI.enabled = true;
             EditorGUILayout.EndHorizontal();
@@ -207,10 +225,12 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (_page < 0) { _page = 0; }
 
             await EnsureInitializedAsync();
-            _lastResponse = await BackpackCloudCodeService.CallGetMailboxAsync(_page, _pageSize);
+            _lastResponse = _mailboxScope == MailboxScope.Global
+                ? await BackpackCloudCodeService.CallGetGlobalMailsAsync(_page, _pageSize)
+                : await BackpackCloudCodeService.CallGetMailboxAsync(_page, _pageSize);
             _mailFoldouts.Clear();
             _rawJson = UnityEngine.JsonUtility.ToJson(_lastResponse, true);
-            _statusMessage = $"Fetched page {_lastResponse.page}. Total mails: {_lastResponse.totalCount}";
+            _statusMessage = $"Fetched {GetCurrentMailOwnershipType()} page {_lastResponse.page}. Total mails: {_lastResponse.totalCount}";
         }
 
         private async Task MarkReadAsync(string mailId, string mailType)
@@ -254,6 +274,11 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (DateTime.TryParse(iso, out var dt))
                 return dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
             return iso;
+        }
+
+        private string GetCurrentMailOwnershipType()
+        {
+            return _mailboxScope == MailboxScope.Global ? "global" : "user";
         }
 
         private void RunAsync(Func<Task> action)

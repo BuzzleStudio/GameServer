@@ -82,7 +82,7 @@ The existing mailbox (`feature/mailbox-cloudsave-system`) ships with nine produc
 
 ### 5.1 Cloud Save Schema — New + Migration
 
-All keys are in the **default** Cloud Save collection unless noted.
+All project-wide mailbox keys are in the **global_mail** Cloud Save custom data ID unless noted.
 
 #### New keys
 
@@ -878,7 +878,7 @@ If Unity MCP or UGS live backend is unavailable during verification:
 | Admin allowlist bootstrap — allowlist key must be created manually in UGS Dashboard before any admin calls work | Certain (by design) | HIGH on first deploy | Document exact bootstrap steps in `DEPLOYMENT.md`; add step to `staging-deploy.yml` summary; until bootstrapped, all admin calls return 401 (fail-closed is correct) |
 | `MailboxIntegrationTest.cs` deletion ordering — if QA deletes before new tests pass, we lose test coverage temporarily | Low | MEDIUM | Delete step 15 is last; QA must confirm all new tests pass before deleting the old file |
 | GitHub Actions secrets for staging-deploy — `UNITY_SERVICE_ACCOUNT_KEY` and `UNITY_SERVICE_ACCOUNT_SECRET` rotate; if rotated mid-sprint the post-deploy test step will fail | Low | LOW (CI only, not production) | Follow existing rotation procedure in `CICD.md`; new step uses same secrets, no new secrets needed |
-| Cloud Save custom key `mail_global_{mailId}` — `SetCustomItemAsync` currently uses `GlobalCustomId = "default"` collection; if UGS Dashboard collection name differs from "default", all writes fail | Medium | HIGH | Verify collection name in UGS Dashboard before first deploy; if different, update `CloudSaveHelper.GlobalCustomId` constant |
+| Cloud Save custom key `mail_global_{mailId}` — `SetCustomItemAsync` uses `GlobalCustomId = "global_mail"`; if UGS Dashboard custom data ID differs, all writes fail | Medium | HIGH | Verify custom data ID in UGS Dashboard before first deploy; if different, update `CloudSaveHelper.GlobalCustomId` constant |
 | `global_mail_index_v2` cap of 500 refs — if event mailing volume exceeds 500 active global mails simultaneously | Very Low | MEDIUM | Prune expired on every write; 500 active simultaneous global mails is an extreme case; add monitoring metric in future |
 
 ---
