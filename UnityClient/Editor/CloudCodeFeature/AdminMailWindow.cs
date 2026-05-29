@@ -20,8 +20,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
     ///   - Send User:   targeted user mail (admin-gated)
     ///   - Manage:      delete / expire / purge expired (admin-gated)
     ///
-    /// IMPORTANT: This editor tool calls Cloud Code through the UGS REST API with a Unity
-    /// service account. It does not use Play Mode, AuthenticationService, or CloudCodeService.
+    /// IMPORTANT: This editor tool calls Cloud Code through the UGS REST API using a
+    /// project-scoped Unity service account as transport. Admin authorization is still
+    /// enforced server-side by ADMIN_SERVICE_TOKEN from Unity Secret Manager.
     /// </summary>
     public class AdminMailWindow : EditorWindow
     {
@@ -48,7 +49,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private Vector2 _scroll;
 
         // -----------------------------------------------------------------------
-        // REST/service-account credentials
+        // REST/project-scoped service-account credentials
         // -----------------------------------------------------------------------
 
         private string _projectId = string.Empty;
@@ -164,18 +165,19 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawAdminWarning()
         {
             EditorGUILayout.HelpBox(
-                "Admin calls use UGS REST with a Unity service account. Project/Environment/Key ID can be saved locally; " +
-                "the service account secret and legacy admin token are session-only.",
+                "Admin calls use UGS REST with a project-scoped Unity service account for transport. " +
+                "Authorization uses the ADMIN_SERVICE_TOKEN environment secret on the deployed Cloud Code module. " +
+                "Project/Environment/Key ID can be saved locally; secrets are session-only.",
                 MessageType.Warning);
         }
 
         private void DrawServiceAccountCredentials()
         {
-            EditorGUILayout.LabelField("Service Account REST", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Project-Scoped Service Account REST", EditorStyles.boldLabel);
             _projectId = EditorGUILayout.TextField("Project ID", _projectId);
             _environmentId = EditorGUILayout.TextField("Environment ID", _environmentId);
-            _serviceKeyId = EditorGUILayout.TextField("Service Key ID", _serviceKeyId);
-            _serviceSecret = EditorGUILayout.PasswordField("Service Secret", _serviceSecret);
+            _serviceKeyId = EditorGUILayout.TextField("Project Service Key ID", _serviceKeyId);
+            _serviceSecret = EditorGUILayout.PasswordField("Project Service Secret", _serviceSecret);
 
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Save Project/Env/Key ID", GUILayout.Width(190)))
@@ -188,7 +190,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawAdminCredentials()
         {
             EditorGUILayout.LabelField("Admin Metadata", EditorStyles.boldLabel);
-            _adminToken = EditorGUILayout.PasswordField("Admin Token (legacy optional)", _adminToken);
+            _adminToken = EditorGUILayout.PasswordField("Admin Token (ADMIN_SERVICE_TOKEN)", _adminToken);
             _operatorId = EditorGUILayout.TextField("Operator ID (email)", _operatorId);
         }
 
@@ -196,8 +198,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             bool ready = HasRestCredentials();
             string label = ready
-                ? "REST service-account config ready. Play Mode is not required."
-                : "REST service-account config is incomplete.";
+                ? "Project-scoped REST transport ready. Play Mode is not required."
+                : "Project-scoped REST transport config is incomplete.";
             Color prev = GUI.color;
             GUI.color = ready ? Color.green : Color.yellow;
             EditorGUILayout.LabelField(label, EditorStyles.miniLabel);
@@ -237,7 +239,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _globalAttachmentsJson = EditorGUILayout.TextArea(_globalAttachmentsJson, GUILayout.MinHeight(50));
 
             EditorGUILayout.Space(4);
-            GUI.enabled = !_isBusy && HasRestCredentials() && HasOperatorId();
+            GUI.enabled = !_isBusy && HasRestCredentials() && HasAdminCredentials();
             if (GUILayout.Button("Send Global Mail"))
                 RunAsync(SendGlobalMailAsync);
             GUI.enabled = true;
@@ -265,7 +267,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _userAttachmentsJson = EditorGUILayout.TextArea(_userAttachmentsJson, GUILayout.MinHeight(50));
 
             EditorGUILayout.Space(4);
-            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_userTargetId) && HasOperatorId();
+            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_userTargetId) && HasAdminCredentials();
             if (GUILayout.Button("Send User Mail"))
                 RunAsync(SendUserMailAsync);
             GUI.enabled = true;
@@ -287,7 +289,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             GUI.enabled = false;
             if (GUILayout.Button("Delete Mail", GUILayout.Width(110)))
                 RunAsync(DeleteMailAsync);
-            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_manageMailId) && HasOperatorId();
+            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_manageMailId) && HasAdminCredentials();
             if (GUILayout.Button("Expire Global", GUILayout.Width(110)))
                 RunAsync(ExpireMailAsync);
             GUI.enabled = true;
@@ -303,7 +305,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 "PurgeExpired removes all expired refs from global_mail_index_v2 and deletes their mail_global_{id} keys. " +
                 "Run periodically for housekeeping.",
                 MessageType.Info);
-            GUI.enabled = !_isBusy && HasRestCredentials() && HasOperatorId();
+            GUI.enabled = !_isBusy && HasRestCredentials() && HasAdminCredentials();
             if (GUILayout.Button("Purge Expired", GUILayout.Width(120)))
                 RunAsync(PurgeExpiredAsync);
             GUI.enabled = true;
@@ -470,9 +472,10 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                    !string.IsNullOrWhiteSpace(_serviceSecret);
         }
 
-        private bool HasOperatorId()
+        private bool HasAdminCredentials()
         {
-            return !string.IsNullOrWhiteSpace(_operatorId);
+            return !string.IsNullOrWhiteSpace(_operatorId) &&
+                   !string.IsNullOrWhiteSpace(_adminToken);
         }
 
         private IDisposable UseRestBackend()

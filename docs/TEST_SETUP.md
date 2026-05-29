@@ -10,14 +10,14 @@ match that value.
 ## Step 1 — Configure the Admin Service Token
 
 The admin gate is now **token-based**, not allowlist-based. There is no Cloud Save
-setup required. Instead, configure an environment variable in the UGS Dashboard
-for the Cloud Code module.
+setup required. Instead, configure an Environment Secret in Unity Secret Manager
+for the target project/environment.
 
 ### Via UGS Dashboard (required before first run)
 
 1. Open the [Unity Gaming Services Dashboard](https://dashboard.unity3d.com).
-2. Navigate to your project > **Cloud Code** > **Modules** > **BackpackAdventuresModule**.
-3. Under **Environment Variables** (or **Secrets**), add:
+2. Navigate to your project > **DevOps** or **Project Settings** > **Secret Manager**.
+3. Select the target environment (for example `testing` or `staging`) and add:
 
 ```
 Name:  ADMIN_SERVICE_TOKEN
@@ -32,14 +32,14 @@ For production deployments, replace this with a strong random secret and update
 
 > **Fail-closed behaviour:** If `ADMIN_SERVICE_TOKEN` is absent or the token is
 > empty/wrong, all admin calls return `Unauthorized`. This is intentional per §5.3.
-> Admin positive tests will fail until the env var is configured.
+> Admin positive tests will fail until the environment secret is configured.
 
 ### How the gate works
 
-`AdminAuth.RequireAdminToolAsync` reads `ADMIN_SERVICE_TOKEN` from the server
-environment at call time. It compares the value to the `adminToken` field in
-the request body using `CryptographicOperations.FixedTimeEquals` (constant-time
-comparison) to prevent timing attacks. The token is never logged.
+`AdminAuth.RequireAdminToolAsync` reads `ADMIN_SERVICE_TOKEN` from Unity Secret
+Manager through `IGameApiClient.SecretManager`. It compares the value to the
+`adminToken` field in the request body using `CryptographicOperations.FixedTimeEquals`
+(constant-time comparison) to prevent timing attacks. The token is never logged.
 
 ---
 
