@@ -16,7 +16,6 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
-using Unity.Services.Authentication;
 
 namespace BackpackAdventures.CloudCode.Client.Tests
 {
@@ -125,7 +124,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "Expected: success=true, mail present in target's GetUserMails.")]
         public async Task P03_AdminSendUserMail_Succeeds()
         {
-            var selfId = AuthenticationService.Instance.PlayerId;
+            var selfId = MailboxTestHarness.CurrentPlayerId;
 
             var resp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 targetPlayerId: selfId,
@@ -195,7 +194,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "Expected: 2 mails returned, hasMore=false.")]
         public async Task P05_GetUserMails_ReturnsPaginatedResults()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed 5 user mails
             for (int i = 1; i <= 5; i++)
@@ -274,7 +273,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "Expected: both calls return success=true, isRead=true; no error on second call.")]
         public async Task P07_MarkMailRead_Idempotent()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed a user mail
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -309,7 +308,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "Expected: success=true, lastReadAt is a valid UTC timestamp.")]
         public async Task P08_MarkAllRead_SetsLastReadAt()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed 2 user mails
             for (int i = 1; i <= 2; i++)
@@ -377,7 +376,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "Expected: success=true, alreadyClaimed=false, mail attachmentClaimed=true in subsequent GetUserMails.")]
         public async Task P10_ClaimAttachment_User_GrantsReward()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed a user mail with attachment
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -449,7 +448,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "Expected: both responses identical; grant called exactly once.")]
         public async Task P12_ClaimAttachment_WithRequestId_Replays()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed user mail with attachment
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
@@ -491,7 +490,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "Expected: success=true; mail absent from subsequent GetUserMails.")]
         public async Task P13_DeleteMail_UserMail_Succeeds()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Seed a notification mail (no attachment — safe to delete)
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(

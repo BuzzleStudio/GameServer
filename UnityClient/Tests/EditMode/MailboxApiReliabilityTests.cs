@@ -11,10 +11,10 @@
 // See BLOCKED_TESTS section at the bottom of this file.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
-using Unity.Services.Authentication;
 
 namespace BackpackAdventures.CloudCode.Client.Tests
 {
@@ -102,32 +102,52 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -----------------------------------------------------------------------
 
         [Test]
-        [Explicit("R03: Requires backend fault injection. Run manually in a dedicated test env.")]
-        [Description("R03 — When IRewardGrantService throws RetryableGrantException, " +
-                     "ClaimAttachment must NOT set attachmentClaimed=true. " +
-                     "BLOCKED: Requires backend fault injection — cannot be triggered from client.")]
-        public async Task R03_GrantFailure_ClaimedFlagNotSet_BLOCKED()
+        [Description("R03 — FakeCloudCodeBackend.FailNextGrant() simulates RetryableGrantException. " +
+                     "ClaimAttachment must NOT set attachmentClaimed=true on the failed attempt. " +
+                     "A subsequent retry must succeed with alreadyClaimed=false (§5.4 step 8).")]
+        public async Task R03_GrantFailure_ClaimedFlagNotSet()
         {
-            // This test is blocked because the client cannot inject a fault into
-            // the backend IRewardGrantService. The expected server flow (§5.4 step 8):
-            //   - RetryableGrantException thrown by CloudSaveRewardGrantService
-            //   - Server returns GrantUnavailable (503)
-            //   - claimed flag remains false
-            //   - Subsequent ClaimAttachment call must succeed (not return AlreadyClaimed)
-            //
-            // Manual verification steps:
-            //   1. Deploy CloudCode with a modified CloudSaveRewardGrantService that throws
-            //      RetryableGrantException on the first call for a specific playerId.
-            //   2. Call ClaimAttachment — expect GrantUnavailable error.
-            //   3. Inspect mailbox_user_items via UGS Dashboard — attachmentClaimed must be false.
-            //   4. Call ClaimAttachment again (retry) — expect success=true, alreadyClaimed=false.
-            //
-            // This assertion documents the expected behaviour, not an executable test.
-            Assert.Inconclusive(
-                "R03: BLOCKED — requires backend fault injection via modified CloudSaveRewardGrantService. " +
-                "See manual verification steps in test body comments.");
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
-            await Task.CompletedTask; // suppress async warning
+            // Seed a user mail with attachment
+            var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
+                targetPlayerId: selfId,
+                subject: "R03 Grant Failure Test",
+                body: "R03 grant-failure path — claimed flag must stay false on failed grant",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(100),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+            Assert.IsTrue(sendResp.success, "R03: pre-condition send failed");
+            string mailId = sendResp.mailId;
+
+            // Arm one-shot grant failure (simulates RetryableGrantException §5.4 step 8)
+            MailboxTestHarness.CurrentFake.FailNextGrant();
+
+            // First claim — grant fails; attachmentClaimed must NOT be set
+            try
+            {
+                await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, "user");
+            }
+            catch (Exception)
+            {
+                // Grant failure may surface as an exception — expected
+            }
+
+            // Verify attachmentClaimed remains false after the failed grant
+            var getResp = await BackpackCloudCodeService.CallGetMailboxAsync(page: 0, pageSize: 50);
+            var mail = getResp?.mails?.FirstOrDefault(m => m.mailId == mailId);
+            Assert.IsNotNull(mail, "R03: mail must still be present after failed grant");
+            Assert.IsFalse(mail.attachmentClaimed,
+                "R03: attachmentClaimed must be false after a failed grant — setting it true before " +
+                "a successful grant would permanently lock the reward (§5.4 step 8).");
+
+            // Retry — no fault armed; must succeed with alreadyClaimed=false
+            var retryResp = await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, "user");
+            Assert.IsNotNull(retryResp, "R03: retry response must not be null");
+            Assert.IsTrue(retryResp.success, "R03: retry must succeed — grant was never completed");
+            Assert.IsFalse(retryResp.alreadyClaimed,
+                "R03: retry alreadyClaimed must be false — the failed first attempt must not consume the claim");
         }
 
         // -----------------------------------------------------------------------
@@ -138,13 +158,12 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -----------------------------------------------------------------------
 
         [Test]
-        [Explicit("R04: Requires seeding 200+ mails. Run in isolated test-data environment only.")]
-        [Description("R04 — Mailbox at softCap (200) with mix of claimed/unclaimed mails. " +
+[Description("R04 — Mailbox at softCap (200) with mix of claimed/unclaimed mails. " +
                      "Insert a new mail. Expected: insert succeeds; only safe mails evicted; " +
                      "unclaimed reward mails preserved. BLOCKED: destructive test.")]
         public async Task R04_EvictionPolicy_NeverDropUnclaimedReward_EXPLICIT()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             // Phase 1: Seed soft-cap worth of mails.
             // This seeds 180 claimed + 20 unclaimed reward mails = 200 total (softCap).
@@ -214,12 +233,11 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -----------------------------------------------------------------------
 
         [Test]
-        [Explicit("R05: Requires seeding 250 unclaimed reward mails. Run in isolated env only.")]
-        [Description("R05 — 250 mails in mailbox, all unclaimed rewards. " +
+[Description("R05 — 250 mails in mailbox, all unclaimed rewards. " +
                      "Expected: next insert returns MailboxFull error; no mail evicted.")]
         public async Task R05_EvictionPolicy_HardCapRejectsBeyond250_EXPLICIT()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
             const int hardCap = TestConstants.UserMailHardCap;  // 250
 
             // Seed hardCap unclaimed reward mails
@@ -275,23 +293,37 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -----------------------------------------------------------------------
 
         [Test]
-        [Explicit("R06: Requires manual UGS Dashboard seeding of global_mail_index (v1). Run manually.")]
-        [Description("R06 — global_mail_index_v2 absent, global_mail_index v1 exists. " +
-                     "Expected: GetGlobalMails returns v1 mails via compat layer. " +
-                     "BLOCKED: requires manual UGS Dashboard seeding.")]
-        public async Task R06_GlobalMailIndexV2_LegacyFallback_BLOCKED()
+        [Description("R06 — global_mail_index_v2 absent, global_mail_index v1 seeded via " +
+                     "FakeCloudCodeBackend.SeedLegacyV1GlobalIndex. " +
+                     "Expected: GetGlobalMails returns the v1-seeded mail via the legacy compat layer.")]
+        public async Task R06_GlobalMailIndexV2_LegacyFallback()
         {
-            // Manual verification steps:
-            //   1. In UGS Dashboard > Cloud Save > Custom Data, ensure global_mail_index_v2 is absent.
-            //   2. Manually seed global_mail_index with a v1 payload containing at least one mail ref.
-            //   3. Run GetGlobalMails — expect the v1 mail to appear in the response.
-            //   4. Send a new global mail — verify global_mail_index_v2 is now written;
-            //      global_mail_index remains unchanged (read-only compat).
-            Assert.Inconclusive(
-                "R06: BLOCKED — requires manual UGS Dashboard seeding of legacy global_mail_index key. " +
-                "See manual verification steps in test body comments.");
+            // Seed a v1 legacy mail via the fake's compat hook (simulates a player whose
+            // Cloud Save contains global_mail_index but no global_mail_index_v2).
+            var v1Mail = new MailItem
+            {
+                mailId          = "v1-legacy-mail-r06",
+                subject         = "R06 Legacy V1 Mail",
+                body            = "R06 v1 compatibility test",
+                sentAt          = MailboxTestHarness.Clock.UtcNow.AddHours(-1).ToString("o"),
+                expiresAt       = MailboxTestHarness.FutureExpiry(),
+                isRead          = false,
+                attachmentClaimed = false
+            };
 
-            await Task.CompletedTask;
+            MailboxTestHarness.CurrentFake.SeedLegacyV1GlobalIndex(new List<MailItem> { v1Mail });
+
+            // GetGlobalMails must surface the v1-seeded mail via the compat layer
+            var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+
+            Assert.IsNotNull(getResp, "R06: GetGlobalMails response must not be null");
+            Assert.IsTrue(getResp.success, "R06: success must be true");
+            Assert.IsNotNull(getResp.mails, "R06: mails must not be null");
+
+            bool v1MailFound = getResp.mails.Any(m => m.mailId == v1Mail.mailId);
+            Assert.IsTrue(v1MailFound,
+                $"R06: v1 legacy mail id={v1Mail.mailId} must appear in GetGlobalMails " +
+                "via the compat layer (global_mail_index → global_mail_index_v2 migration path).");
         }
 
         // -----------------------------------------------------------------------
@@ -303,13 +335,12 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -----------------------------------------------------------------------
 
         [Test]
-        [Explicit("R07: Requires 50 prior ClaimAttachment calls with unique requestIds. Slow test.")]
-        [Description("R07 — Idempotency cache has 50 entries + 1 new. " +
+[Description("R07 — Idempotency cache has 50 entries + 1 new. " +
                      "Expected: oldest entry pruned; new entry stored within 50-entry cap. " +
                      "Run only in dedicated performance environment.")]
         public async Task R07_IdempotencyCache_PrunesOldEntries_EXPLICIT()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
             const int cacheMax = 50;
 
             // Seed cacheMax unique claim calls to fill the idempotency cache
@@ -367,7 +398,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                      "exercised implicitly by C05 (concurrent double-fire).")]
         public async Task R08_MarkMailRead_SingleCall_Succeeds()
         {
-            string selfId = AuthenticationService.Instance.PlayerId;
+            string selfId = MailboxTestHarness.CurrentPlayerId;
 
             var sendResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 targetPlayerId: selfId,
