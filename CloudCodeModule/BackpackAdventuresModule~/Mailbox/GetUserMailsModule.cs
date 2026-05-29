@@ -81,7 +81,6 @@ public class GetUserMailsModule
         _logger.LogInformation("GetUserMails returning {Count}/{Total} for {PlayerId}", slice.Count, totalCount, playerId);
         return new PagedMailResponse
         {
-            Success    = true,
             Mails      = slice,
             TotalCount = totalCount,
             Page       = request.Page,
@@ -90,3 +89,4 @@ public class GetUserMailsModule
         };
     }
 }
+

@@ -46,7 +46,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
         [Test]
         [Description("R01 — Player with no mails calls GetUserMails. " +
-                     "Expected: success=true, mails=[], totalCount=0, hasMore=false. " +
+                     "Expected: mails=[], totalCount=0, hasMore=false. " +
                      "Must not return null or throw.")]
         public async Task R01_GetUserMails_FreshPlayer_EmptyList()
         {
@@ -57,7 +57,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var resp = await BackpackCloudCodeService.CallGetMailboxAsync(page: 0, pageSize: 20);
 
             Assert.IsNotNull(resp, "R01: GetUserMails response must not be null");
-            Assert.IsTrue(resp.success, "R01: success must be true even for empty mailbox");
+            Assert.IsNotNull(resp, "R01: success must be true even for empty mailbox");
             Assert.IsNotNull(resp.mails, "R01: mails must not be null (must be an empty list, not null)");
             Assert.IsFalse(resp.hasMore, resp.totalCount == 0
                 ? "R01: hasMore must be false when totalCount=0"
@@ -75,13 +75,13 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
         [Test]
         [Description("R02 — GetGlobalMails when no global mails have been sent. " +
-                     "Expected: success=true, mails=[] or list of active mails, no exception.")]
+                     "Expected: mails=[] or list of active mails, no exception.")]
         public async Task R02_GetGlobalMails_ReturnsValidResponse()
         {
             var resp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 20);
 
             Assert.IsNotNull(resp, "R02: GetGlobalMails response must not be null");
-            Assert.IsTrue(resp.success, "R02: success must be true");
+            Assert.IsNotNull(resp, "R02: success must be true");
             Assert.IsNotNull(resp.mails, "R02: mails must not be null");
             Assert.GreaterOrEqual(resp.totalCount, 0, "R02: totalCount must be >= 0");
             Assert.GreaterOrEqual(resp.mails.Count, 0, "R02: mails.Count must be >= 0");
@@ -118,7 +118,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 attachments: MailboxTestHarness.MakeCurrencyAttachment(100),
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "R03: pre-condition send failed");
+            Assert.IsNotNull(sendResp, "R03: pre-condition send failed");
             string mailId = sendResp.mailId;
 
             // Arm one-shot grant failure (simulates RetryableGrantException §5.4 step 8)
@@ -145,7 +145,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             // Retry — no fault armed; must succeed with alreadyClaimed=false
             var retryResp = await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, "user");
             Assert.IsNotNull(retryResp, "R03: retry response must not be null");
-            Assert.IsTrue(retryResp.success, "R03: retry must succeed — grant was never completed");
+            Assert.IsNotNull(retryResp, "R03: retry must succeed — grant was never completed");
             Assert.IsFalse(retryResp.alreadyClaimed,
                 "R03: retry alreadyClaimed must be false — the failed first attempt must not consume the claim");
         }
@@ -176,7 +176,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     body: "R04 eviction seed — claimed",
                     adminToken: TestConstants.AdminToken,
                     operatorId: TestConstants.OperatorId);
-                if (!s.success)
+                if (s == null)
                     Assert.Fail($"R04: seeding claimed mail {i} failed");
             }
 
@@ -192,7 +192,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     attachments: MailboxTestHarness.MakeCurrencyAttachment(100),
                     adminToken: TestConstants.AdminToken,
                     operatorId: TestConstants.OperatorId);
-                if (!s.success) Assert.Fail($"R04: seeding unclaimed reward {i} failed");
+                if (s == null) Assert.Fail($"R04: seeding unclaimed reward {i} failed");
                 unclaimedIds.Add(s.mailId);
             }
 
@@ -204,7 +204,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
 
-            Assert.IsTrue(insertResp.success,
+            Assert.IsNotNull(insertResp,
                 "R04: insert at softCap must succeed (eviction should make room)");
 
             // Phase 3: Verify all unclaimed reward mails are still present
@@ -251,7 +251,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     attachments: MailboxTestHarness.MakeCurrencyAttachment(1),
                     adminToken: TestConstants.AdminToken,
                     operatorId: TestConstants.OperatorId);
-                if (!s.success) Assert.Fail($"R05: seeding hard-cap mail {i} failed");
+                if (s == null) Assert.Fail($"R05: seeding hard-cap mail {i} failed");
             }
 
             // Attempt to insert one more — must fail with MailboxFull
@@ -268,7 +268,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     operatorId: TestConstants.OperatorId);
 
                 Assert.Fail(
-                    $"R05: Expected MailboxFull error but got success={overflowResp?.success}. " +
+                    $"R05: Expected MailboxFull error but got response={(overflowResp != null)}. " +
                     "Hard cap of 250 must be enforced.");
             }
             catch (Exception ex)
@@ -317,7 +317,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
 
             Assert.IsNotNull(getResp, "R06: GetGlobalMails response must not be null");
-            Assert.IsTrue(getResp.success, "R06: success must be true");
+            Assert.IsNotNull(getResp, "R06: success must be true");
             Assert.IsNotNull(getResp.mails, "R06: mails must not be null");
 
             bool v1MailFound = getResp.mails.Any(m => m.mailId == v1Mail.mailId);
@@ -355,7 +355,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     attachments: MailboxTestHarness.MakeCurrencyAttachment(1),
                     adminToken: TestConstants.AdminToken,
                     operatorId: TestConstants.OperatorId);
-                if (!s.success) Assert.Fail($"R07: seeding mail {i} failed");
+                if (s == null) Assert.Fail($"R07: seeding mail {i} failed");
 
                 string requestId = $"r07-request-{i:D5}";
                 await BackpackCloudCodeService.CallClaimAttachmentAsync(s.mailId, "user", requestId);
@@ -370,14 +370,14 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 attachments: MailboxTestHarness.MakeCurrencyAttachment(1),
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(newMail.success, "R07: overflow mail seed failed");
+            Assert.IsNotNull(newMail, "R07: overflow mail seed failed");
 
             string overflowRequestId = "r07-overflow-request";
             var claimResp = await BackpackCloudCodeService.CallClaimAttachmentAsync(
                 newMail.mailId, "user", overflowRequestId);
 
             Assert.IsNotNull(claimResp, "R07: overflow claim response must not be null");
-            Assert.IsTrue(claimResp.success, "R07: overflow claim must succeed");
+            Assert.IsNotNull(claimResp, "R07: overflow claim must succeed");
             // The oldest entry (r07-request-00000) should have been pruned.
             // We cannot directly inspect the cache from the client — this is verified
             // by the fact that the call succeeded (no cache corruption / size error).
@@ -406,13 +406,13 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 body: "R08 single mark read",
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "R08: pre-condition send failed");
+            Assert.IsNotNull(sendResp, "R08: pre-condition send failed");
 
             var markResp = await BackpackCloudCodeService.CallMarkMailReadAsync(
                 sendResp.mailId, "user");
 
             Assert.IsNotNull(markResp, "R08: MarkMailRead response must not be null");
-            Assert.IsTrue(markResp.success, "R08: MarkMailRead success must be true");
+            Assert.IsNotNull(markResp, "R08: MarkMailRead response must not be null");
             Assert.IsTrue(markResp.isRead, "R08: isRead must be true after MarkMailRead");
 
             // Confirm persistence
@@ -439,7 +439,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 page: 0, pageSize: TestConstants.PageSizeDefault);
 
             Assert.IsNotNull(resp, "R09: response must not be null");
-            Assert.IsTrue(resp.success, "R09: success must be true");
+            Assert.IsNotNull(resp, "R09: success must be true");
             Assert.LessOrEqual(resp.mails?.Count ?? 0, TestConstants.PageSizeDefault,
                 $"R09: mails.Count must be <= pageSize={TestConstants.PageSizeDefault}");
             Assert.AreEqual(0, resp.page, "R09: page field must echo back 0");
@@ -453,16 +453,18 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
         [Test]
         [Description("R10 — GetGlobalMails with pageSize=50 (at max limit). " +
-                     "Expected: success=true; mails.Count <= 50.")]
+                     "Expected: request succeeds; mails.Count <= 50.")]
         public async Task R10_GetGlobalMails_MaxPageSize_Valid()
         {
             var resp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(
                 page: 0, pageSize: TestConstants.PageSizeMax);
 
             Assert.IsNotNull(resp, "R10: response must not be null");
-            Assert.IsTrue(resp.success, "R10: success must be true for pageSize=50 (max valid)");
+            Assert.IsNotNull(resp, "R10: success must be true for pageSize=50 (max valid)");
             Assert.LessOrEqual(resp.mails?.Count ?? 0, TestConstants.PageSizeMax,
                 $"R10: mails.Count must be <= {TestConstants.PageSizeMax}");
         }
     }
 }
+
+

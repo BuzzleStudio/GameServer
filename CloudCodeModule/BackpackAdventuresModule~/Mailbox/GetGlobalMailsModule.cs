@@ -79,7 +79,6 @@ public class GetGlobalMailsModule
         _logger.LogInformation("GetGlobalMails returning {Count}/{Total} for {PlayerId}", slice.Count, totalCount, playerId);
         return new PagedMailResponse
         {
-            Success    = true,
             Mails      = slice,
             TotalCount = totalCount,
             Page       = request.Page,
@@ -164,3 +163,4 @@ public class GetGlobalMailsModule
         return dtos;
     }
 }
+

@@ -330,7 +330,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             string mailId = string.IsNullOrEmpty(result.mailId) ? result.globalMailId : result.mailId;
-            _statusMessage = $"SendGlobalMail: success={result.success} mailId={mailId} sentAt={result.sentAt}";
+            _statusMessage = $"SendGlobalMail: mailId={mailId} sentAt={result.sentAt}";
         }
 
         private async Task SendUserMailAsync()
@@ -352,7 +352,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 adminToken: null, operatorId: _operatorId);
 
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"SendUserMail: success={result.success} mailId={result.mailId} sentAt={result.sentAt}";
+            _statusMessage = $"SendUserMail: mailId={result.mailId} sentAt={result.sentAt}";
         }
 
         private async Task DeleteMailAsync()
@@ -362,7 +362,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             using var backendScope = UseRestBackend();
             var result = await BackpackCloudCodeService.CallDeleteMailAsync(_manageMailId.Trim());
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"DeleteMail: success={result.success} mailId={result.mailId}";
+            _statusMessage = $"DeleteMail: mailId={result.mailId}";
         }
 
         private async Task ExpireMailAsync()
@@ -372,7 +372,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             using var backendScope = UseRestBackend();
             var result = await BackpackCloudCodeService.CallExpireMailAsync(_manageMailId.Trim(), adminToken: null, operatorId: _operatorId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"ExpireMail: success={result.success} mailId={result.mailId}";
+            _statusMessage = $"ExpireMail: mailId={result.mailId}";
         }
 
         private async Task PurgeExpiredAsync()
@@ -380,7 +380,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             using var backendScope = UseRestBackend();
             var result = await BackpackCloudCodeService.CallPurgeExpiredAsync(adminToken: null, operatorId: _operatorId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"PurgeExpired: success={result.success} purgedCount={result.purgedCount}";
+            _statusMessage = $"PurgeExpired: purgedCount={result.purgedCount}";
         }
 
         // -----------------------------------------------------------------------
@@ -502,7 +502,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             }
             catch (Exception ex)
             {
-                _statusMessage = $"Error: {ex.Message}";
+                _statusMessage = ex is CloudCodeApiException apiEx
+                    ? $"Error: HTTP {apiEx.StatusCode} {apiEx.ErrorCode}"
+                    : $"Error: {ex.Message}";
                 _rawJson = ex.ToString();
                 Debug.LogError("[AdminMailWindow] " + ex.Message);
             }
@@ -562,19 +564,26 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
             public async Task<T> CallEndpointAsync<T>(string endpoint, object request)
             {
-                string accessToken = await GetAccessTokenAsync();
-                string url = $"{CloudCodeBaseUrl}/v1/projects/{Uri.EscapeDataString(_projectId)}/modules/{ModuleName}/{Uri.EscapeDataString(endpoint)}";
-                var payload = new JObject
+                try
                 {
-                    ["params"] = request == null
-                        ? new JObject()
-                        : new JObject { ["request"] = JToken.FromObject(request) }
-                };
+                    string accessToken = await GetAccessTokenAsync();
+                    string url = $"{CloudCodeBaseUrl}/v1/projects/{Uri.EscapeDataString(_projectId)}/modules/{ModuleName}/{Uri.EscapeDataString(endpoint)}";
+                    var payload = new JObject
+                    {
+                        ["params"] = request == null
+                            ? new JObject()
+                            : new JObject { ["request"] = JToken.FromObject(request) }
+                    };
 
-                string responseJson = await PostJsonAsync(url, payload.ToString(Formatting.None), accessToken, useBearer: true);
-                var response = JObject.Parse(responseJson);
-                JToken output = response["output"] ?? response;
-                return output.ToObject<T>();
+                    string responseJson = await PostJsonAsync(url, payload.ToString(Formatting.None), accessToken, useBearer: true);
+                    var response = JObject.Parse(responseJson);
+                    JToken output = response["output"] ?? response;
+                    return output.ToObject<T>();
+                }
+                catch (Exception ex)
+                {
+                    throw CloudCodeApiException.From(endpoint, ex);
+                }
             }
 
             private async Task<string> GetAccessTokenAsync()
@@ -619,3 +628,4 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         }
     }
 }
+

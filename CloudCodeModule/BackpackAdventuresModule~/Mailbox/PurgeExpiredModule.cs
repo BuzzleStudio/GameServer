@@ -41,7 +41,7 @@ public class PurgeExpiredModule
         if (index == null || index.Refs.Count == 0)
         {
             _logger.LogInformation("PurgeExpired: index empty, nothing to purge");
-            return new PurgeExpiredResponse { Success = true, PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
+            return new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
         }
 
         var expiredRefs = new List<GlobalMailRef>();
@@ -56,7 +56,7 @@ public class PurgeExpiredModule
         if (expiredRefs.Count == 0)
         {
             _logger.LogInformation("PurgeExpired: no expired refs found");
-            return new PurgeExpiredResponse { Success = true, PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
+            return new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
         }
 
         index.Refs = activeRefs;
@@ -93,9 +93,9 @@ public class PurgeExpiredModule
         _logger.LogInformation("PurgeExpired: removed {Count} expired refs by operatorId={OperatorId}", expiredRefs.Count, request.OperatorId);
         return new PurgeExpiredResponse
         {
-            Success     = true,
             PurgedCount = expiredRefs.Count,
             PurgedAt    = purgedAt
         };
     }
 }
+

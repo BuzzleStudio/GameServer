@@ -238,7 +238,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             await EnsureInitializedAsync();
             var result = await BackpackCloudCodeService.CallMarkMailReadAsync(mailId, mailType);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"MarkMailRead: success={result.success} isRead={result.isRead}";
+            _statusMessage = $"MarkMailRead: isRead={result.isRead}";
             // Refresh the list after marking read
             await FetchMailboxAsync();
         }
@@ -249,7 +249,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             string requestId = System.Guid.NewGuid().ToString();
             var result = await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, mailType, requestId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
-            _statusMessage = $"ClaimAttachment: success={result.success} alreadyClaimed={result.alreadyClaimed}";
+            _statusMessage = $"ClaimAttachment: alreadyClaimed={result.alreadyClaimed}";
             await FetchMailboxAsync();
         }
 
@@ -296,7 +296,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             }
             catch (Exception ex)
             {
-                _statusMessage = $"Error: {ex.Message}";
+                _statusMessage = ex is CloudCodeApiException apiEx
+                    ? $"Error: HTTP {apiEx.StatusCode} {apiEx.ErrorCode}"
+                    : $"Error: {ex.Message}";
                 _rawJson = ex.ToString();
                 Debug.LogError("[MailboxWindow] " + ex.Message);
             }
@@ -308,3 +310,4 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         }
     }
 }
+

@@ -67,7 +67,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 attachments: MailboxTestHarness.MakeCurrencyAttachment(999),
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "C01: pre-condition send failed");
+            Assert.IsNotNull(sendResp, "C01: pre-condition send failed");
             string mailId = sendResp.mailId;
 
             // Fire two claims simultaneously
@@ -83,8 +83,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             // Count how many calls returned a fresh (non-duplicate) grant
             int successCount = 0;
-            if (r1 != null && r1.success && !r1.alreadyClaimed) successCount++;
-            if (r2 != null && r2.success && !r2.alreadyClaimed) successCount++;
+            if (r1 != null && !r1.alreadyClaimed) successCount++;
+            if (r2 != null && !r2.alreadyClaimed) successCount++;
 
             // Acceptable outcomes:
             //   - Exactly one call succeeds with alreadyClaimed=false (writeLock worked)
@@ -95,15 +95,15 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             Assert.AreNotEqual(2, successCount,
                 "C01: BLOCKER — both concurrent claims returned alreadyClaimed=false. " +
                 "Double reward grant detected. WriteLock must prevent this. " +
-                $"r1=(success={r1?.success} alreadyClaimed={r1?.alreadyClaimed}) " +
-                $"r2=(success={r2?.success} alreadyClaimed={r2?.alreadyClaimed}) " +
+                $"r1=(response={(r1 != null)} alreadyClaimed={r1?.alreadyClaimed}) " +
+                $"r2=(response={(r2 != null)} alreadyClaimed={r2?.alreadyClaimed}) " +
                 $"ex1={ex1?.Message} ex2={ex2?.Message}");
 
             Assert.AreEqual(1, successCount,
                 "C01: Exactly one concurrent claim must succeed with alreadyClaimed=false. " +
                 $"Got successCount={successCount}. " +
-                $"r1=(success={r1?.success} alreadyClaimed={r1?.alreadyClaimed} ex={ex1?.Message}) " +
-                $"r2=(success={r2?.success} alreadyClaimed={r2?.alreadyClaimed} ex={ex2?.Message})");
+                $"r1=(response={(r1 != null)} alreadyClaimed={r1?.alreadyClaimed} ex={ex1?.Message}) " +
+                $"r2=(response={(r2 != null)} alreadyClaimed={r2?.alreadyClaimed} ex={ex2?.Message})");
         }
 
         // -----------------------------------------------------------------------
@@ -142,8 +142,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             Assert.IsNull(ex2, $"C02: second concurrent send threw: {ex2?.Message}");
             Assert.IsNotNull(r1, "C02: first send response must not be null");
             Assert.IsNotNull(r2, "C02: second send response must not be null");
-            Assert.IsTrue(r1.success, "C02: first send success must be true");
-            Assert.IsTrue(r2.success, "C02: second send success must be true");
+            Assert.IsNotNull(r1, "C02: first send success must be true");
+            Assert.IsNotNull(r2, "C02: second send success must be true");
 
             string id1 = r1.globalMailId ?? r1.mailId;
             string id2 = r2.globalMailId ?? r2.mailId;
@@ -156,7 +156,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             // Verify both refs are in the index
             var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
             Assert.IsNotNull(getResp, "C02: GetGlobalMails must not be null");
-            Assert.IsTrue(getResp.success, "C02: GetGlobalMails success must be true");
+            Assert.IsNotNull(getResp, "C02: GetGlobalMails success must be true");
 
             bool id1Present = getResp.mails?.Any(m => m.mailId == id1) ?? false;
             bool id2Present = getResp.mails?.Any(m => m.mailId == id2) ?? false;
@@ -189,7 +189,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 attachments: MailboxTestHarness.MakeCurrencyAttachment(50),
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "C03: pre-condition send failed");
+            Assert.IsNotNull(sendResp, "C03: pre-condition send failed");
 
             string requestId = Guid.NewGuid().ToString();
 
@@ -206,14 +206,14 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             try { r2 = await t2; } catch (Exception e) { ex2 = e; }
 
             // At least one call must return a non-error response
-            bool anySuccess = (r1 != null && r1.success) || (r2 != null && r2.success);
+            bool anySuccess = (r1 != null) || (r2 != null);
             Assert.IsTrue(anySuccess,
                 $"C03: At least one call must succeed. ex1={ex1?.Message} ex2={ex2?.Message}");
 
             // Count fresh grants (alreadyClaimed=false)
             int freshGrantCount = 0;
-            if (r1 != null && r1.success && !r1.alreadyClaimed) freshGrantCount++;
-            if (r2 != null && r2.success && !r2.alreadyClaimed) freshGrantCount++;
+            if (r1 != null && !r1.alreadyClaimed) freshGrantCount++;
+            if (r2 != null && !r2.alreadyClaimed) freshGrantCount++;
 
             // Same requestId must not yield two fresh grants
             Assert.LessOrEqual(freshGrantCount, 1,
@@ -243,7 +243,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 attachments: MailboxTestHarness.MakeCurrencyAttachment(10),
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(send1.success, "C04: pre-condition send A failed");
+            Assert.IsNotNull(send1, "C04: pre-condition send A failed");
 
             var send2 = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 targetPlayerId: selfId,
@@ -253,7 +253,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 attachments: MailboxTestHarness.MakeCurrencyAttachment(20),
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(send2.success, "C04: pre-condition send B failed");
+            Assert.IsNotNull(send2, "C04: pre-condition send B failed");
 
             // Claim both simultaneously
             var t1 = BackpackCloudCodeService.CallClaimAttachmentAsync(send1.mailId, "user");
@@ -271,8 +271,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             Assert.IsNotNull(r1, "C04: claim A response must not be null");
             Assert.IsNotNull(r2, "C04: claim B response must not be null");
-            Assert.IsTrue(r1.success, "C04: claim A success must be true");
-            Assert.IsTrue(r2.success, "C04: claim B success must be true");
+            Assert.IsNotNull(r1, "C04: claim A success must be true");
+            Assert.IsNotNull(r2, "C04: claim B success must be true");
             Assert.IsFalse(r1.alreadyClaimed,
                 "C04: claim A alreadyClaimed must be false — independent claims must not interfere");
             Assert.IsFalse(r2.alreadyClaimed,
@@ -286,7 +286,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
         [Test]
         [Description("C05 — Fire two concurrent MarkMailRead calls for the same mailId. " +
-                     "Expected: both return success=true, isRead=true; " +
+                     "Expected: both return isRead=true; " +
                      "mail is marked read exactly once (no duplicate readIds in global_state).")]
         public async Task C05_MarkMailRead_ConcurrentDoubleFire_NoDuplicate()
         {
@@ -299,7 +299,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 body: "C05 mark read concurrently",
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "C05: pre-condition send failed");
+            Assert.IsNotNull(sendResp, "C05: pre-condition send failed");
 
             // Fire two MarkMailRead simultaneously
             var t1 = BackpackCloudCodeService.CallMarkMailReadAsync(sendResp.mailId, "user");
@@ -312,8 +312,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             try { r2 = await t2; } catch (Exception e) { ex2 = e; }
 
             // Both calls must eventually result in success (MarkMailRead retries on 409 per §5.5)
-            bool r1Ok = (r1 != null && r1.success && r1.isRead) || ex1 == null;
-            bool r2Ok = (r2 != null && r2.success && r2.isRead) || ex2 == null;
+            bool r1Ok = (r1 != null && r1.isRead) || ex1 == null;
+            bool r2Ok = (r2 != null && r2.isRead) || ex2 == null;
 
             // We require that at minimum neither call throws an unexpected error
             if (ex1 != null && !MailboxTestHarness.IsInvalidInputError(ex1))
@@ -336,3 +336,5 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
     }
 }
+
+

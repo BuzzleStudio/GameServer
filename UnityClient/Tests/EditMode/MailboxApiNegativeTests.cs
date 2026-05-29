@@ -63,7 +63,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
                 // If call succeeds, the admin gate is missing — test failure
                 Assert.Fail(
-                    $"N01: Expected Unauthorized error but got success={resp?.success} mailId={resp?.mailId}. " +
+                    $"N01: Expected Unauthorized error but got response={(resp != null)} mailId={resp?.mailId}. " +
                     "SECURITY: Non-admin caller must not be able to send global mail.");
             }
             catch (Exception ex)
@@ -100,7 +100,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     operatorId: "test@invalid.test");
 
                 Assert.Fail(
-                    $"N02: Expected Unauthorized error but got success={resp?.success}. " +
+                    $"N02: Expected Unauthorized error but got response={(resp != null)}. " +
                     "SECURITY: Non-admin caller must not be able to send user mail via admin endpoint.");
             }
             catch (Exception ex)
@@ -138,7 +138,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     operatorId: TestConstants.OperatorId);
 
                 Assert.Fail(
-                    $"N03: Expected InvalidInput error but got success={resp?.success}. " +
+                    $"N03: Expected InvalidInput error but got response={(resp != null)}. " +
                     "Backend must reject empty subject.");
             }
             catch (Exception ex)
@@ -176,7 +176,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     operatorId: TestConstants.OperatorId);
 
                 Assert.Fail(
-                    $"N04: Expected InvalidInput for 129-char subject but got success={resp?.success}.");
+                    $"N04: Expected InvalidInput for 129-char subject but got response={(resp != null)}.");
             }
             catch (Exception ex)
             {
@@ -213,7 +213,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     operatorId: TestConstants.OperatorId);
 
                 Assert.Fail(
-                    $"N05: Expected InvalidInput for 1025-char body but got success={resp?.success}.");
+                    $"N05: Expected InvalidInput for 1025-char body but got response={(resp != null)}.");
             }
             catch (Exception ex)
             {
@@ -245,7 +245,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     "nonexistent-mail-id-000", "user");
 
                 Assert.Fail(
-                    $"N06: Expected MailNotFound error but got success={resp?.success}.");
+                    $"N06: Expected MailNotFound error but got response={(resp != null)}.");
             }
             catch (Exception ex)
             {
@@ -279,7 +279,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 body: "N07 no attachment",
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "N07: pre-condition send failed");
+            Assert.IsNotNull(sendResp, "N07: pre-condition send failed");
 
             bool threwNoAttachment = false;
             Exception caught = null;
@@ -290,7 +290,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     sendResp.mailId, "user");
 
                 Assert.Fail(
-                    $"N07: Expected NoAttachment error but got success={claimResp?.success}.");
+                    $"N07: Expected NoAttachment error but got response={(claimResp != null)}.");
             }
             catch (Exception ex)
             {
@@ -324,7 +324,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 attachments: MailboxTestHarness.MakeCurrencyAttachment(10),
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "N08: pre-condition expired send failed");
+            Assert.IsNotNull(sendResp, "N08: pre-condition expired send failed");
             string mailId = sendResp.globalMailId ?? sendResp.mailId;
 
             bool threwExpired = false;
@@ -336,7 +336,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     mailId, "global");
 
                 Assert.Fail(
-                    $"N08: Expected MailExpired error but got success={claimResp?.success}. " +
+                    $"N08: Expected MailExpired error but got response={(claimResp != null)}. " +
                     "SECURITY: Expired rewards must not be claimable.");
             }
             catch (Exception ex)
@@ -374,11 +374,11 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 attachments: MailboxTestHarness.MakeCurrencyAttachment(100),
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "N09: pre-condition send failed");
+            Assert.IsNotNull(sendResp, "N09: pre-condition send failed");
 
             // First claim
             var first = await BackpackCloudCodeService.CallClaimAttachmentAsync(sendResp.mailId, "user");
-            Assert.IsTrue(first.success, "N09: first claim must succeed");
+            Assert.IsNotNull(first, "N09: first claim must succeed");
             Assert.IsFalse(first.alreadyClaimed, "N09: first claim alreadyClaimed must be false");
 
             // Second claim — must return AlreadyClaimed or throw
@@ -422,7 +422,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 attachments: MailboxTestHarness.MakeCurrencyAttachment(200),
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "N10: pre-condition send failed");
+            Assert.IsNotNull(sendResp, "N10: pre-condition send failed");
 
             bool threwCannotDelete = false;
             Exception caught = null;
@@ -431,7 +431,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             {
                 var deleteResp = await BackpackCloudCodeService.CallDeleteMailAsync(sendResp.mailId);
                 Assert.Fail(
-                    $"N10: Expected CannotDeleteUnclaimedReward error but got success={deleteResp?.success}. " +
+                    $"N10: Expected CannotDeleteUnclaimedReward error but got response={(deleteResp != null)}. " +
                     "Deleting an unclaimed reward mail must be blocked.");
             }
             catch (Exception ex)
@@ -464,7 +464,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 body: "N11 should not be deletable via DeleteMail",
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
-            Assert.IsTrue(sendResp.success, "N11: pre-condition send failed");
+            Assert.IsNotNull(sendResp, "N11: pre-condition send failed");
             string globalMailId = sendResp.globalMailId ?? sendResp.mailId;
 
             bool threwCannotDelete = false;
@@ -474,7 +474,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             {
                 var deleteResp = await BackpackCloudCodeService.CallDeleteMailAsync(globalMailId);
                 Assert.Fail(
-                    $"N11: Expected CannotDeleteGlobal error but got success={deleteResp?.success}. " +
+                    $"N11: Expected CannotDeleteGlobal error but got response={(deleteResp != null)}. " +
                     "Global mails must not be deletable via the player DeleteMail endpoint.");
             }
             catch (Exception ex)
@@ -510,7 +510,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
                 Assert.Fail(
                     $"N12: Expected InvalidInput for pageSize={TestConstants.PageSizeOverLimit} " +
-                    $"but got success={resp?.success}.");
+                    $"but got response={(resp != null)}.");
             }
             catch (Exception ex)
             {
@@ -546,7 +546,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     body: "N13 should be rejected");
 
                 Assert.Fail(
-                    $"N13: Expected InvalidInput (no self-gift) but got success={resp?.success}.");
+                    $"N13: Expected InvalidInput (no self-gift) but got response={(resp != null)}.");
             }
             catch (Exception ex)
             {
@@ -604,7 +604,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     body: "N14 must be rejected");
 
                 Assert.Fail(
-                    $"N14: Expected GiftQuotaExceeded on 6th gift but got success={resp?.success}.");
+                    $"N14: Expected GiftQuotaExceeded on 6th gift but got response={(resp != null)}.");
             }
             catch (Exception ex)
             {
@@ -638,7 +638,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     adminToken: "invalid-token",
                     operatorId: "test@invalid.test");
                 Assert.Fail(
-                    $"N15: Expected Unauthorized error but got success={resp?.success}. " +
+                    $"N15: Expected Unauthorized error but got response={(resp != null)}. " +
                     "SECURITY: Non-admin must not be able to call PurgeExpired.");
             }
             catch (Exception ex)
@@ -742,3 +742,5 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
     }
 }
+
+

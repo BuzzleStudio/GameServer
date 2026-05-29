@@ -21,7 +21,6 @@ public class HealthCheckModule
         {
             return new HealthCheckResponse
             {
-                Success = true,
                 Message = "Cloud Code module online",
                 Timestamp = DateTime.UtcNow.ToString("o")
             };
@@ -36,7 +35,6 @@ public class HealthCheckModule
 
 public class HealthCheckResponse
 {
-    public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
     public string Timestamp { get; set; } = string.Empty;
 }

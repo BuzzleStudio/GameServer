@@ -6,7 +6,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class HealthCheckResponse
     {
-        public bool success;
         public string message;
         public string timestamp;
     }
@@ -20,7 +19,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class PlayerEchoResponse
     {
-        public bool success;
         public string playerId;
         public string serverTime;
     }
@@ -94,7 +92,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class SendGlobalMailResponse
     {
-        public bool success;
         public string mailId;
         public string globalMailId;               // server may return either field name
         public string sentAt;
@@ -122,7 +119,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class SendUserMailResponse
     {
-        public bool success;
         public string mailId;
         public string sentAt;
     }
@@ -140,7 +136,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class GiftMailResponse
     {
-        public bool success;
         public string mailId;
         public string sentAt;
     }
@@ -170,7 +165,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class GetMailboxResponse
     {
-        public bool success;
         public List<MailItem> mails;
     }
 
@@ -186,7 +180,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class GetMailboxPageResponse
     {
-        public bool success;
         public List<MailItem> mails;
         public int totalCount;
         public int page;
@@ -206,7 +199,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class MarkMailReadResponse
     {
-        public bool success;
         public string mailId;
         public bool isRead;
     }
@@ -216,7 +208,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class MarkAllReadResponse
     {
-        public bool success;
         public string lastReadAt;
     }
 
@@ -233,7 +224,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class ClaimAttachmentResponse
     {
-        public bool success;
         public string mailId;
         public bool alreadyClaimed;
         public List<MailAttachment> claimedAttachments;
@@ -251,7 +241,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class DeleteMailResponse
     {
-        public bool success;
         public string mailId;
     }
 
@@ -268,7 +257,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class ExpireMailResponse
     {
-        public bool success;
         public string mailId;
     }
 
@@ -277,7 +265,6 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class PurgeExpiredResponse
     {
-        public bool success;
         public int purgedCount;
         public string purgedAt;
     }

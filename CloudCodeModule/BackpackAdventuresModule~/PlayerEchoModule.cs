@@ -21,7 +21,6 @@ public class PlayerEchoModule
         {
             return new PlayerEchoResponse
             {
-                Success = true,
                 PlayerId = request.PlayerId,
                 ServerTime = DateTime.UtcNow.ToString("o")
             };
@@ -41,7 +40,6 @@ public class PlayerEchoRequest
 
 public class PlayerEchoResponse
 {
-    public bool Success { get; set; }
     public string PlayerId { get; set; } = string.Empty;
     public string ServerTime { get; set; } = string.Empty;
 }
