@@ -325,6 +325,13 @@ public class DeleteMailRequest
     [JsonPropertyName("mailId")] public string MailId { get; set; } = string.Empty;
 }
 
+public class ExpireMailRequest
+{
+    [JsonPropertyName("mailId")]      public string MailId      { get; set; } = string.Empty;
+    [JsonPropertyName("adminToken")]  public string AdminToken  { get; set; } = string.Empty;
+    [JsonPropertyName("operatorId")]  public string OperatorId  { get; set; } = string.Empty;
+}
+
 // ── Response types ─────────────────────────────────────────────────────────
 
 public class SendGlobalMailResponse
@@ -381,6 +388,13 @@ public class DeleteMailResponse
     public string MailId  { get; set; } = string.Empty;
 }
 
+public class ExpireMailResponse
+{
+    public bool   Success { get; set; }
+    public string MailId  { get; set; } = string.Empty;
+    public string ExpiredAt { get; set; } = string.Empty;
+}
+
 public class PurgeExpiredResponse
 {
     public bool Success      { get; set; }
@@ -410,5 +424,6 @@ public static class MailboxError
     public const string GiftQuotaExceeded         = "GiftQuotaExceeded";
     public const string CannotDeleteUnclaimedReward = "CannotDeleteUnclaimedReward";
     public const string CannotDeleteGlobal        = "CannotDeleteGlobal";
+    public const string CannotExpireUserMail      = "CannotExpireUserMail";
     public const string TargetMailboxFull         = "TargetMailboxFull";
 }
