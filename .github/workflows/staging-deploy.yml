@@ -6,8 +6,8 @@
 # Required GitHub Secrets:
 #   UNITY_PROJECT_ID              — Unity Dashboard project ID
 #   UNITY_ENVIRONMENT             — UGS target environment name (e.g. "production")
-#   UNITY_SERVICE_ACCOUNT_KEY     — Service account key ID from UGS Dashboard
-#   UNITY_SERVICE_ACCOUNT_SECRET  — Service account secret key
+#   UNITY_PROJECT_SERVICE_ACCOUNT_KEY     - Project-scoped service account key ID
+#   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET  - Project-scoped service account secret
 
 name: Deploy Cloud Code Modules to Staging
 
@@ -16,6 +16,11 @@ on:
     branches:
       - staging
   workflow_dispatch:
+    inputs:
+      admin_test_player_id:
+        description: 'Optional target Player ID for SendUserMail post-deploy smoke test'
+        required: false
+        type: string
 
 concurrency:
   group: staging-deploy
@@ -27,8 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
-      UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
+      UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
+      UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
 
     steps:
       # ------------------------------------------------------------------
@@ -72,18 +77,18 @@ jobs:
         env:
           PROJECT_ID: ${{ secrets.UNITY_PROJECT_ID }}
           ENVIRONMENT: ${{ secrets.UNITY_ENVIRONMENT }}
-          ACCOUNT_KEY: ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
-          ACCOUNT_SECRET: ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
+          ACCOUNT_KEY: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
+          ACCOUNT_SECRET: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
         run: |
           set -e
           MISSING=""
           [ -z "$PROJECT_ID" ]     && MISSING="$MISSING UNITY_PROJECT_ID"
           [ -z "$ENVIRONMENT" ]    && MISSING="$MISSING UNITY_ENVIRONMENT"
-          [ -z "$ACCOUNT_KEY" ]    && MISSING="$MISSING UNITY_SERVICE_ACCOUNT_KEY"
-          [ -z "$ACCOUNT_SECRET" ] && MISSING="$MISSING UNITY_SERVICE_ACCOUNT_SECRET"
+          [ -z "$ACCOUNT_KEY" ]    && MISSING="$MISSING UNITY_PROJECT_SERVICE_ACCOUNT_KEY"
+          [ -z "$ACCOUNT_SECRET" ] && MISSING="$MISSING UNITY_PROJECT_SERVICE_ACCOUNT_SECRET"
           if [ -n "$MISSING" ]; then
             echo "ERROR: Missing required GitHub Secrets:$MISSING"
-            echo "Configure them at: Settings > Secrets and variables > Actions"
+            echo "Configure them as repository secrets or attach this workflow to a GitHub Environment that provides them."
             exit 1
           fi
           echo "All required secrets are present."
@@ -157,16 +162,18 @@ jobs:
       #       https://cloud-code.services.api.unity.com/v1/projects/{p}/modules/{m}/{fn}
       #
       # TODO(qa-runner): Extend to the full MailboxTestRunner.RunAllAsync
-      #     once a headless Unity Test Runner invocation is wired. The
-      #     HealthCheck probe below stays as a fast smoke check.
+      #     once a headless Unity Test Runner invocation is wired. HealthCheck
+      #     plus admin SendGlobalMail stay as fast smoke checks. SendUserMail
+      #     also runs when workflow_dispatch input admin_test_player_id is set.
       # ------------------------------------------------------------------
-      - name: Post-deploy smoke test (HealthCheck)
+      - name: Post-deploy smoke test (HealthCheck + admin mail)
         continue-on-error: false
         env:
           PROJECT_ID:  ${{ secrets.UNITY_PROJECT_ID }}
           ENV_NAME:    ${{ secrets.UNITY_ENVIRONMENT }}
-          SA_KEY:      ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
-          SA_SECRET:   ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
+          SA_KEY:      ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
+          SA_SECRET:   ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
+          ADMIN_TEST_PLAYER_ID: ${{ inputs.admin_test_player_id }}
         run: |
           set -e
 
@@ -217,6 +224,80 @@ jobs:
             exit 1
           fi
           echo "HealthCheck passed."
+
+          call_module() {
+            local endpoint="$1"
+            local payload="$2"
+            curl -sf -X POST \
+              -H "Authorization: Bearer $ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              "https://cloud-code.services.api.unity.com/v1/projects/$PROJECT_ID/modules/BackpackAdventuresModule/$endpoint"
+          }
+
+          extract_mail_id() {
+            python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); o=d.get("output", d); print(o.get("globalMailId") or o.get("mailId") or "")'
+          }
+
+          export RUN_TAG="ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          echo "--- Smoke test: SendGlobalMail ---"
+          GLOBAL_PAYLOAD=$(python3 - <<'PY'
+          import json, os
+          run_tag = os.environ["RUN_TAG"]
+          print(json.dumps({"params":{"request":{
+            "subject": f"CI global smoke {run_tag}",
+            "body": "Post-deploy admin global mail smoke test.",
+            "expiresAt": None,
+            "mailCategory": "System",
+            "senderName": "CI Deploy",
+            "dedupKey": f"{run_tag}-global",
+            "attachments": None,
+            "adminToken": "",
+            "operatorId": "github-actions"
+          }}}))
+          PY
+          )
+          GLOBAL_RESPONSE=$(call_module "SendGlobalMail" "$GLOBAL_PAYLOAD")
+          GLOBAL_MAIL_ID=$(echo "$GLOBAL_RESPONSE" | extract_mail_id)
+          if [ -z "$GLOBAL_MAIL_ID" ] || ! echo "$GLOBAL_RESPONSE" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
+            echo "ERROR: SendGlobalMail did not return success:true with a mail id"
+            echo "Response: $GLOBAL_RESPONSE"
+            exit 1
+          fi
+          echo "SendGlobalMail passed: mailId=$GLOBAL_MAIL_ID"
+
+          if [ -n "${ADMIN_TEST_PLAYER_ID:-}" ]; then
+            echo "--- Smoke test: SendUserMail ---"
+            USER_PAYLOAD=$(python3 - <<'PY'
+          import json, os
+          run_tag = os.environ["RUN_TAG"]
+          print(json.dumps({"params":{"request":{
+            "targetPlayerId": os.environ["ADMIN_TEST_PLAYER_ID"],
+            "subject": f"CI user smoke {run_tag}",
+            "body": "Post-deploy admin user mail smoke test.",
+            "expiresAt": None,
+            "mailCategory": "System",
+            "senderName": "CI Deploy",
+            "dedupKey": f"{run_tag}-user",
+            "attachments": None,
+            "adminToken": "",
+            "operatorId": "github-actions"
+          }}}))
+          PY
+            )
+            USER_RESPONSE=$(call_module "SendUserMail" "$USER_PAYLOAD")
+            USER_MAIL_ID=$(echo "$USER_RESPONSE" | extract_mail_id)
+            if [ -z "$USER_MAIL_ID" ] || ! echo "$USER_RESPONSE" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
+              echo "ERROR: SendUserMail did not return success:true with a mail id"
+              echo "Response: $USER_RESPONSE"
+              exit 1
+            fi
+            echo "SendUserMail passed: mailId=$USER_MAIL_ID target=$ADMIN_TEST_PLAYER_ID"
+          else
+            echo "SendUserMail skipped: workflow_dispatch input admin_test_player_id was not provided."
+          fi
+
 
       # ------------------------------------------------------------------
       # 12. Write GitHub Actions job summary

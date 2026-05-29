@@ -87,8 +87,8 @@ Parse with a JUnit/NUnit reporter step:
 For headless CI without a Unity license, DevOps invokes a subset of API smoke tests
 using the UGS CLI against the deployed Cloud Code module.
 
-**Prerequisite:** UGS CLI installed and configured with `UNITY_SERVICE_ACCOUNT_KEY`
-and `UNITY_SERVICE_ACCOUNT_SECRET` environment variables.
+**Prerequisite:** UGS CLI installed and configured with `UNITY_PROJECT_SERVICE_ACCOUNT_KEY`
+and `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` environment variables from a project-scoped service account.
 
 #### Exact CLI commands (smoke suite)
 

@@ -68,23 +68,24 @@ Concurrency control (`group: staging-deploy`, `cancel-in-progress: false`) seria
 |---|---|
 | `UNITY_PROJECT_ID` | The Unity project ID from the Unity Dashboard (Settings > Project Settings > Project ID) |
 | `UNITY_ENVIRONMENT` | The UGS target environment name, e.g. `production` or `staging` (UGS Dashboard > Environments) |
-| `UNITY_SERVICE_ACCOUNT_KEY` | The service account key ID from UGS Dashboard (UGS Dashboard > Service Accounts > Keys) |
-| `UNITY_SERVICE_ACCOUNT_SECRET` | The secret paired with `UNITY_SERVICE_ACCOUNT_KEY` — shown once at key creation time |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | The project-scoped service account key ID from UGS Dashboard (UGS Dashboard > Service Accounts > Keys) |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | The secret paired with `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` - shown once at key creation time |
+`SendUserMail` smoke test uses the optional `workflow_dispatch` input `admin_test_player_id`; no extra secret is required.
 
-The service account must have the **Cloud Code Editor** role assigned in the Unity Dashboard.
+The service account must have the **Cloud Code Editor** role assigned on the target Unity project. These values are the service account key pair, not arbitrary Unity Secret Manager project secrets.
 
 ---
 
 ## 3. Setting Up GitHub Secrets
 
 1. Open the repository on GitHub.
-2. Go to **Settings > Secrets and variables > Actions**.
+2. Go to **Settings > Secrets and variables > Actions**, or to the GitHub Environment that runs this workflow.
 3. Click **New repository secret** for each secret listed above.
 4. Paste the value and click **Add secret**.
 
 Secrets are masked in all log output. Never commit secret values to the repository.
 
-If `UNITY_SERVICE_ACCOUNT_SECRET` was not saved at creation time, delete the key in the UGS Dashboard, create a new key pair, and update both `UNITY_SERVICE_ACCOUNT_KEY` and `UNITY_SERVICE_ACCOUNT_SECRET` in GitHub.
+If `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` was not saved at creation time, delete the key in the UGS Dashboard, create a new key pair, and update both `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` and `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` in GitHub.
 
 ---
 
@@ -142,8 +143,8 @@ Use only when re-deploying without new code changes. Prefer Option A or B.
 **Fix:** Pipe the secret via stdin — env vars alone don't work in CI's non-interactive shell:
 ```yaml
 run: |
-  echo "${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}" | ugs login \
-    --service-key-id "${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}" \
+echo "${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}" | ugs login \
+--service-key-id "${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}" \
     --secret-key-stdin
 ```
 For local use: `echo "<SECRET>" | ugs login --service-key-id <KEY_ID> --secret-key-stdin`
@@ -155,7 +156,7 @@ For local use: `echo "<SECRET>" | ugs login --service-key-id <KEY_ID> --secret-k
 **Symptom:** "Authenticate with UGS" step fails with `401` or `invalid credentials`.
 
 **Fixes:**
-- Verify `UNITY_SERVICE_ACCOUNT_KEY` and `UNITY_SERVICE_ACCOUNT_SECRET` are set correctly in GitHub Secrets.
+- Verify `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` and `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` are set correctly in GitHub Secrets.
 - Confirm the key pair was not deleted or rotated in the UGS Dashboard.
 - Check the service account has the **Cloud Code Editor** role on the correct project.
 

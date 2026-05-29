@@ -45,16 +45,17 @@ docs/
 
 ### 1. Configure GitHub Secrets
 
-Go to **Settings → Secrets and variables → Actions** in the repository and add:
+Configure these as GitHub repository secrets or GitHub Environment secrets for whichever environment runs the workflow:
 
 | Secret | Where to find it |
 |--------|-----------------|
 | `UNITY_PROJECT_ID` | Unity Dashboard → your project → Settings → General → **Project ID** |
 | `UNITY_ENVIRONMENT` | Unity Dashboard → your project → LiveOps → Environments → environment name |
-| `UNITY_SERVICE_ACCOUNT_KEY` | Unity Dashboard → Organization → Settings → Service Accounts → your account → **Key ID** |
-| `UNITY_SERVICE_ACCOUNT_SECRET` | Same page — **Secret Key** (shown only once at key creation, store immediately) |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | Unity Dashboard > Organization > Settings > Service Accounts > project-scoped account > **Key ID** |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | Same page - **Secret Key** (shown only once at key creation, store immediately) |
+`SendUserMail` smoke test uses the optional `workflow_dispatch` input `admin_test_player_id`; no extra secret is required.
 
-**To create a service account:** Unity Dashboard → Organization → Settings → Service Accounts → Create service account → assign role **Cloud Code Editor** → Add key.
+**To create a service account:** Unity Dashboard > Organization > Settings > Service Accounts > Create service account > assign **Cloud Code Editor** only on this project > Add key.
 
 ### 2. Deploy
 
@@ -63,7 +64,7 @@ Push to `staging` — the pipeline runs automatically.
 For manual local deploy:
 ```bash
 npm install -g ugs
-ugs login --service-key-id <UNITY_SERVICE_ACCOUNT_KEY> --secret-key-stdin <<< "<UNITY_SERVICE_ACCOUNT_SECRET>"
+ugs login --service-key-id <UNITY_PROJECT_SERVICE_ACCOUNT_KEY> --secret-key-stdin <<< "<UNITY_PROJECT_SERVICE_ACCOUNT_SECRET>"
 ugs config set project-id <UNITY_PROJECT_ID>
 ugs config set environment-name <UNITY_ENVIRONMENT>
 ugs deploy CloudCodeModule/BackpackAdventures.ccmr

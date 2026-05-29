@@ -20,8 +20,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
     ///   - Send User:   targeted user mail (admin-gated)
     ///   - Manage:      delete / expire / purge expired (admin-gated)
     ///
-    /// IMPORTANT: This editor tool calls Cloud Code through the UGS REST API with a Unity
-    /// service account. It does not use Play Mode, AuthenticationService, or CloudCodeService.
+    /// IMPORTANT: This editor tool calls Cloud Code through the UGS REST API using a
+    /// project-scoped Unity service account as transport. Admin authorization is still
+    /// enforced server-side by the project-scoped service-account context.
     /// </summary>
     public class AdminMailWindow : EditorWindow
     {
@@ -48,7 +49,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private Vector2 _scroll;
 
         // -----------------------------------------------------------------------
-        // REST/service-account credentials
+        // REST/project-scoped service-account credentials
         // -----------------------------------------------------------------------
 
         private string _projectId = string.Empty;
@@ -60,7 +61,6 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         // Admin metadata
         // -----------------------------------------------------------------------
 
-        private string _adminToken  = string.Empty;
         private string _operatorId  = string.Empty;
 
         // -----------------------------------------------------------------------
@@ -164,18 +164,18 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawAdminWarning()
         {
             EditorGUILayout.HelpBox(
-                "Admin calls use UGS REST with a Unity service account. Project/Environment/Key ID can be saved locally; " +
-                "the service account secret and legacy admin token are session-only.",
+                "Admin calls use UGS REST with a project-scoped Unity service account. " +
+                "Project/Environment/Key ID can be saved locally; the service account secret is session-only.",
                 MessageType.Warning);
         }
 
         private void DrawServiceAccountCredentials()
         {
-            EditorGUILayout.LabelField("Service Account REST", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Project-Scoped Service Account REST", EditorStyles.boldLabel);
             _projectId = EditorGUILayout.TextField("Project ID", _projectId);
             _environmentId = EditorGUILayout.TextField("Environment ID", _environmentId);
-            _serviceKeyId = EditorGUILayout.TextField("Service Key ID", _serviceKeyId);
-            _serviceSecret = EditorGUILayout.PasswordField("Service Secret", _serviceSecret);
+            _serviceKeyId = EditorGUILayout.TextField("Project Service Key ID", _serviceKeyId);
+            _serviceSecret = EditorGUILayout.PasswordField("Project Service Secret", _serviceSecret);
 
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Save Project/Env/Key ID", GUILayout.Width(190)))
@@ -188,7 +188,6 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawAdminCredentials()
         {
             EditorGUILayout.LabelField("Admin Metadata", EditorStyles.boldLabel);
-            _adminToken = EditorGUILayout.PasswordField("Admin Token (legacy optional)", _adminToken);
             _operatorId = EditorGUILayout.TextField("Operator ID (email)", _operatorId);
         }
 
@@ -196,8 +195,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             bool ready = HasRestCredentials();
             string label = ready
-                ? "REST service-account config ready. Play Mode is not required."
-                : "REST service-account config is incomplete.";
+                ? "Project-scoped REST transport ready. Play Mode is not required."
+                : "Project-scoped REST transport config is incomplete.";
             Color prev = GUI.color;
             GUI.color = ready ? Color.green : Color.yellow;
             EditorGUILayout.LabelField(label, EditorStyles.miniLabel);
@@ -327,7 +326,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 _globalSubject.Trim(), _globalBody.Trim(),
                 expiresAt, category, sender, dedupKey, attachments,
-                _adminToken, _operatorId);
+                adminToken: null, operatorId: _operatorId);
 
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             string mailId = string.IsNullOrEmpty(result.mailId) ? result.globalMailId : result.mailId;
@@ -350,7 +349,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
                 _userTargetId.Trim(), _userSubject.Trim(), _userBody.Trim(),
                 expiresAt, category, sender, dedupKey, attachments,
-                _adminToken, _operatorId);
+                adminToken: null, operatorId: _operatorId);
 
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"SendUserMail: success={result.success} mailId={result.mailId} sentAt={result.sentAt}";
@@ -371,7 +370,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (string.IsNullOrWhiteSpace(_manageMailId))
                 throw new ArgumentException("Mail ID is required for Expire.");
             using var backendScope = UseRestBackend();
-            var result = await BackpackCloudCodeService.CallExpireMailAsync(_manageMailId.Trim(), _adminToken, _operatorId);
+            var result = await BackpackCloudCodeService.CallExpireMailAsync(_manageMailId.Trim(), adminToken: null, operatorId: _operatorId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"ExpireMail: success={result.success} mailId={result.mailId}";
         }
@@ -379,7 +378,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private async Task PurgeExpiredAsync()
         {
             using var backendScope = UseRestBackend();
-            var result = await BackpackCloudCodeService.CallPurgeExpiredAsync(_adminToken, _operatorId);
+            var result = await BackpackCloudCodeService.CallPurgeExpiredAsync(adminToken: null, operatorId: _operatorId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"PurgeExpired: success={result.success} purgedCount={result.purgedCount}";
         }
