@@ -90,3 +90,70 @@ Add `CloudCodeIntegrationTest` MonoBehaviour to any GameObject to run all 3 APIs
 | `ServerConfig` | — | `{ environment, version, deploymentTime }` |
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full documentation.
+
+---
+
+## Mailbox System
+
+Cloud Save-backed in-game mail with global broadcast and targeted player delivery.
+
+### Architecture
+
+```
+Unity Client
+  └─► Cloud Code C# Module (BackpackAdventuresModule)
+        ├─► SendGlobalMail  — broadcast to all players via Cloud Save custom key
+        ├─► SendUserMail    — targeted mail to a specific player
+        ├─► GetMailbox      — fetch merged mailbox with read/claim status [not yet deployed]
+        ├─► MarkMailRead    — mark a mail as read [not yet deployed]
+        └─► ClaimAttachment — claim attachment with idempotency guard [not yet deployed]
+
+Cloud Save Keys:
+  global_mails   (custom, project-wide)  — broadcast mail list
+  user_mails     (player)                — targeted mail list per player
+  mailbox_state  (player)                — ReadIds[], ClaimedIds[] per player
+```
+
+### Mailbox API Quick Reference
+
+| Function | Status | Input | Output |
+|----------|--------|-------|--------|
+| `SendGlobalMail` | Implemented, not yet committed | `{ subject, body, expiresAt?, attachments? }` | `{ success, mailId }` |
+| `SendUserMail` | Implemented, not yet committed | `{ userId, subject, body, expiresAt?, attachments? }` | `{ success, mailId }` |
+| `GetMailbox` | Implemented, not yet committed | — | `{ success, mails[] }` |
+| `MarkMailRead` | Implemented, not yet committed | `{ mailIds[] }` | `{ success }` |
+| `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` | `{ success, claimedItems[] }` |
+
+### Quick Usage Example
+
+```csharp
+// Initialize once
+await BackpackCloudCodeService.InitializeAsync();
+
+// Send a global broadcast mail with an attachment
+var response = await BackpackCloudCodeService.SendGlobalMailAsync(
+    subject: "Maintenance Reward",
+    body: "Thanks for your patience!",
+    expiresAt: "2026-06-30T00:00:00Z",
+    attachments: new List<MailAttachment>
+    {
+        new MailAttachment { type = "currency", id = "gem", amount = 50 }
+    }
+);
+Debug.Log($"Mail broadcast: {response.mailId}");
+
+// Send a targeted mail to a player
+await BackpackCloudCodeService.SendUserMailAsync(
+    userId: "player-uuid",
+    subject: "Expedition Complete",
+    body: "Your team returned safely.",
+    expiresAt: null,
+    attachments: null
+);
+```
+
+See [docs/MAILBOX_API_USAGE.md](docs/MAILBOX_API_USAGE.md) for full API documentation, parameter details, and integration patterns.
+
+See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) for current limitations, unimplemented features, and known risks.
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed change history including design decisions and risk notes.

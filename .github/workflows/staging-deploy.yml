@@ -102,8 +102,8 @@ jobs:
             exit 1
           fi
 
-          if [ ! -f "CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj" ]; then
-            echo "ERROR: CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj not found"
+          if [ ! -f "CloudCodeModule/BackpackAdventuresModule~/BackpackAdventuresModule.csproj" ]; then
+            echo "ERROR: CloudCodeModule/BackpackAdventuresModule~/BackpackAdventuresModule.csproj not found"
             exit 1
           fi
 
@@ -141,7 +141,85 @@ jobs:
           echo "Verified: BackpackAdventures is deployed to ${{ secrets.UNITY_ENVIRONMENT }}."
 
       # ------------------------------------------------------------------
-      # 11. Write GitHub Actions job summary
+      # 11. Post-deploy smoke test (Cloud Code REST API)
+      #
+      #     The UGS CLI does NOT expose a run/execute/invoke subcommand
+      #     for Cloud Code Modules (only list/get/new/delete/deploy), so
+      #     we hit the Cloud Code REST API directly. Verified flow:
+      #
+      #       1. Resolve env name -> env UUID via `ugs env list`
+      #          (token-exchange requires the UUID, not the name).
+      #       2. POST token-exchange with Basic(keyId:secret) -> JWT.
+      #       3. POST the module function with Bearer JWT.
+      #
+      #     Endpoints (Unity docs, May 2026):
+      #       https://services.api.unity.com/auth/v1/token-exchange
+      #       https://cloud-code.services.api.unity.com/v1/projects/{p}/modules/{m}/{fn}
+      #
+      # TODO(qa-runner): Extend to the full MailboxTestRunner.RunAllAsync
+      #     once a headless Unity Test Runner invocation is wired. The
+      #     HealthCheck probe below stays as a fast smoke check.
+      # ------------------------------------------------------------------
+      - name: Post-deploy smoke test (HealthCheck)
+        continue-on-error: false
+        env:
+          PROJECT_ID:  ${{ secrets.UNITY_PROJECT_ID }}
+          ENV_NAME:    ${{ secrets.UNITY_ENVIRONMENT }}
+          SA_KEY:      ${{ secrets.UNITY_SERVICE_ACCOUNT_KEY }}
+          SA_SECRET:   ${{ secrets.UNITY_SERVICE_ACCOUNT_SECRET }}
+        run: |
+          set -e
+
+          echo "--- Resolving environment ID for '$ENV_NAME' ---"
+          ENV_LIST=$(ugs env list --project-id "$PROJECT_ID")
+          echo "$ENV_LIST"
+          # Match the line containing the env name and extract the first
+          # UUID-shaped token from it. Robust to column order changes.
+          ENV_ID=$(echo "$ENV_LIST" \
+            | grep -E "(^|[[:space:]|])${ENV_NAME}([[:space:]|]|$)" \
+            | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' \
+            | head -1)
+          if [ -z "$ENV_ID" ]; then
+            echo "ERROR: could not resolve UUID for environment '$ENV_NAME'"
+            exit 1
+          fi
+          echo "Environment ID: $ENV_ID"
+
+          echo "--- Acquiring service-account access token ---"
+          BASIC=$(printf '%s' "$SA_KEY:$SA_SECRET" | base64 -w 0)
+          TOKEN_JSON=$(curl -sf -X POST \
+            -H "Authorization: Basic $BASIC" \
+            -H "Content-Type: application/json" \
+            -d '{"scopes":[]}' \
+            "https://services.api.unity.com/auth/v1/token-exchange?projectId=$PROJECT_ID&environmentId=$ENV_ID")
+          ACCESS_TOKEN=$(echo "$TOKEN_JSON" \
+            | sed -nE 's/.*"accessToken"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')
+          if [ -z "$ACCESS_TOKEN" ]; then
+            echo "ERROR: token-exchange did not return accessToken"
+            echo "Response: $TOKEN_JSON"
+            exit 1
+          fi
+          echo "Token acquired (length: ${#ACCESS_TOKEN})"
+
+          echo "--- Smoke test: HealthCheck ---"
+          HEALTH_URL="https://cloud-code.services.api.unity.com/v1/projects/$PROJECT_ID/modules/BackpackAdventuresModule/HealthCheck"
+          HEALTH_RESPONSE=$(curl -sf -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"params":{}}' \
+            "$HEALTH_URL")
+          echo "Response: $HEALTH_RESPONSE"
+
+          # HealthCheckResponse is { success, message, timestamp }; the
+          # Cloud Code API wraps it: {"output":{"success":true,...}}.
+          if ! echo "$HEALTH_RESPONSE" | grep -qE '"success"[[:space:]]*:[[:space:]]*true'; then
+            echo "ERROR: HealthCheck did not return success:true"
+            exit 1
+          fi
+          echo "HealthCheck passed."
+
+      # ------------------------------------------------------------------
+      # 12. Write GitHub Actions job summary
       # ------------------------------------------------------------------
       - name: Write job summary
         if: always()

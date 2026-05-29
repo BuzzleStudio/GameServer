@@ -66,13 +66,13 @@ cd UnityCloudCode
 ### Restore .NET dependencies
 
 ```bash
-dotnet restore CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj
+dotnet restore CloudCodeModule/BackpackAdventuresModule~/BackpackAdventuresModule.csproj
 ```
 
 ### Build the module
 
 ```bash
-dotnet publish CloudCodeModule/BackpackAdventuresModule/BackpackAdventuresModule.csproj \
+dotnet publish CloudCodeModule/BackpackAdventuresModule~/BackpackAdventuresModule.csproj \
   -c Release
 ```
 
