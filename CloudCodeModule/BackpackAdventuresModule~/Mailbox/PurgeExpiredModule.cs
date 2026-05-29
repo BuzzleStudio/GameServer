@@ -33,7 +33,7 @@ public class PurgeExpiredModule
     {
         _logger.LogInformation("PurgeExpired called by operatorId={OperatorId}", request.OperatorId);
 
-        AdminAuth.RequireAdminToolAsync(request.AdminToken, request.OperatorId, _logger);
+        await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
 
         var (index, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailIndexV2>(
             _gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);

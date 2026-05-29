@@ -31,7 +31,7 @@ public class SendGlobalMailModule
     {
         _logger.LogInformation("SendGlobalMail called by operatorId={OperatorId}", request.OperatorId);
 
-        AdminAuth.RequireAdminToolAsync(request.AdminToken, request.OperatorId, _logger);
+        await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
 
         ValidateRequest(request.Subject, request.Body, request.Attachments);
 

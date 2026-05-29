@@ -31,7 +31,7 @@ public class SendUserMailModule
     {
         _logger.LogInformation("SendUserMail called by operatorId={OperatorId} for target {TargetPlayerId}", request.OperatorId, request.TargetPlayerId);
 
-        AdminAuth.RequireAdminToolAsync(request.AdminToken, request.OperatorId, _logger);
+        await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
 
         if (string.IsNullOrWhiteSpace(request.TargetPlayerId))
             throw new ArgumentException(MailboxError.InvalidInput);
