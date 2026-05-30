@@ -187,10 +187,10 @@ public class MailMetaDataDto
     public bool IsClaimed { get; set; }
 
     [JsonPropertyName("MailCategory")]
-    public string MailCategory { get; set; } = MailCategory.System.ToString();
+    public string MailCategory { get; set; } = "System";
 
     [JsonPropertyName("SenderType")]
-    public string SenderType { get; set; } = SenderType.System.ToString();
+    public string SenderType { get; set; } = "System";
 
     [JsonPropertyName("Sender")]
     public string? Sender { get; set; }
@@ -586,3 +586,4 @@ public static class MailboxError
     public const string CannotExpireUserMail = "CannotExpireUserMail";
     public const string TargetMailboxFull = "TargetMailboxFull";
 }
+
