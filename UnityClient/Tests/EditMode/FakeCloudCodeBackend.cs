@@ -101,7 +101,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 case "GetGlobalMails":  return HandleGetGlobalMails((GetMailboxPageRequest)request);
                 case "MarkMailRead":    return HandleMarkMailRead((MarkMailReadRequest)request);
                 case "MarkAllRead":     return HandleMarkAllRead();
-                case "ClaimAttachment": return HandleClaimAttachment((ClaimAttachmentRequest)request);
+                case "ClaimAttachment": return HandleClaimAttachment(NormalizeClaimAttachmentRequest(request));
                 case "ClaimAllAttachments": return HandleClaimAllAttachments((ClaimAllAttachmentsRequest)request);
                 case "DeleteMail":      return HandleDeleteMail((DeleteMailRequest)request);
                 case "PurgeExpired":    return HandlePurgeExpired((PurgeExpiredRequest)request);
@@ -368,6 +368,17 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
 
         // ── ClaimAttachment ────────────────────────────────────────────────────
+
+        private static ClaimAttachmentRequest NormalizeClaimAttachmentRequest(object request)
+        {
+            if (request is ClaimAttachmentRequest typedRequest)
+                return typedRequest;
+
+            if (request is string mailId)
+                return new ClaimAttachmentRequest { mailId = mailId };
+
+            throw new InvalidOperationException("InvalidInput");
+        }
 
         private ClaimAttachmentResponse HandleClaimAttachment(ClaimAttachmentRequest req)
         {

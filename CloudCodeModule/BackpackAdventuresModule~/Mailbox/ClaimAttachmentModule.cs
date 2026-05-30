@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -9,6 +10,11 @@ namespace BackpackAdventures.CloudCode;
 
 public class ClaimAttachmentModule
 {
+    private static readonly JsonSerializerOptions RequestJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly IExecutionContext _context;
     private readonly IGameApiClient _gameApiClient;
     private readonly ILogger<ClaimAttachmentModule> _logger;
@@ -21,26 +27,27 @@ public class ClaimAttachmentModule
     }
 
     [CloudCodeFunction("ClaimAttachment")]
-    public async Task<ClaimAttachmentResponse> ClaimAttachmentAsync(ClaimAttachmentRequest request)
+    public async Task<ClaimAttachmentResponse> ClaimAttachmentAsync(object request)
     {
+        var claimRequest = NormalizeClaimAttachmentRequest(request);
         var playerId = _context.PlayerId ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(request.MailId))
+        if (string.IsNullOrWhiteSpace(claimRequest.MailId))
             throw new ArgumentException(MailboxError.InvalidInput);
 
-        var requestId = string.IsNullOrEmpty(request.RequestId) ? null : request.RequestId;
+        var requestId = string.IsNullOrEmpty(claimRequest.RequestId) ? null : claimRequest.RequestId;
         if (requestId != null)
         {
-            var cached = await IdempotencyService.TryGetCachedResponseAsync(_gameApiClient, _context, playerId, requestId, "ClaimAttachment", request.MailId);
+            var cached = await IdempotencyService.TryGetCachedResponseAsync(_gameApiClient, _context, playerId, requestId, "ClaimAttachment", claimRequest.MailId);
             if (cached != null)
-                return new ClaimAttachmentResponse { MailId = request.MailId, AlreadyClaimed = false };
+                return new ClaimAttachmentResponse { MailId = claimRequest.MailId, AlreadyClaimed = false };
         }
 
-        ClaimAttachmentResponse result = IsGlobalMail(request.MailId, request.MailType)
-            ? await ClaimGlobalAttachmentAsync(playerId, request.MailId, requestId)
-            : await ClaimUserAttachmentAsync(playerId, request.MailId, requestId);
+        ClaimAttachmentResponse result = IsGlobalMail(claimRequest.MailId, claimRequest.MailType)
+            ? await ClaimGlobalAttachmentAsync(playerId, claimRequest.MailId, requestId)
+            : await ClaimUserAttachmentAsync(playerId, claimRequest.MailId, requestId);
 
         if (requestId != null && !result.AlreadyClaimed)
-            await IdempotencyService.StoreResponseAsync(_gameApiClient, _context, playerId, requestId, "ClaimAttachment", request.MailId, new { alreadyClaimed = false });
+            await IdempotencyService.StoreResponseAsync(_gameApiClient, _context, playerId, requestId, "ClaimAttachment", claimRequest.MailId, new { alreadyClaimed = false });
 
         return result;
     }
@@ -59,6 +66,51 @@ public class ClaimAttachmentModule
             await ClaimAllUserAttachmentsAsync(playerId, request?.RequestId, response);
 
         return response;
+    }
+
+    private static ClaimAttachmentRequest NormalizeClaimAttachmentRequest(object? request)
+    {
+        if (request == null)
+            return new ClaimAttachmentRequest();
+
+        if (request is ClaimAttachmentRequest typedRequest)
+            return typedRequest;
+
+        if (request is string mailId)
+            return new ClaimAttachmentRequest { MailId = mailId };
+
+        if (request is JsonElement json)
+            return NormalizeClaimAttachmentRequest(json);
+
+        try
+        {
+            var serialized = JsonSerializer.Serialize(request, RequestJsonOptions);
+            var parsed = JsonSerializer.Deserialize<ClaimAttachmentRequest>(serialized, RequestJsonOptions);
+            if (parsed != null)
+                return parsed;
+        }
+        catch (JsonException)
+        {
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        throw new ArgumentException(MailboxError.InvalidInput);
+    }
+
+    private static ClaimAttachmentRequest NormalizeClaimAttachmentRequest(JsonElement request)
+    {
+        if (request.ValueKind == JsonValueKind.String)
+            return new ClaimAttachmentRequest { MailId = request.GetString() ?? string.Empty };
+
+        if (request.ValueKind == JsonValueKind.Object)
+        {
+            var parsed = request.Deserialize<ClaimAttachmentRequest>(RequestJsonOptions);
+            return parsed ?? new ClaimAttachmentRequest();
+        }
+
+        throw new ArgumentException(MailboxError.InvalidInput);
     }
 
     private async Task ClaimAllGlobalAttachmentsAsync(string playerId, string? requestId, ClaimAllAttachmentsResponse response)

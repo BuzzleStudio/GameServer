@@ -8,6 +8,14 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
+### Changed: ClaimAttachment accepts raw mail id requests
+
+**What changed:** `ClaimAttachment` now normalizes both object requests (`{ mailId, mailType?, requestId? }`) and raw string requests (`"gm_..."`) into `ClaimAttachmentRequest`.
+
+**Client impact:** Existing `BackpackCloudCodeService.CallClaimAttachmentAsync` calls still use the object request. Direct `CloudCodeService.Instance.CallModuleEndpointAsync` callers may pass `["request"] = messageId` when they only need to send a mail id.
+
+**Test update:** Fake backend dispatch supports the raw string request and `P09A_ClaimAttachment_StringRequest_Global_GrantsReward` covers the compact direct-call form.
+
 ### Changed: Global mail player metadata JSON names
 
 **What changed:** Per-player global mail state now writes Cloud Save key `mail_meta_state` as `{ "MailMetadata": [...] }`. Metadata items serialize claim/delete flags as `IsClaimed` and `IsDeleted` instead of the older `IsClaim` and `IsDelete` names.

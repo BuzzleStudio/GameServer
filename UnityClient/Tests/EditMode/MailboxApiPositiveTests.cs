@@ -397,12 +397,44 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
 
         // -----------------------------------------------------------------------
-        // P10 — ClaimAttachment on user mail grants reward
-        // Devlog row: P10 — ClaimAttachment_User_GrantsReward
+        // P09A - ClaimAttachment accepts raw string request
+        // Devlog row: P09A - ClaimAttachment_StringRequest_Global
         // -----------------------------------------------------------------------
 
         [Test]
-        [Description("P10 — User mail with attachment, unclaimed. " +
+        [Description("P09A - ClaimAttachment accepts request as raw mailId string for direct Cloud Code calls.")]
+        public async Task P09A_ClaimAttachment_StringRequest_Global_GrantsReward()
+        {
+            var sendResp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                subject: "P09A Global Reward",
+                body: "P09A claim this with string request",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(77),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            string mailId = sendResp.globalMailId ?? sendResp.mailId;
+
+            var claimResp = await BackpackCloudCodeService.Backend
+                .CallEndpointAsync<ClaimAttachmentResponse>("ClaimAttachment", mailId);
+
+            Assert.IsNotNull(claimResp, "P09A: ClaimAttachment response must not be null");
+            Assert.IsFalse(claimResp.alreadyClaimed,
+                "P09A: alreadyClaimed must be false on first claim with string request");
+
+            var granted = claimResp.grantedAttachments ?? claimResp.claimedAttachments;
+            Assert.IsNotNull(granted, "P09A: grantedAttachments must not be null");
+            Assert.Greater(granted.Count, 0,
+                "P09A: grantedAttachments must be non-empty");
+        }
+
+        // -----------------------------------------------------------------------
+        // P10 - ClaimAttachment on user mail grants reward
+        // Devlog row: P10 - ClaimAttachment_User_GrantsReward
+        // -----------------------------------------------------------------------
+
+        [Test]
+        [Description("P10 - User mail with attachment, unclaimed. " +
                      "Expected: alreadyClaimed=false, mail attachmentClaimed=true in subsequent GetUserMails.")]
         public async Task P10_ClaimAttachment_User_GrantsReward()
         {

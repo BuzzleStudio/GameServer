@@ -142,7 +142,7 @@ per-mail results. The Unity client exposes this through
 | `SendUserMail` | Compatibility wrapper | `{ targetPlayerId/userId/targetUserIds, subject, body, expiresAt?, attachments? }` | `{ mailId, sentAt }` |
 | `GetMailbox` | Implemented, not yet committed | — | `{ success, mails[] }` |
 | `MarkMailRead` | Implemented, not yet committed | `{ mailIds[] }` | `{ success }` |
-| `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` | `{ success, claimedItems[] }` |
+| `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` or raw `"mailId"` in `request` | `{ success, claimedItems[] }` |
 | `ClaimAllAttachments` | Implemented | `{ mailType?, requestId? }` | `{ claimedCount, alreadyClaimedCount, skippedCount, results[], grantedAttachments[] }` |
 
 ### Quick Usage Example
