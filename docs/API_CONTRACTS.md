@@ -163,6 +163,32 @@ New mailbox Cloud Save writes omit `"Version"` fields. Existing stored records w
 
 ---
 
+## ClaimAttachment
+
+**Function name:** `ClaimAttachment`
+
+Claims the attachment for one visible, unexpired mail and marks that mail as read.
+
+**Input object form:**
+```json
+{
+  "mailId": "gm_3bb179b9",
+  "mailType": "global",
+  "requestId": "optional-client-generated-id"
+}
+```
+
+**Input string form:**
+```json
+"gm_3bb179b9"
+```
+
+The string form is accepted for callers that pass `request` as a raw mail id:
+`{ "request": "gm_3bb179b9" }`. It maps to the same server request as
+`{ "request": { "mailId": "gm_3bb179b9" } }`.
+
+---
+
 ## ClaimAllAttachments
 
 **Function name:** `ClaimAllAttachments`

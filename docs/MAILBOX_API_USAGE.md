@@ -276,6 +276,28 @@ Claims the attachment for a specific mail for the calling player. Checks `mailbo
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `mailId` | `string` | Yes | The mail ID whose attachment to claim |
+| `mailType` | `string` | No | `global` or `user`; omitted/empty infers global for `gm_` IDs |
+| `requestId` | `string` | No | Client-generated idempotency key |
+
+Direct Cloud Code calls can pass either the normal object request:
+
+```csharp
+var args = new Dictionary<string, object>
+{
+    ["request"] = new { mailId = messageId, mailType = "global" }
+};
+```
+
+or a compact string request when only the mail id is needed:
+
+```csharp
+var args = new Dictionary<string, object>
+{
+    ["request"] = messageId
+};
+```
+
+The compact string form is equivalent to `{ mailId = messageId }`.
 
 **Response shape (success path only):**
 
