@@ -662,7 +662,77 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             Assert.IsFalse(string.IsNullOrEmpty(resp.mailId ?? resp.globalMailId),
                 "P17: Expected a non-empty mailId in the response.");
         }
-    }
+
+        [Test]
+        [Description("P02A - Global mail round-trips nested metadata fields in GetGlobalMails.")]
+        public async Task P02A_AdminSendGlobalMail_RoundTripsNestedFields()
+        {
+            var resp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                subject: "P02A Title",
+                body: "P02A Body",
+                expiresAt: MailboxTestHarness.FutureExpiry(7200),
+                mailCategory: "Compensation",
+                senderName: "GM_Alice",
+                dedupKey: "p02a-dedup",
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(321),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            string mailId = resp.globalMailId ?? resp.mailId;
+            var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            var mail = getResp.mails.FirstOrDefault(m => m.mailId == mailId);
+
+            Assert.IsNotNull(mail, "P02A: sent global mail must be returned by GetGlobalMails");
+            Assert.AreEqual("P02A Title", mail.MailInfo.Title);
+            Assert.AreEqual("P02A Body", mail.MailInfo.Content);
+            Assert.Greater(mail.MailInfo.Period, 0);
+            Assert.AreEqual("Compensation", mail.MailMetaData.MailCategory);
+            Assert.AreEqual("Admin", mail.MailMetaData.SenderType);
+            Assert.AreEqual("GM_Alice", mail.MailMetaData.Sender);
+            Assert.AreEqual("p02a-dedup", mail.MailMetaData.DedupKey);
+            Assert.IsNotNull(mail.MailInfo.Attachment);
+            Assert.AreEqual("gold", mail.MailInfo.Attachment[0].PayoutAssetId);
+            Assert.AreEqual(321, mail.MailInfo.Attachment[0].PayoutAmount);
+            Assert.AreEqual("Currency", mail.MailInfo.Attachment[0].AssetType);
+        }
+
+        [Test]
+        [Description("P03A - User mail round-trips nested metadata fields in GetUserMails.")]
+        public async Task P03A_AdminSendUserMail_RoundTripsNestedFields()
+        {
+            string selfId = MailboxTestHarness.CurrentPlayerId;
+            var resp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
+                targetPlayerId: selfId,
+                subject: "P03A Title",
+                body: "P03A Body",
+                expiresAt: MailboxTestHarness.FutureExpiry(5400),
+                mailCategory: "Support",
+                senderName: "GM_Bob",
+                dedupKey: "p03a-dedup",
+                attachments: MailboxTestHarness.MakeItemAttachment("ticket", 2),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            var getResp = await BackpackCloudCodeService.CallGetMailboxAsync(page: 0, pageSize: 50);
+            var mail = getResp.mails.FirstOrDefault(m => m.mailId == resp.mailId);
+
+            Assert.IsNotNull(mail, "P03A: sent user mail must be returned by GetUserMails");
+            Assert.AreEqual("P03A Title", mail.MailInfo.Title);
+            Assert.AreEqual("P03A Body", mail.MailInfo.Content);
+            Assert.Greater(mail.MailInfo.Period, 0);
+            Assert.AreEqual("Support", mail.MailMetaData.MailCategory);
+            Assert.AreEqual("Admin", mail.MailMetaData.SenderType);
+            Assert.AreEqual("GM_Bob", mail.MailMetaData.Sender);
+            Assert.AreEqual("p03a-dedup", mail.MailMetaData.DedupKey);
+            Assert.IsFalse(mail.MailMetaData.IsRead);
+            Assert.IsFalse(mail.MailMetaData.IsClaimed);
+            Assert.IsNotNull(mail.MailInfo.Attachment);
+            Assert.AreEqual("ticket", mail.MailInfo.Attachment[0].PayoutAssetId);
+            Assert.AreEqual(2, mail.MailInfo.Attachment[0].PayoutAmount);
+            Assert.AreEqual("Item", mail.MailInfo.Attachment[0].AssetType);
+        }    }
 }
+
+
 
 

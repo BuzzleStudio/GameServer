@@ -270,20 +270,19 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             {
                 allMails = _legacyV1Mails
                     .Where(m => !IsExpiredStr(m.expiresAt, now))
-                    .Select(m => new MailItem
-                    {
-                        mailId           = m.mailId,
-                        subject          = m.subject,
-                        body             = m.body,
-                        sentAt           = m.sentAt,
-                        expiresAt        = m.expiresAt,
-                        isRead           = readIds.Contains(m.mailId),
-                        attachmentClaimed = claimedIds.Contains(m.mailId),
-                        mailType         = "Notification",
-                        mailCategory     = "System",
-                        senderType       = "System",
-                        attachments      = m.attachments
-                    })
+                    .Select(m => CreateMailItem(
+                        m.mailId,
+                        m.subject,
+                        m.body,
+                        m.sentAt,
+                        m.expiresAt,
+                        m.attachments,
+                        readIds.Contains(m.mailId),
+                        claimedIds.Contains(m.mailId),
+                        "System",
+                        "System",
+                        null,
+                        null))
                     .ToList();
             }
             else
@@ -719,6 +718,75 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             DateTimeOffset.TryParse(expiresAt, out var exp) &&
             exp < now;
 
+        private static MailItem CreateMailItem(
+            string messageId,
+            string title,
+            string content,
+            string startTime,
+            string expireTime,
+            List<MailAttachment> attachments,
+            bool isRead,
+            bool isClaimed,
+            string mailCategory,
+            string senderType,
+            string sender,
+            string dedupKey)
+        {
+            List<MailAttachmentInfo> mappedAttachments = null;
+            if (attachments != null)
+            {
+                mappedAttachments = new List<MailAttachmentInfo>(attachments.Count);
+                foreach (var att in attachments)
+                {
+                    string itemId = !string.IsNullOrEmpty(att.itemId) ? att.itemId : att.id;
+                    int qty = att.quantity > 0 ? att.quantity : att.amount;
+                    mappedAttachments.Add(new MailAttachmentInfo
+                    {
+                        PayoutAssetId = itemId,
+                        Chance = 1.0,
+                        AssetType = UpperFirst(att.type),
+                        PayoutAmount = qty
+                    });
+                }
+            }
+
+            int period = 0;
+            if (!string.IsNullOrEmpty(expireTime) && DateTimeOffset.TryParse(startTime, out var startAt) && DateTimeOffset.TryParse(expireTime, out var endAt))
+            {
+                var seconds = (endAt - startAt).TotalSeconds;
+                if (seconds > 0) period = (int)Math.Round(seconds);
+            }
+
+            return new MailItem
+            {
+                MessageId = messageId,
+                MailInfo = new MailInfo
+                {
+                    Title = title,
+                    Content = content,
+                    StartTime = startTime,
+                    Period = period,
+                    Attachment = mappedAttachments
+                },
+                MailMetaData = new MailMetaData
+                {
+                    IsRead = isRead,
+                    IsClaimed = isClaimed,
+                    MailCategory = mailCategory,
+                    SenderType = senderType,
+                    Sender = sender,
+                    DedupKey = dedupKey
+                }
+            };
+        }
+
+        private static string UpperFirst(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return string.Empty;
+            if (value.Length == 1) return value.ToUpperInvariant();
+            return char.ToUpperInvariant(value[0]) + value.Substring(1);
+        }
+
         // ── Internal model types ───────────────────────────────────────────────
 
         private sealed class FakeGlobalMail
@@ -732,21 +800,19 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 DateTimeOffset.TryParse(ExpiresAt, out var exp) &&
                 exp < now;
 
-            public MailItem ToMailItem(bool isRead, bool attachmentClaimed) => new MailItem
-            {
-                mailId            = MailId,
-                subject           = Subject,
-                body              = Body,
-                sentAt            = SentAt,
-                expiresAt         = ExpiresAt,
-                isRead            = isRead,
-                attachmentClaimed = attachmentClaimed,
-                mailType          = (Attachments != null && Attachments.Count > 0) ? "Attachment" : "Notification",
-                mailCategory      = MailCategory,
-                senderType        = "Admin",
-                sender            = Sender,
-                attachments       = Attachments
-            };
+            public MailItem ToMailItem(bool isRead, bool attachmentClaimed) => CreateMailItem(
+                MailId,
+                Subject,
+                Body,
+                SentAt,
+                ExpiresAt,
+                Attachments,
+                isRead,
+                attachmentClaimed,
+                MailCategory,
+                "Admin",
+                Sender,
+                DedupKey);
         }
 
         private sealed class FakeUserMail
@@ -761,29 +827,35 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 DateTimeOffset.TryParse(ExpiresAt, out var exp) &&
                 exp < now;
 
-            public MailItem ToMailItem() => new MailItem
-            {
-                mailId            = MailId,
-                subject           = Subject,
-                body              = Body,
-                sentAt            = SentAt,
-                expiresAt         = ExpiresAt,
-                isRead            = IsRead,
-                attachmentClaimed = AttachmentClaimed,
-                mailType          = (Attachments != null && Attachments.Count > 0) ? "Attachment" : "Notification",
-                mailCategory      = MailCategory,
-                senderType        = SenderType,
-                sender            = Sender,
-                attachments       = Attachments
-            };
+            public MailItem ToMailItem() => CreateMailItem(
+                MailId,
+                Subject,
+                Body,
+                SentAt,
+                ExpiresAt,
+                Attachments,
+                IsRead,
+                AttachmentClaimed,
+                MailCategory,
+                SenderType,
+                Sender,
+                DedupKey);
         }
-
         private sealed class FakeIdemEntry
         {
             public string RequestId, Operation, MailId, ResolvedAt;
         }
     }
 }
+
+
+
+
+
+
+
+
+
 
 
 

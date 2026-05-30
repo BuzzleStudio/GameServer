@@ -31,8 +31,6 @@ namespace BackpackAdventures.CloudCode.Client
         public string deploymentTime;
     }
 
-    // --- Mailbox enums (§5.2) ---
-
     public enum MailType
     {
         Notification,
@@ -56,35 +54,26 @@ namespace BackpackAdventures.CloudCode.Client
         Player
     }
 
-    // --- Mailbox attachment (v2 — server-canonical field names: itemId / quantity) ---
-
     [Serializable]
     public class MailAttachment
     {
-        // v1 legacy fields — kept for backward compatibility with existing callers
-        public string type;   // "currency" or "item"
-        /// <summary>Legacy field. Use <see cref="itemId"/> for v2 backend calls.</summary>
+        public string type;
         public string id;
-        /// <summary>Legacy field. Use <see cref="quantity"/> for v2 backend calls.</summary>
         public int amount;
-
-        // v2 server-canonical fields (§5.1 MailboxModels.cs contract)
         public string itemId;
         public int quantity;
     }
-
-    // --- Send Global Mail (v2 — admin-gated, §5.3) ---
 
     [Serializable]
     public class SendGlobalMailRequest
     {
         public string subject;
         public string body;
-        public string expiresAt;                  // ISO 8601 UTC, nullable
-        public string mailCategory;               // MailCategory enum string, optional (default: System)
-        public string senderName;                 // optional human-readable sender, e.g. "GM_Ninh"
-        public string dedupKey;                   // optional idempotency key
-        public List<MailAttachment> attachments;  // nullable
+        public string expiresAt;
+        public string mailCategory;
+        public string senderName;
+        public string dedupKey;
+        public List<MailAttachment> attachments;
         public string adminToken;
         public string operatorId;
     }
@@ -93,17 +82,14 @@ namespace BackpackAdventures.CloudCode.Client
     public class SendGlobalMailResponse
     {
         public string mailId;
-        public string globalMailId;               // server may return either field name
+        public string globalMailId;
         public string sentAt;
     }
-
-    // --- Send User Mail (v2 — admin-gated, §5.3) ---
 
     [Serializable]
     public class SendUserMailRequest
     {
-        public string targetPlayerId;             // v2 canonical name
-        /// <summary>Legacy alias. Prefer <see cref="targetPlayerId"/>.</summary>
+        public string targetPlayerId;
         public string userId;
         public string subject;
         public string body;
@@ -123,8 +109,6 @@ namespace BackpackAdventures.CloudCode.Client
         public string sentAt;
     }
 
-    // --- Gift Mail (any player, §5.3 GiftMail restrictions) ---
-
     [Serializable]
     public class GiftMailRequest
     {
@@ -140,35 +124,81 @@ namespace BackpackAdventures.CloudCode.Client
         public string sentAt;
     }
 
-    // --- Mail item v2 (paginated list element) ---
+    [Serializable]
+    public class MailAttachmentInfo
+    {
+        public string PayoutAssetId;
+        public double Chance;
+        public string AssetType;
+        public int PayoutAmount;
+    }
 
+    [Serializable]
+    public class MailInfo
+    {
+        public string Title;
+        public string Content;
+        public string StartTime;
+        public int Period;
+        public string ExpireTime;
+        public List<MailAttachmentInfo> Attachment;
+    }
+    [Serializable]
+    public class MailMetaData
+    {
+        public bool IsRead;
+        public bool IsClaimed;
+        public string MailCategory;
+        public string SenderType;
+        public string Sender;
+        public string DedupKey;
+    }
     [Serializable]
     public class MailItem
     {
-        public string mailId;
-        public string subject;
-        public string body;
-        public bool isRead;
-        public bool attachmentClaimed;
-        public string sentAt;
-        public string expiresAt;
-        public string mailType;       // MailType enum string
-        public string mailCategory;   // MailCategory enum string
-        public string senderType;     // SenderType enum string
-        public string sender;         // optional display name
-        public string dedupKey;       // optional
-        public List<MailAttachment> attachments;
-    }
+        public string MessageId;
+        public MailInfo MailInfo;
+        public MailMetaData MailMetaData;
 
-    // --- Get Mailbox (legacy, kept for backward compatibility) ---
+        public string mailId => MessageId;
+        public string subject => MailInfo?.Title;
+        public string body => MailInfo?.Content;
+        public bool isRead => MailMetaData != null && MailMetaData.IsRead;
+        public bool attachmentClaimed => MailMetaData != null && MailMetaData.IsClaimed;
+        public string sentAt => MailInfo?.StartTime;
+        public string expiresAt => MailInfo?.ExpireTime;
+        public string mailType => (MailInfo?.Attachment != null && MailInfo.Attachment.Count > 0) ? "Attachment" : "Notification";
+        public string mailCategory => MailMetaData?.MailCategory;
+        public string senderType => MailMetaData?.SenderType;
+        public string sender => MailMetaData?.Sender;
+        public string dedupKey => MailMetaData?.DedupKey;
+        public List<MailAttachment> attachments
+        {
+            get
+            {
+                if (MailInfo?.Attachment == null) return null;
+                var result = new List<MailAttachment>(MailInfo.Attachment.Count);
+                foreach (var item in MailInfo.Attachment)
+                {
+                    result.Add(new MailAttachment
+                    {
+                        itemId = item.PayoutAssetId,
+                        id = item.PayoutAssetId,
+                        quantity = item.PayoutAmount,
+                        amount = item.PayoutAmount,
+                        type = item.AssetType?.ToLowerInvariant()
+                    });
+                }
+                return result;
+            }
+        }
+    }
 
     [Serializable]
     public class GetMailboxResponse
     {
         public List<MailItem> mails;
     }
-
-    // --- Paginated mail responses (§5.6) ---
 
     [Serializable]
     public class GetMailboxPageRequest
@@ -187,13 +217,11 @@ namespace BackpackAdventures.CloudCode.Client
         public bool hasMore;
     }
 
-    // --- Mark Mail Read (v2 — requires mailType, §5.11) ---
-
     [Serializable]
     public class MarkMailReadRequest
     {
         public string mailId;
-        public string mailType;  // MailType enum string (required in v2)
+        public string mailType;
     }
 
     [Serializable]
@@ -203,22 +231,18 @@ namespace BackpackAdventures.CloudCode.Client
         public bool isRead;
     }
 
-    // --- Mark All Read ---
-
     [Serializable]
     public class MarkAllReadResponse
     {
         public string lastReadAt;
     }
 
-    // --- Claim Attachment (v2 — with mailType and optional requestId, §5.8) ---
-
     [Serializable]
     public class ClaimAttachmentRequest
     {
         public string mailId;
-        public string mailType;   // MailType enum string (required in v2)
-        public string requestId;  // optional idempotency GUID
+        public string mailType;
+        public string requestId;
     }
 
     [Serializable]
@@ -227,10 +251,8 @@ namespace BackpackAdventures.CloudCode.Client
         public string mailId;
         public bool alreadyClaimed;
         public List<MailAttachment> claimedAttachments;
-        public List<MailAttachment> grantedAttachments;  // v2 alias
+        public List<MailAttachment> grantedAttachments;
     }
-
-    // --- Delete Mail (§5.11, any player — user mail only) ---
 
     [Serializable]
     public class DeleteMailRequest
@@ -243,8 +265,6 @@ namespace BackpackAdventures.CloudCode.Client
     {
         public string mailId;
     }
-
-    // --- Expire Mail (admin — §5.11) ---
 
     [Serializable]
     public class ExpireMailRequest
@@ -260,8 +280,6 @@ namespace BackpackAdventures.CloudCode.Client
         public string mailId;
     }
 
-    // --- Purge Expired (admin-gated, §5.9) ---
-
     [Serializable]
     public class PurgeExpiredResponse
     {
@@ -276,3 +294,5 @@ namespace BackpackAdventures.CloudCode.Client
         public string operatorId;
     }
 }
+
+

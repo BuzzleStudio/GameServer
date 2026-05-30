@@ -11,19 +11,6 @@ using UnityEngine;
 
 namespace BackpackAdventures.CloudCode.Client.Editor
 {
-    /// <summary>
-    /// Editor window for admin mail operations.
-    /// MenuItem: CloudCode/Admin Mail
-    ///
-    /// Tabs:
-    ///   - Send Global: broadcast mail to all players (admin-gated)
-    ///   - Send User:   targeted user mail (admin-gated)
-    ///   - Manage:      delete / expire / purge expired (admin-gated)
-    ///
-    /// IMPORTANT: This editor tool calls Cloud Code through the UGS REST API using a
-    /// project-scoped Unity service account as transport. Admin authorization is still
-    /// enforced server-side by the project-scoped service-account context.
-    /// </summary>
     public class AdminMailWindow : EditorWindow
     {
         private const string ModuleName = "BackpackAdventuresModule";
@@ -31,53 +18,38 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private const string EnvironmentIdPrefKey = "BackpackAdventures.AdminMail.EnvironmentId";
         private const string ServiceKeyIdPrefKey = "BackpackAdventures.AdminMail.ServiceKeyId";
 
-        // -----------------------------------------------------------------------
-        // Tabs
-        // -----------------------------------------------------------------------
-
         private enum Tab { SendGlobal, SendUser, Manage }
+        private enum AssetTypeOption { Currency, Item }
+
+        [Serializable]
+        private sealed class AttachmentDraft
+        {
+            public string payoutAssetId = string.Empty;
+            public AssetTypeOption assetType;
+            public int payoutAmount = 1;
+            public float chance = 1f;
+        }
+
         private Tab _activeTab = Tab.SendGlobal;
-
-        // -----------------------------------------------------------------------
-        // Shared state
-        // -----------------------------------------------------------------------
-
         private bool _isBusy;
         private string _statusMessage = string.Empty;
         private string _rawJson = string.Empty;
         private bool _showRawJson = true;
         private Vector2 _scroll;
 
-        // -----------------------------------------------------------------------
-        // REST/project-scoped service-account credentials
-        // -----------------------------------------------------------------------
-
         private string _projectId = string.Empty;
         private string _environmentId = string.Empty;
         private string _serviceKeyId = string.Empty;
         private string _serviceSecret = string.Empty;
-
-        // -----------------------------------------------------------------------
-        // Admin metadata
-        // -----------------------------------------------------------------------
-
-        private string _operatorId  = string.Empty;
-
-        // -----------------------------------------------------------------------
-        // Send Global fields
-        // -----------------------------------------------------------------------
+        private string _operatorId = string.Empty;
 
         private string _globalSubject = string.Empty;
         private string _globalBody = string.Empty;
-        private string _globalExpiresAt = string.Empty;   // ISO 8601 UTC, e.g. 2026-06-28T00:00:00Z
+        private string _globalExpiresAt = string.Empty;
         private string _globalDedupKey = string.Empty;
         private string _globalSenderName = string.Empty;
         private int _globalCategoryIndex;
-        private string _globalAttachmentsJson = "[]"; // JSON array of {itemId, type, quantity}
-
-        // -----------------------------------------------------------------------
-        // Send User fields
-        // -----------------------------------------------------------------------
+        private readonly List<AttachmentDraft> _globalAttachments = new List<AttachmentDraft>();
 
         private string _userTargetId = string.Empty;
         private string _userSubject = string.Empty;
@@ -86,37 +58,20 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private string _userDedupKey = string.Empty;
         private string _userSenderName = string.Empty;
         private int _userCategoryIndex;
-        private string _userAttachmentsJson = "[]";
-
-        // -----------------------------------------------------------------------
-        // Manage fields
-        // -----------------------------------------------------------------------
+        private readonly List<AttachmentDraft> _userAttachments = new List<AttachmentDraft>();
 
         private string _manageMailId = string.Empty;
-
-        // -----------------------------------------------------------------------
-        // Dropdown options
-        // -----------------------------------------------------------------------
 
         private static readonly string[] CategoryOptions =
         {
             "System", "Event", "Compensation", "Gift", "Support", "PatchNote"
         };
 
-        private static readonly string[] SenderTypeOptions =
-        {
-            "System", "Admin", "Player"
-        };
-
-        // -----------------------------------------------------------------------
-        // MenuItem
-        // -----------------------------------------------------------------------
-
         [MenuItem("CloudCode/Admin Mail")]
         public static void Open()
         {
             var window = GetWindow<AdminMailWindow>("Admin Mail");
-            window.minSize = new Vector2(500, 480);
+            window.minSize = new Vector2(560, 520);
             window.Show();
         }
 
@@ -125,11 +80,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _projectId = EditorPrefs.GetString(ProjectIdPrefKey, _projectId);
             _environmentId = EditorPrefs.GetString(EnvironmentIdPrefKey, _environmentId);
             _serviceKeyId = EditorPrefs.GetString(ServiceKeyIdPrefKey, _serviceKeyId);
+            EnsureAttachmentDefaults();
         }
-
-        // -----------------------------------------------------------------------
-        // GUI
-        // -----------------------------------------------------------------------
 
         private void OnGUI()
         {
@@ -146,8 +98,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             switch (_activeTab)
             {
                 case Tab.SendGlobal: DrawSendGlobalTab(); break;
-                case Tab.SendUser:   DrawSendUserTab();   break;
-                case Tab.Manage:     DrawManageTab();     break;
+                case Tab.SendUser: DrawSendUserTab(); break;
+                case Tab.Manage: DrawManageTab(); break;
             }
             EditorGUILayout.EndScrollView();
 
@@ -164,8 +116,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawAdminWarning()
         {
             EditorGUILayout.HelpBox(
-                "Admin calls use UGS REST with a project-scoped Unity service account. " +
-                "Project/Environment/Key ID can be saved locally; the service account secret is session-only.",
+                "Admin calls use UGS REST with project-scoped Unity service account. Project/Environment/Key ID can be saved locally; service account secret is session-only.",
                 MessageType.Warning);
         }
 
@@ -195,7 +146,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             bool ready = HasRestCredentials();
             string label = ready
-                ? "Project-scoped REST transport ready. Play Mode is not required."
+                ? "Project-scoped REST transport ready. Play Mode not required."
                 : "Project-scoped REST transport config is incomplete.";
             Color prev = GUI.color;
             GUI.color = ready ? Color.green : Color.yellow;
@@ -215,25 +166,17 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-        // -----------------------------------------------------------------------
-        // Send Global tab
-        // -----------------------------------------------------------------------
-
         private void DrawSendGlobalTab()
         {
-            EditorGUILayout.LabelField("Send Global Mail (admin-gated)", EditorStyles.boldLabel);
-            EditorGUILayout.Space(2);
-
-            _globalSubject    = EditorGUILayout.TextField("Subject (1-128 chars)", _globalSubject);
-            EditorGUILayout.LabelField("Body (1-1024 chars)");
-            _globalBody       = EditorGUILayout.TextArea(_globalBody, GUILayout.MinHeight(60));
-            _globalExpiresAt  = EditorGUILayout.TextField("Expires At (ISO UTC, blank=never)", _globalExpiresAt);
+            EditorGUILayout.LabelField("Send Global Mail", EditorStyles.boldLabel);
+            _globalSubject = EditorGUILayout.TextField("MailInfo.Title", _globalSubject);
+            EditorGUILayout.LabelField("MailInfo.Content");
+            _globalBody = EditorGUILayout.TextArea(_globalBody, GUILayout.MinHeight(60));
+            _globalExpiresAt = EditorGUILayout.TextField("MailInfo.EndTime/ExpiresAt (ISO UTC, blank=never)", _globalExpiresAt);
             _globalCategoryIndex = EditorGUILayout.Popup("Category", _globalCategoryIndex, CategoryOptions);
-            _globalSenderName = EditorGUILayout.TextField("Sender Name (e.g. GM_Ninh)", _globalSenderName);
-            _globalDedupKey   = EditorGUILayout.TextField("Dedup Key (optional)", _globalDedupKey);
-
-            EditorGUILayout.LabelField("Attachments JSON (array of {itemId,type,quantity})");
-            _globalAttachmentsJson = EditorGUILayout.TextArea(_globalAttachmentsJson, GUILayout.MinHeight(50));
+            _globalSenderName = EditorGUILayout.TextField("Sender Name", _globalSenderName);
+            _globalDedupKey = EditorGUILayout.TextField("Dedup Key", _globalDedupKey);
+            DrawAttachmentEditor("MailInfo.Attachment", _globalAttachments);
 
             EditorGUILayout.Space(4);
             GUI.enabled = !_isBusy && HasRestCredentials() && HasOperatorId();
@@ -242,26 +185,18 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             GUI.enabled = true;
         }
 
-        // -----------------------------------------------------------------------
-        // Send User tab
-        // -----------------------------------------------------------------------
-
         private void DrawSendUserTab()
         {
-            EditorGUILayout.LabelField("Send User Mail (admin-gated)", EditorStyles.boldLabel);
-            EditorGUILayout.Space(2);
-
-            _userTargetId  = EditorGUILayout.TextField("Target Player ID", _userTargetId);
-            _userSubject   = EditorGUILayout.TextField("Subject (1-128 chars)", _userSubject);
-            EditorGUILayout.LabelField("Body (1-1024 chars)");
-            _userBody      = EditorGUILayout.TextArea(_userBody, GUILayout.MinHeight(60));
-            _userExpiresAt = EditorGUILayout.TextField("Expires At (ISO UTC, blank=never)", _userExpiresAt);
+            EditorGUILayout.LabelField("Send User Mail", EditorStyles.boldLabel);
+            _userTargetId = EditorGUILayout.TextField("Target Player ID", _userTargetId);
+            _userSubject = EditorGUILayout.TextField("MailInfo.Title", _userSubject);
+            EditorGUILayout.LabelField("MailInfo.Content");
+            _userBody = EditorGUILayout.TextArea(_userBody, GUILayout.MinHeight(60));
+            _userExpiresAt = EditorGUILayout.TextField("MailInfo.EndTime/ExpiresAt (ISO UTC, blank=never)", _userExpiresAt);
             _userCategoryIndex = EditorGUILayout.Popup("Category", _userCategoryIndex, CategoryOptions);
-            _userSenderName = EditorGUILayout.TextField("Sender Name (e.g. GM_Ninh)", _userSenderName);
-            _userDedupKey  = EditorGUILayout.TextField("Dedup Key (optional)", _userDedupKey);
-
-            EditorGUILayout.LabelField("Attachments JSON (array of {itemId,type,quantity})");
-            _userAttachmentsJson = EditorGUILayout.TextArea(_userAttachmentsJson, GUILayout.MinHeight(50));
+            _userSenderName = EditorGUILayout.TextField("Sender Name", _userSenderName);
+            _userDedupKey = EditorGUILayout.TextField("Dedup Key", _userDedupKey);
+            DrawAttachmentEditor("MailInfo.Attachment", _userAttachments);
 
             EditorGUILayout.Space(4);
             GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_userTargetId) && HasOperatorId();
@@ -270,15 +205,40 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             GUI.enabled = true;
         }
 
-        // -----------------------------------------------------------------------
-        // Manage tab
-        // -----------------------------------------------------------------------
+        private void DrawAttachmentEditor(string label, List<AttachmentDraft> attachments)
+        {
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox("Client builds List<MailAttachment> from rows below. The server will map these values into the current mailbox DTO and storage schema.", MessageType.Info);
+
+            int removeIndex = -1;
+            for (int i = 0; i < attachments.Count; i++)
+            {
+                var item = attachments[i];
+                EditorGUILayout.BeginVertical("box");
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField($"Attachment {i + 1}", EditorStyles.miniBoldLabel);
+                if (GUILayout.Button("Remove", GUILayout.Width(70)))
+                    removeIndex = i;
+                EditorGUILayout.EndHorizontal();
+
+                item.payoutAssetId = EditorGUILayout.TextField("PayoutAssetId", item.payoutAssetId);
+                item.assetType = (AssetTypeOption)EditorGUILayout.EnumPopup("AssetType", item.assetType);
+                item.payoutAmount = EditorGUILayout.IntField("PayoutAmount", item.payoutAmount);
+                item.chance = EditorGUILayout.Slider("Chance", item.chance, 0f, 1f);
+                EditorGUILayout.EndVertical();
+            }
+
+            if (removeIndex >= 0)
+                attachments.RemoveAt(removeIndex);
+
+            if (GUILayout.Button("Add Attachment", GUILayout.Width(120)))
+                attachments.Add(new AttachmentDraft());
+        }
 
         private void DrawManageTab()
         {
-            EditorGUILayout.LabelField("Manage Mail (admin-gated)", EditorStyles.boldLabel);
-            EditorGUILayout.Space(2);
-
+            EditorGUILayout.LabelField("Manage Mail", EditorStyles.boldLabel);
             _manageMailId = EditorGUILayout.TextField("Mail ID", _manageMailId);
             EditorGUILayout.Space(4);
 
@@ -292,41 +252,31 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             GUI.enabled = true;
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.HelpBox(
-                "Delete Mail is player-scoped and still requires a player-authenticated runtime call. " +
-                "Service-account editor flow supports admin global operations only.",
+                "Delete Mail is player-scoped and still requires player-authenticated runtime call. Service-account editor flow supports admin global operations only.",
                 MessageType.Info);
 
             EditorGUILayout.Space(6);
-            EditorGUILayout.LabelField("Purge All Expired Global Mails (admin)", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox(
-                "PurgeExpired removes all expired refs from global_mail_index_v2 and deletes their mail_global_{id} keys. " +
-                "Run periodically for housekeeping.",
-                MessageType.Info);
+            EditorGUILayout.LabelField("Purge All Expired Global Mails", EditorStyles.boldLabel);
             GUI.enabled = !_isBusy && HasRestCredentials() && HasOperatorId();
             if (GUILayout.Button("Purge Expired", GUILayout.Width(120)))
                 RunAsync(PurgeExpiredAsync);
             GUI.enabled = true;
         }
 
-        // -----------------------------------------------------------------------
-        // Async operations
-        // -----------------------------------------------------------------------
-
         private async Task SendGlobalMailAsync()
         {
             ValidateSubjectBody(_globalSubject, _globalBody);
             using var backendScope = UseRestBackend();
-
-            var attachments = ParseAttachmentsJson(_globalAttachmentsJson);
-            string expiresAt = string.IsNullOrWhiteSpace(_globalExpiresAt) ? null : _globalExpiresAt.Trim();
-            string category  = CategoryOptions[_globalCategoryIndex];
-            string sender    = string.IsNullOrWhiteSpace(_globalSenderName) ? null : _globalSenderName.Trim();
-            string dedupKey  = string.IsNullOrWhiteSpace(_globalDedupKey) ? null : _globalDedupKey.Trim();
-
             var result = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
-                _globalSubject.Trim(), _globalBody.Trim(),
-                expiresAt, category, sender, dedupKey, attachments,
-                adminToken: null, operatorId: _operatorId);
+                _globalSubject.Trim(),
+                _globalBody.Trim(),
+                NormalizeOptional(_globalExpiresAt),
+                CategoryOptions[_globalCategoryIndex],
+                NormalizeOptional(_globalSenderName),
+                NormalizeOptional(_globalDedupKey),
+                BuildAttachments(_globalAttachments),
+                adminToken: null,
+                operatorId: _operatorId);
 
             _rawJson = backendScope.Backend.FormatSuccessResponse("SendGlobalMail", result);
             string mailId = string.IsNullOrEmpty(result.mailId) ? result.globalMailId : result.mailId;
@@ -339,17 +289,17 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 throw new ArgumentException("Target Player ID is required.");
             ValidateSubjectBody(_userSubject, _userBody);
             using var backendScope = UseRestBackend();
-
-            var attachments = ParseAttachmentsJson(_userAttachmentsJson);
-            string expiresAt = string.IsNullOrWhiteSpace(_userExpiresAt) ? null : _userExpiresAt.Trim();
-            string category  = CategoryOptions[_userCategoryIndex];
-            string sender    = string.IsNullOrWhiteSpace(_userSenderName) ? null : _userSenderName.Trim();
-            string dedupKey  = string.IsNullOrWhiteSpace(_userDedupKey) ? null : _userDedupKey.Trim();
-
             var result = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
-                _userTargetId.Trim(), _userSubject.Trim(), _userBody.Trim(),
-                expiresAt, category, sender, dedupKey, attachments,
-                adminToken: null, operatorId: _operatorId);
+                _userTargetId.Trim(),
+                _userSubject.Trim(),
+                _userBody.Trim(),
+                NormalizeOptional(_userExpiresAt),
+                CategoryOptions[_userCategoryIndex],
+                NormalizeOptional(_userSenderName),
+                NormalizeOptional(_userDedupKey),
+                BuildAttachments(_userAttachments),
+                adminToken: null,
+                operatorId: _operatorId);
 
             _rawJson = backendScope.Backend.FormatSuccessResponse("SendUserMail", result);
             _statusMessage = $"SendUserMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId} sentAt={result.sentAt}";
@@ -383,17 +333,11 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _statusMessage = $"PurgeExpired: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} purgedCount={result.purgedCount}";
         }
 
-        // -----------------------------------------------------------------------
-        // UI helpers
-        // -----------------------------------------------------------------------
-
         private void DrawRawJsonFoldout()
         {
             _showRawJson = EditorGUILayout.Foldout(_showRawJson, "Server Response JSON (status/details)", true);
             if (_showRawJson && !string.IsNullOrEmpty(_rawJson))
-            {
                 EditorGUILayout.TextArea(_rawJson, EditorStyles.textArea, GUILayout.MinHeight(80));
-            }
         }
 
         private void DrawStatusBar()
@@ -404,42 +348,52 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 EditorGUILayout.LabelField("Working...", EditorStyles.miniLabel);
         }
 
-        // -----------------------------------------------------------------------
-        // Utility
-        // -----------------------------------------------------------------------
-
         private static void ValidateSubjectBody(string subject, string body)
         {
             if (string.IsNullOrWhiteSpace(subject) || subject.Trim().Length > 128)
-                throw new ArgumentException("Subject must be 1-128 characters.");
+                throw new ArgumentException("MailInfo.Title must be 1-128 characters.");
             if (string.IsNullOrWhiteSpace(body) || body.Trim().Length > 1024)
-                throw new ArgumentException("Body must be 1-1024 characters.");
+                throw new ArgumentException("MailInfo.Content must be 1-1024 characters.");
         }
 
-        /// <summary>
-        /// Parses a JSON array string into a List of MailAttachment.
-        /// Expected format: [{"itemId":"gold","type":"currency","quantity":100}, ...]
-        /// Returns null (not empty list) when the JSON is "[]" or blank so the backend treats it as absent.
-        /// </summary>
-        private static List<MailAttachment> ParseAttachmentsJson(string json)
+        private static string NormalizeOptional(string value)
         {
-            if (string.IsNullOrWhiteSpace(json)) return null;
-            string trimmed = json.Trim();
-            if (trimmed == "[]" || trimmed == "null") return null;
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
 
-            // Unity's JsonUtility does not deserialize top-level arrays directly.
-            // Wrap in an object to parse, then unwrap.
-            try
+        private static List<MailAttachment> BuildAttachments(List<AttachmentDraft> drafts)
+        {
+            if (drafts == null || drafts.Count == 0) return null;
+
+            var result = new List<MailAttachment>();
+            foreach (var draft in drafts)
             {
-                string wrapped = "{\"items\":" + trimmed + "}";
-                var wrapper = UnityEngine.JsonUtility.FromJson<AttachmentListWrapper>(wrapped);
-                return (wrapper?.items?.Count > 0) ? wrapper.items : null;
+                if (string.IsNullOrWhiteSpace(draft.payoutAssetId))
+                    continue;
+                if (draft.payoutAmount <= 0)
+                    throw new ArgumentException($"Attachment '{draft.payoutAssetId}' must have PayoutAmount > 0.");
+                if (draft.chance <= 0f)
+                    throw new ArgumentException($"Attachment '{draft.payoutAssetId}' must have Chance > 0.");
+
+                result.Add(new MailAttachment
+                {
+                    itemId = draft.payoutAssetId.Trim(),
+                    id = draft.payoutAssetId.Trim(),
+                    quantity = draft.payoutAmount,
+                    amount = draft.payoutAmount,
+                    type = draft.assetType == AssetTypeOption.Currency ? "currency" : "item"
+                });
             }
-            catch (Exception ex)
-            {
-                throw new ArgumentException($"Attachments JSON parse error: {ex.Message}. " +
-                    "Expected format: [{\"itemId\":\"gold\",\"type\":\"currency\",\"quantity\":100}]");
-            }
+
+            return result.Count > 0 ? result : null;
+        }
+
+        private void EnsureAttachmentDefaults()
+        {
+            if (_globalAttachments.Count == 0)
+                _globalAttachments.Add(new AttachmentDraft());
+            if (_userAttachments.Count == 0)
+                _userAttachments.Add(new AttachmentDraft());
         }
 
         private void SaveRestPrefs()
@@ -541,16 +495,6 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             return wrapper.ToString(Formatting.Indented);
         }
 
-        // -----------------------------------------------------------------------
-        // Private helper types
-        // -----------------------------------------------------------------------
-
-        [Serializable]
-        private class AttachmentListWrapper
-        {
-            public List<MailAttachment> items;
-        }
-
         private sealed class BackendScope : IDisposable
         {
             private readonly ICloudCodeBackend _previousBackend;
@@ -602,9 +546,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                     string url = $"{CloudCodeBaseUrl}/v1/projects/{Uri.EscapeDataString(_projectId)}/modules/{ModuleName}/{Uri.EscapeDataString(endpoint)}";
                     var payload = new JObject
                     {
-                        ["params"] = request == null
-                            ? new JObject()
-                            : new JObject { ["request"] = JToken.FromObject(request) }
+                        ["params"] = request == null ? new JObject() : new JObject { ["request"] = JToken.FromObject(request) }
                     };
 
                     var httpResponse = await PostJsonAsync(url, payload.ToString(Formatting.None), accessToken, useBearer: true);
@@ -666,11 +608,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 using HttpResponseMessage response = await HttpClient.SendAsync(message);
                 string responseJson = await response.Content.ReadAsStringAsync();
                 if (!response.IsSuccessStatusCode)
-                    throw new CloudCodeRestException("TokenExchange", new RestHttpResponse(
-                        (int)response.StatusCode,
-                        response.ReasonPhrase,
-                        responseJson,
-                        false));
+                    throw new CloudCodeRestException("TokenExchange", new RestHttpResponse((int)response.StatusCode, response.ReasonPhrase, responseJson, false));
 
                 var tokenResponse = JObject.Parse(responseJson);
                 _accessToken = tokenResponse.Value<string>("accessToken");
@@ -689,11 +627,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
                 using HttpResponseMessage response = await HttpClient.SendAsync(message);
                 string responseJson = await response.Content.ReadAsStringAsync();
-                return new RestHttpResponse(
-                    (int)response.StatusCode,
-                    response.ReasonPhrase,
-                    responseJson,
-                    response.IsSuccessStatusCode);
+                return new RestHttpResponse((int)response.StatusCode, response.ReasonPhrase, responseJson, response.IsSuccessStatusCode);
             }
         }
 

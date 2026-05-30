@@ -146,23 +146,21 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (!_mailFoldouts.ContainsKey(index))
                 _mailFoldouts[index] = false;
 
-            string foldLabel = $"[{mail.mailType ?? "?"}] {mail.subject ?? "(no subject)"}  |  " +
+            string foldLabel = $"[{mail.mailType ?? "?"}] {mail.MailInfo?.Title ?? "(no subject)"}  |  " +
                                $"Scope: {GetCurrentMailOwnershipType()}  " +
                                $"From: {mail.sender ?? mail.senderType ?? "?"}  " +
-                               $"  Sent: {FormatDate(mail.sentAt)}" +
-                               $"  Read: {(mail.isRead ? "Yes" : "No")}" +
-                               $"  Claimed: {(mail.attachmentClaimed ? "Yes" : "No")}";
+                               $"  Sent: {FormatDate(mail.MailInfo?.StartTime)}" +
+                               $"  Read: {(mail.MailMetaData != null && mail.MailMetaData.IsRead ? "Yes" : "No")}" +
+                               $"  Claimed: {(mail.MailMetaData != null && mail.MailMetaData.IsClaimed ? "Yes" : "No")}";
 
             _mailFoldouts[index] = EditorGUILayout.Foldout(_mailFoldouts[index], foldLabel, true);
             if (!_mailFoldouts[index]) return;
 
             EditorGUI.indentLevel++;
-            EditorGUILayout.LabelField("Mail ID", mail.mailId ?? "-", EditorStyles.miniLabel);
-            EditorGUILayout.LabelField("Body", mail.body ?? "-", EditorStyles.wordWrappedMiniLabel);
-            EditorGUILayout.LabelField("Expires At", mail.expiresAt ?? "never", EditorStyles.miniLabel);
-            EditorGUILayout.LabelField("Category", mail.mailCategory ?? "-", EditorStyles.miniLabel);
-
-            if (mail.attachments != null && mail.attachments.Count > 0)
+            EditorGUILayout.LabelField("Mail ID", mail.MessageId ?? "-", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField("Body", mail.MailInfo?.Content ?? "-", EditorStyles.wordWrappedMiniLabel);
+            EditorGUILayout.LabelField("Period", mail.MailInfo != null ? mail.MailInfo.Period.ToString() : "0", EditorStyles.miniLabel);
+                        if (mail.attachments != null && mail.attachments.Count > 0)
             {
                 EditorGUILayout.LabelField("Attachments:", EditorStyles.boldLabel);
                 foreach (var att in mail.attachments)
@@ -174,18 +172,18 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             }
 
             EditorGUILayout.BeginHorizontal();
-            GUI.enabled = !_isBusy && !mail.isRead;
+            GUI.enabled = !_isBusy && !(mail.MailMetaData != null && mail.MailMetaData.IsRead);
             if (GUILayout.Button("Mark Read", GUILayout.Width(90)))
             {
-                string mailId = mail.mailId;
+                string mailId = mail.MessageId;
                 string ownershipType = GetCurrentMailOwnershipType();
                 RunAsync(() => MarkReadAsync(mailId, ownershipType));
             }
-            GUI.enabled = !_isBusy && !mail.attachmentClaimed
+            GUI.enabled = !_isBusy && !(mail.MailMetaData != null && mail.MailMetaData.IsClaimed)
                 && mail.attachments != null && mail.attachments.Count > 0;
             if (GUILayout.Button("Claim Attachment", GUILayout.Width(130)))
             {
-                string mailId = mail.mailId;
+                string mailId = mail.MessageId;
                 string ownershipType = GetCurrentMailOwnershipType();
                 RunAsync(() => ClaimAttachmentAsync(mailId, ownershipType));
             }
@@ -310,4 +308,5 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         }
     }
 }
+
 
