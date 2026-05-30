@@ -395,6 +395,26 @@ catch (CloudCodeException e)
 
 ---
 
+### How to claim all available attachments
+
+Use `ClaimAllAttachments` when the player taps a "Claim All" button. The endpoint
+claims all visible, unexpired reward mails for the selected scope and marks each
+claimed mail as read.
+
+```csharp
+var result = await BackpackCloudCodeService.CallClaimAllAttachmentsAsync(
+    mailType: "all",
+    requestId: Guid.NewGuid().ToString());
+
+Debug.Log($"Claimed={result.claimedCount}, already={result.alreadyClaimedCount}, skipped={result.skippedCount}");
+ShowRewardPopup(result.grantedAttachments);
+```
+
+`mailType` can be `all`, `global`, or `user`. Empty/null behaves as `all`. A retry
+with the same `requestId` derives the same per-mail idempotency keys.
+
+---
+
 ## Error Codes Reference
 
 | HTTP Code | `CloudCodeException` Cause | Resolution |

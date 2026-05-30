@@ -111,7 +111,7 @@ Unity Client
 
 Cloud Save Keys:
   mails_all                (custom, project-wide) — all admin mail payloads as [{ Mail }]
-  mailbox_global_state     (player)               — per-player read/claim/delete metadata
+  mail_meta_state          (player)               — per-player read/claim/delete metadata
   mailbox_user_items       (player)               — user-to-user GiftMail payloads
 ```
 
@@ -121,11 +121,18 @@ contains player IDs, the same global payload is visible only to those players.
 choose `Null / no expiration` to send a null end time, or `Use UTC time` to send an
 ISO 8601 expiration timestamp. Player data stores only `MailMetadata` for admin
 mail state.
+The player metadata JSON is written as `{ "MailMetadata": [...] }`; each item uses
+`IsClaimed`, `IsRead`, and `IsDeleted`.
 
 In **CloudCode > Admin Mail > Manage**, admin REST actions do not require Play Mode:
 `Set EndTime` updates an existing global mail's end time, `Expire Global` sets it
 to now, and `Delete Global` removes the matching `{ Mail }` object from `mails_all`.
 New Cloud Save writes omit mailbox `"Version"` fields.
+
+`ClaimAllAttachments` claims all visible, unexpired reward mails for the selected
+scope (`all`, `global`, or `user`) and returns aggregate granted attachments plus
+per-mail results. The Unity client exposes this through
+`BackpackCloudCodeService.CallClaimAllAttachmentsAsync`.
 
 ### Mailbox API Quick Reference
 
@@ -136,6 +143,7 @@ New Cloud Save writes omit mailbox `"Version"` fields.
 | `GetMailbox` | Implemented, not yet committed | — | `{ success, mails[] }` |
 | `MarkMailRead` | Implemented, not yet committed | `{ mailIds[] }` | `{ success }` |
 | `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` | `{ success, claimedItems[] }` |
+| `ClaimAllAttachments` | Implemented | `{ mailType?, requestId? }` | `{ claimedCount, alreadyClaimedCount, skippedCount, results[], grantedAttachments[] }` |
 
 ### Quick Usage Example
 

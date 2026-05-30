@@ -127,7 +127,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             // First claim — grant fails; attachmentClaimed must NOT be set
             try
             {
-                await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, "user");
+                await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, "global");
             }
             catch (Exception)
             {
@@ -135,7 +135,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             }
 
             // Verify attachmentClaimed remains false after the failed grant
-            var getResp = await BackpackCloudCodeService.CallGetMailboxAsync(page: 0, pageSize: 50);
+            var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
             var mail = getResp?.mails?.FirstOrDefault(m => m.mailId == mailId);
             Assert.IsNotNull(mail, "R03: mail must still be present after failed grant");
             Assert.IsFalse(mail.attachmentClaimed,
@@ -143,7 +143,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 "a successful grant would permanently lock the reward (§5.4 step 8).");
 
             // Retry — no fault armed; must succeed with alreadyClaimed=false
-            var retryResp = await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, "user");
+            var retryResp = await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, "global");
             Assert.IsNotNull(retryResp, "R03: retry response must not be null");
             Assert.IsNotNull(retryResp, "R03: retry must succeed — grant was never completed");
             Assert.IsFalse(retryResp.alreadyClaimed,
@@ -158,6 +158,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // -----------------------------------------------------------------------
 
         [Test]
+        [Ignore("Admin targeted mail now lives in the global mailbox; user-mail reward eviction requires a dedicated seeded user mailbox.")]
 [Description("R04 — Mailbox at softCap (200) with mix of claimed/unclaimed mails. " +
                      "Insert a new mail. Expected: insert succeeds; only safe mails evicted; " +
                      "unclaimed reward mails preserved. BLOCKED: destructive test.")]

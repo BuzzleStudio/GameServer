@@ -95,6 +95,17 @@ namespace BackpackAdventures.CloudCode.Client
             return await Backend.CallEndpointAsync<ClaimAttachmentResponse>("ClaimAttachment", request);
         }
 
+        public static async Task<ClaimAllAttachmentsResponse> CallClaimAllAttachmentsAsync(
+            string mailType = "all", string requestId = null)
+        {
+            var request = new ClaimAllAttachmentsRequest
+            {
+                mailType = string.IsNullOrEmpty(mailType) ? "all" : mailType,
+                requestId = requestId
+            };
+            return await Backend.CallEndpointAsync<ClaimAllAttachmentsResponse>("ClaimAllAttachments", request);
+        }
+
         public static async Task<SendGlobalMailResponse> CallAdminSendGlobalMailAsync(
             string subject,
             string body,

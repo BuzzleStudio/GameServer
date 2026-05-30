@@ -45,6 +45,89 @@ public class ClaimAttachmentModule
         return result;
     }
 
+    [CloudCodeFunction("ClaimAllAttachments")]
+    public async Task<ClaimAllAttachmentsResponse> ClaimAllAttachmentsAsync(ClaimAllAttachmentsRequest request)
+    {
+        var playerId = _context.PlayerId ?? string.Empty;
+        var scope = NormalizeClaimAllScope(request?.MailType);
+        var response = new ClaimAllAttachmentsResponse();
+
+        if (scope == "global" || scope == "all")
+            await ClaimAllGlobalAttachmentsAsync(playerId, request?.RequestId, response);
+
+        if (scope == "user" || scope == "all")
+            await ClaimAllUserAttachmentsAsync(playerId, request?.RequestId, response);
+
+        return response;
+    }
+
+    private async Task ClaimAllGlobalAttachmentsAsync(string playerId, string? requestId, ClaimAllAttachmentsResponse response)
+    {
+        var collection = await CloudSaveHelper.GetCustomDataAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        if (collection?.Mails == null) return;
+
+        var candidateIds = new List<string>();
+        foreach (var payload in collection.Mails)
+        {
+            var mail = payload?.Mail;
+            if (mail == null) continue;
+            if (string.IsNullOrEmpty(mail.MessageId)) continue;
+            if (!mail.IsAvailable) continue;
+            if (!MailSchemaHelper.IsVisibleToPlayer(mail, playerId)) continue;
+            if (!MailSchemaHelper.HasAttachments(mail)) continue;
+            candidateIds.Add(mail.MessageId);
+        }
+
+        foreach (var mailId in candidateIds)
+            await ClaimOneForClaimAllAsync(playerId, mailId, "global", BuildPerMailRequestId(requestId, mailId), response);
+    }
+
+    private async Task ClaimAllUserAttachmentsAsync(string playerId, string? requestId, ClaimAllAttachmentsResponse response)
+    {
+        var mailbox = await CloudSaveHelper.GetPlayerDataAsync<PlayerUserMailbox>(
+            _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
+        if (mailbox?.Mails == null) return;
+
+        var candidateIds = new List<string>();
+        foreach (var mail in mailbox.Mails)
+        {
+            if (mail == null) continue;
+            if (string.IsNullOrEmpty(mail.MessageId)) continue;
+            if (mail.IsExpired()) continue;
+            if (!MailSchemaHelper.HasAttachments(mail)) continue;
+            candidateIds.Add(mail.MessageId);
+        }
+
+        foreach (var mailId in candidateIds)
+            await ClaimOneForClaimAllAsync(playerId, mailId, "user", BuildPerMailRequestId(requestId, mailId), response);
+    }
+
+    private async Task ClaimOneForClaimAllAsync(
+        string playerId,
+        string mailId,
+        string mailType,
+        string? requestId,
+        ClaimAllAttachmentsResponse response)
+    {
+        try
+        {
+            var result = mailType == "global"
+                ? await ClaimGlobalAttachmentAsync(playerId, mailId, requestId)
+                : await ClaimUserAttachmentAsync(playerId, mailId, requestId);
+            AddClaimAllResult(response, mailType, result);
+        }
+        catch (InvalidOperationException ex) when (IsClaimAllSkippable(ex))
+        {
+            response.SkippedCount++;
+            response.Results.Add(new ClaimAllAttachmentResult
+            {
+                MailId = mailId,
+                MailType = mailType,
+                SkippedReason = ResolveMailboxError(ex.Message)
+            });
+        }
+    }
+
     private async Task<ClaimAttachmentResponse> ClaimGlobalAttachmentAsync(string playerId, string mailId, string? requestId)
     {
         var collection = await CloudSaveHelper.GetCustomDataAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
@@ -158,5 +241,71 @@ public class ClaimAttachmentModule
     {
         return string.Equals(mailType, "global", StringComparison.OrdinalIgnoreCase)
                || (!string.IsNullOrEmpty(mailId) && mailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeClaimAllScope(string? mailType)
+    {
+        if (string.IsNullOrWhiteSpace(mailType)) return "all";
+        var value = mailType.Trim().ToLowerInvariant();
+        if (value == "all" || value == "global" || value == "user") return value;
+        throw new ArgumentException(MailboxError.InvalidInput);
+    }
+
+    private static string? BuildPerMailRequestId(string? requestId, string mailId)
+    {
+        return string.IsNullOrEmpty(requestId) ? null : $"{requestId}:{mailId}";
+    }
+
+    private static void AddClaimAllResult(
+        ClaimAllAttachmentsResponse response,
+        string mailType,
+        ClaimAttachmentResponse result)
+    {
+        var attachments = result.GrantedAttachments ?? new List<MailAttachment>();
+        response.Results.Add(new ClaimAllAttachmentResult
+        {
+            MailId = result.MailId,
+            MailType = mailType,
+            AlreadyClaimed = result.AlreadyClaimed,
+            GrantedAttachments = attachments.Count == 0 ? null : attachments
+        });
+
+        if (result.AlreadyClaimed)
+        {
+            response.AlreadyClaimedCount++;
+            return;
+        }
+
+        response.ClaimedCount++;
+        response.GrantedAttachments.AddRange(attachments);
+    }
+
+    private static bool IsClaimAllSkippable(Exception ex)
+    {
+        var error = ResolveMailboxError(ex.Message);
+        return error == MailboxError.MailNotFound ||
+               error == MailboxError.MailExpired ||
+               error == MailboxError.NoAttachment;
+    }
+
+    private static string ResolveMailboxError(string message)
+    {
+        string[] knownCodes =
+        {
+            MailboxError.InvalidInput,
+            MailboxError.MailNotFound,
+            MailboxError.MailExpired,
+            MailboxError.AlreadyClaimed,
+            MailboxError.NoAttachment,
+            MailboxError.GrantUnavailable
+        };
+
+        foreach (var code in knownCodes)
+        {
+            if (message.IndexOf(code, StringComparison.OrdinalIgnoreCase) >= 0)
+                return code;
+        }
+
+        return message;
     }
 }

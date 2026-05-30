@@ -169,14 +169,14 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             Assert.IsFalse(string.IsNullOrEmpty(resp.mailId),
                 "P03: mailId must be non-empty");
 
-            // Verify the mail appears in GetUserMails
-            var getResp = await BackpackCloudCodeService.CallGetMailboxAsync(page: 0, pageSize: 50);
-            Assert.IsNotNull(getResp, "P03: GetUserMails must not return null");
-            Assert.IsNotNull(getResp, "P03: GetUserMails success must be true");
+            // Targeted admin mail is stored in the global admin-mail store.
+            var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            Assert.IsNotNull(getResp, "P03: GetGlobalMails must not return null");
+            Assert.IsNotNull(getResp, "P03: GetGlobalMails success must be true");
 
             var found = getResp.mails?.FirstOrDefault(m => m.mailId == resp.mailId);
             Assert.IsNotNull(found,
-                $"P03: mail with id={resp.mailId} not found in GetUserMails response");
+                $"P03: mail with id={resp.mailId} not found in GetGlobalMails response");
         }
 
         // -----------------------------------------------------------------------
@@ -239,12 +239,12 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             }
 
             // Request page 1, pageSize 3 — should return items 4 and 5 (2 items), no more
-            var resp = await BackpackCloudCodeService.CallGetMailboxAsync(page: 1, pageSize: 3);
+            var resp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 1, pageSize: 3);
 
             Assert.IsNotNull(resp, "P05: response must not be null");
             Assert.IsNotNull(resp, "P05: success must be true");
             Assert.AreEqual(2, resp.mails?.Count,
-                "P05: page 1 with pageSize 3 from 5 total mails must return 2 mails");
+                "P05: global page 1 with pageSize 3 from 5 targeted admin mails must return 2 mails");
             Assert.IsFalse(resp.hasMore,
                 "P05: hasMore must be false on last page");
         }
@@ -420,18 +420,18 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             Assert.IsNotNull(sendResp, "P10: pre-condition send failed");
 
             var claimResp = await BackpackCloudCodeService.CallClaimAttachmentAsync(
-                sendResp.mailId, "user");
+                sendResp.mailId, "global");
 
             Assert.IsNotNull(claimResp, "P10: ClaimAttachment response must not be null");
             Assert.IsNotNull(claimResp, "P10: claim response must not be null");
             Assert.IsFalse(claimResp.alreadyClaimed, "P10: alreadyClaimed must be false on first claim");
 
             // Verify attachmentClaimed=true persisted in the mailbox
-            var getResp = await BackpackCloudCodeService.CallGetMailboxAsync(page: 0, pageSize: 50);
+            var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
             var mail = getResp?.mails?.FirstOrDefault(m => m.mailId == sendResp.mailId);
-            Assert.IsNotNull(mail, "P10: mail must still appear in GetUserMails after claim");
+            Assert.IsNotNull(mail, "P10: mail must still appear in GetGlobalMails after claim");
             Assert.IsTrue(mail.attachmentClaimed,
-                "P10: attachmentClaimed must be true in GetUserMails after successful claim");
+                "P10: attachmentClaimed must be true in GetGlobalMails after successful claim");
         }
 
         // -----------------------------------------------------------------------
@@ -469,12 +469,60 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
 
         // -----------------------------------------------------------------------
-        // P12 — ClaimAttachment with requestId replays correctly
-        // Devlog row: P12 — ClaimAttachment_WithRequestId_Replays
+        // P11A - ClaimAllAttachments claims all visible rewards
+        // Devlog row: P11A - ClaimAllAttachments_UserAndGlobal
         // -----------------------------------------------------------------------
 
         [Test]
-        [Description("P12 — Claim with requestId=X; retry with same requestId=X. " +
+        [Description("P11A - ClaimAllAttachments claims visible broadcast and targeted admin reward mails.")]
+        public async Task P11A_ClaimAllAttachments_ClaimsUserAndGlobalRewards()
+        {
+            string selfId = MailboxTestHarness.CurrentPlayerId;
+
+            var globalResp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                subject: "P11A Global Reward",
+                body: "P11A claim-all global",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(11),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            var userResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
+                targetPlayerId: selfId,
+                subject: "P11A User Reward",
+                body: "P11A claim-all user",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(22),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            string globalMailId = globalResp.globalMailId ?? globalResp.mailId;
+            string userMailId = userResp.mailId;
+
+            var claimAll = await BackpackCloudCodeService.CallClaimAllAttachmentsAsync("all", Guid.NewGuid().ToString());
+            Assert.IsNotNull(claimAll, "P11A: ClaimAllAttachments response must not be null");
+            Assert.GreaterOrEqual(claimAll.claimedCount, 2, "P11A: must claim both seeded reward mails");
+
+            var globalMails = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            var globalMail = globalMails.mails.FirstOrDefault(m => m.mailId == globalMailId);
+            Assert.IsNotNull(globalMail, "P11A: global mail must still be visible after claim");
+            Assert.IsTrue(globalMail.attachmentClaimed, "P11A: global mail must be marked claimed");
+
+            var userMails = await BackpackCloudCodeService.CallGetMailboxAsync(page: 0, pageSize: 50);
+            Assert.IsNotNull(userMails, "P11A: GetUserMails response must remain valid after claim all");
+
+            var targetedMail = globalMails.mails.FirstOrDefault(m => m.mailId == userMailId);
+            Assert.IsNotNull(targetedMail, "P11A: targeted admin mail must be visible in global mailbox after claim");
+            Assert.IsTrue(targetedMail.attachmentClaimed, "P11A: targeted admin mail must be marked claimed");
+        }
+
+        // -----------------------------------------------------------------------
+        // P12 - ClaimAttachment with requestId replays correctly
+        // Devlog row: P12 - ClaimAttachment_WithRequestId_Replays
+        // -----------------------------------------------------------------------
+
+        [Test]
+        [Description("P12 - Claim with requestId=X; retry with same requestId=X. " +
                      "Expected: both responses identical; grant called exactly once.")]
         public async Task P12_ClaimAttachment_WithRequestId_Replays()
         {
@@ -743,10 +791,10 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 adminToken: TestConstants.AdminToken,
                 operatorId: TestConstants.OperatorId);
 
-            var getResp = await BackpackCloudCodeService.CallGetMailboxAsync(page: 0, pageSize: 50);
+            var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
             var mail = getResp.mails.FirstOrDefault(m => m.mailId == resp.mailId);
 
-            Assert.IsNotNull(mail, "P03A: sent user mail must be returned by GetUserMails");
+            Assert.IsNotNull(mail, "P03A: targeted admin mail must be returned by GetGlobalMails");
             Assert.AreEqual("P03A Title", mail.MailInfo.Title);
             Assert.AreEqual("P03A Body", mail.MailInfo.Content);
             Assert.Greater(mail.MailInfo.Period, 0);

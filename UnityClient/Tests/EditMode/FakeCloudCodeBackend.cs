@@ -102,6 +102,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 case "MarkMailRead":    return HandleMarkMailRead((MarkMailReadRequest)request);
                 case "MarkAllRead":     return HandleMarkAllRead();
                 case "ClaimAttachment": return HandleClaimAttachment((ClaimAttachmentRequest)request);
+                case "ClaimAllAttachments": return HandleClaimAllAttachments((ClaimAllAttachmentsRequest)request);
                 case "DeleteMail":      return HandleDeleteMail((DeleteMailRequest)request);
                 case "PurgeExpired":    return HandlePurgeExpired((PurgeExpiredRequest)request);
                 case "ExpireMail":      return HandleExpireMail((ExpireMailRequest)request);
@@ -473,6 +474,74 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
         // ── DeleteMail ─────────────────────────────────────────────────────────
 
+        private ClaimAllAttachmentsResponse HandleClaimAllAttachments(ClaimAllAttachmentsRequest req)
+        {
+            string scope = NormalizeClaimAllScope(req?.mailType);
+            string bulkRequestId = string.IsNullOrEmpty(req?.requestId) ? null : req.requestId;
+            var playerId = CurrentPlayerId;
+            var response = new ClaimAllAttachmentsResponse
+            {
+                results = new List<ClaimAllAttachmentResult>(),
+                grantedAttachments = new List<MailAttachment>()
+            };
+
+            if (scope == "global" || scope == "all")
+            {
+                var candidateIds = new List<string>();
+                foreach (var id in _globalMailIndex)
+                {
+                    if (!_globalMails.TryGetValue(id, out var gm)) continue;
+                    if (!gm.IsVisibleTo(playerId)) continue;
+                    if (gm.IsExpired(_clock.UtcNow)) continue;
+                    if (gm.Attachments == null || gm.Attachments.Count == 0) continue;
+                    candidateIds.Add(id);
+                }
+
+                foreach (var id in candidateIds)
+                    ClaimOneForClaimAll(playerId, id, "global", BuildPerMailRequestId(bulkRequestId, id), response);
+            }
+
+            if (scope == "user" || scope == "all")
+            {
+                var candidateIds = GetOrCreateUserMailbox(playerId)
+                    .Where(m => !m.IsExpired(_clock.UtcNow))
+                    .Where(m => m.Attachments != null && m.Attachments.Count > 0)
+                    .Select(m => m.MailId)
+                    .ToList();
+
+                foreach (var id in candidateIds)
+                    ClaimOneForClaimAll(playerId, id, "user", BuildPerMailRequestId(bulkRequestId, id), response);
+            }
+
+            return response;
+        }
+
+        private void ClaimOneForClaimAll(
+            string playerId,
+            string mailId,
+            string mailType,
+            string requestId,
+            ClaimAllAttachmentsResponse response)
+        {
+            try
+            {
+                var result = mailType == "global"
+                    ? ClaimGlobalAttachment(playerId, mailId, requestId)
+                    : ClaimUserAttachment(playerId, mailId, requestId);
+                AddClaimAllResult(response, mailType, result);
+            }
+            catch (InvalidOperationException ex) when (IsClaimAllSkippable(ex))
+            {
+                response.skippedCount++;
+                response.results.Add(new ClaimAllAttachmentResult
+                {
+                    mailId = mailId,
+                    mailType = mailType,
+                    skippedReason = ResolveMailboxError(ex.Message)
+                });
+            }
+        }
+
         private DeleteMailResponse HandleDeleteMail(DeleteMailRequest req)
         {
             if (string.IsNullOrWhiteSpace(req.mailId))
@@ -838,6 +907,71 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
 
         // ── Internal model types ───────────────────────────────────────────────
+
+        private static string NormalizeClaimAllScope(string mailType)
+        {
+            if (string.IsNullOrWhiteSpace(mailType)) return "all";
+            string value = mailType.Trim().ToLowerInvariant();
+            if (value == "all" || value == "global" || value == "user") return value;
+            throw new InvalidOperationException("InvalidInput");
+        }
+
+        private static string BuildPerMailRequestId(string requestId, string mailId)
+        {
+            return string.IsNullOrEmpty(requestId) ? null : $"{requestId}:{mailId}";
+        }
+
+        private static void AddClaimAllResult(
+            ClaimAllAttachmentsResponse response,
+            string mailType,
+            ClaimAttachmentResponse result)
+        {
+            var attachments = result.grantedAttachments ?? result.claimedAttachments;
+            response.results.Add(new ClaimAllAttachmentResult
+            {
+                mailId = result.mailId,
+                mailType = mailType,
+                alreadyClaimed = result.alreadyClaimed,
+                grantedAttachments = attachments
+            });
+
+            if (result.alreadyClaimed)
+            {
+                response.alreadyClaimedCount++;
+                return;
+            }
+
+            response.claimedCount++;
+            if (attachments != null)
+                response.grantedAttachments.AddRange(attachments);
+        }
+
+        private static bool IsClaimAllSkippable(Exception ex)
+        {
+            string error = ResolveMailboxError(ex.Message);
+            return error == "MailNotFound" || error == "MailExpired" || error == "NoAttachment";
+        }
+
+        private static string ResolveMailboxError(string message)
+        {
+            string[] knownCodes =
+            {
+                "InvalidInput",
+                "MailNotFound",
+                "MailExpired",
+                "AlreadyClaimed",
+                "NoAttachment",
+                "GrantUnavailable"
+            };
+
+            foreach (string code in knownCodes)
+            {
+                if (message.IndexOf(code, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return code;
+            }
+
+            return message;
+        }
 
         private static List<string> NormalizeTargetUserIds(List<string> targetUserIds)
         {

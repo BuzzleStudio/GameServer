@@ -119,13 +119,31 @@ Admin-authored mail uses Cloud Save custom data ID `global_mail`.
 |-----|-------|----------|
 | `mails_all` | Custom data | Array of admin mail payloads; each item is `{ "Mail": { ... } }` |
 | `global_mail_index_legacy` | Custom data | Read-only fallback for legacy v1 global mail, if present |
-| `mailbox_global_state` | Player data | Per-player `MailMetadata` only: `MessageId`, `IsClaim`, `IsRead`, `IsDelete` |
+| `mail_meta_state` | Player data | Per-player state only: `MailMetadata[]` with `MessageId`, `IsClaimed`, `IsRead`, `IsDeleted` |
 | `mailbox_user_items` | Player data | Full user-to-user `GiftMail` payloads |
 
 `TargetUserIds = null` or an empty list means broadcast to all players. A non-empty
 `TargetUserIds` list means targeted admin mail; the mail still lives in `mails_all`,
-and each player only writes state to `mailbox_global_state` when they read, claim,
+and each player only writes state to `mail_meta_state` when they read, claim,
 or delete it.
+
+Current player metadata JSON:
+
+```json
+{
+  "MailMetadata": [
+    {
+      "MessageId": "gm_3bb179b9",
+      "IsClaimed": true,
+      "IsRead": true,
+      "IsDeleted": false
+    }
+  ]
+}
+```
+
+Legacy records using `{ "Mails": [...] }`, `IsClaim`, or `IsDelete` still read
+normally and are normalized on the next write.
 
 `Mail.EndTime` is nullable. `EndTime = null` means no expiration and the mail stays
 available until it is manually expired or purged by admin tooling. The Admin Mail
@@ -142,6 +160,54 @@ Admin management behavior:
 
 New mailbox Cloud Save writes omit `"Version"` fields. Existing stored records with
 `Version` still deserialize normally, but rewritten records drop that field.
+
+---
+
+## ClaimAllAttachments
+
+**Function name:** `ClaimAllAttachments`
+
+Claims every visible, unexpired reward mail for the calling player. By default it
+claims both admin/global mail in `mails_all` and user mail in `mailbox_user_items`.
+
+**Input:**
+```json
+{
+  "mailType": "all",
+  "requestId": "optional-client-generated-id"
+}
+```
+
+`mailType` accepts `all`, `global`, or `user`. Empty/null is treated as `all`.
+When `requestId` is present, the server derives a per-mail request id internally
+so retrying the same bulk action reuses the same per-mail idempotency keys.
+
+**Response:**
+```json
+{
+  "claimedCount": 2,
+  "alreadyClaimedCount": 1,
+  "skippedCount": 0,
+  "results": [
+    {
+      "mailId": "gm_abc123",
+      "mailType": "global",
+      "alreadyClaimed": false,
+      "skippedReason": null,
+      "grantedAttachments": [
+        { "itemId": "coin", "type": "currency", "quantity": 100 }
+      ]
+    }
+  ],
+  "grantedAttachments": [
+    { "itemId": "coin", "type": "currency", "quantity": 100 }
+  ]
+}
+```
+
+The endpoint skips mails that become missing, expired, or attachment-less while
+the bulk operation is running. Reward-grant failures still fail the request with
+`GrantUnavailable`.
 
 ---
 
