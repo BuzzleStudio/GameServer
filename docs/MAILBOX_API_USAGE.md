@@ -38,7 +38,9 @@ await BackpackCloudCodeService.InitializeAsync();
 
 ### 1. `SendGlobalMail`
 
-Broadcasts a mail item to all players by appending it to the shared `global_mails` Cloud Save key.
+Creates an admin mail payload in custom data (`mail_global_{mailId}`) and appends
+a lightweight ref to `global_mail_index`. `targetUserIds = null` broadcasts to all
+players; a non-empty `targetUserIds` list limits visibility to those players.
 
 **Status:** Implemented and deployed.
 
@@ -48,7 +50,7 @@ Broadcasts a mail item to all players by appending it to the shared `global_mail
 |-------|------|----------|------------|
 | `subject` | `string` | Yes | Non-null, non-whitespace |
 | `body` | `string` | Yes | Non-null, non-whitespace |
-| `expiresAt` | `string` (ISO 8601 UTC) | No | Nullable; if provided, clients should filter expired items |
+| `expiresAt` | `string` (ISO 8601 UTC) | No | Nullable; null stores `Mail.EndTime = null` and means no expiration |
 | `attachments` | `MailAttachment[]` | No | Nullable list |
 
 **`MailAttachment` object:**
@@ -92,7 +94,7 @@ var attachments = new List<MailAttachment>
 var response = await BackpackCloudCodeService.SendGlobalMailAsync(
     subject: "Maintenance Reward",
     body: "Thank you for your patience during scheduled maintenance.",
-    expiresAt: "2026-06-30T00:00:00Z",
+    expiresAt: null,
     attachments: attachments
 );
 

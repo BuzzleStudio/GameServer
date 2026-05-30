@@ -162,17 +162,17 @@ public class Mail
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public DateTime StartTime { get; set; }
-    public DateTime EndTime { get; set; }
+    public DateTime? EndTime { get; set; }
     public List<Payout> Attachments { get; set; } = new();
 
     [JsonIgnore]
     public bool HasAttachment => Attachments != null && Attachments.Count > 0;
 
     [JsonIgnore]
-    public bool IsExpired => DateTime.UtcNow > EndTime;
+    public bool IsExpired => EndTime.HasValue && DateTime.UtcNow > EndTime.Value;
 
     [JsonIgnore]
-    public bool IsAvailable => DateTime.UtcNow >= StartTime && DateTime.UtcNow <= EndTime;
+    public bool IsAvailable => DateTime.UtcNow >= StartTime && (!EndTime.HasValue || DateTime.UtcNow <= EndTime.Value);
 }
 
 public class Payout
@@ -270,7 +270,7 @@ public static class MailSchemaHelper
         string title,
         string content,
         DateTime startTime,
-        DateTime endTime,
+        DateTime? endTime,
         List<MailAttachment>? attachments)
     {
         return new Mail
@@ -287,6 +287,8 @@ public static class MailSchemaHelper
 
     public static MailItemDto ToMailItemDto(Mail mail, MailMetadata? metadata)
     {
+        var startTime = mail.StartTime.ToUniversalTime().ToString("o");
+        var expireTime = mail.EndTime?.ToUniversalTime().ToString("o");
         return new MailItemDto
         {
             MessageId = mail.MessageId,
@@ -294,9 +296,9 @@ public static class MailSchemaHelper
             {
                 Title = mail.Title,
                 Content = mail.Content,
-                StartTime = mail.StartTime.ToUniversalTime().ToString("o"),
-                Period = CalculatePeriodSeconds(mail.StartTime.ToUniversalTime().ToString("o"), mail.EndTime.ToUniversalTime().ToString("o")),
-                ExpireTime = mail.EndTime.ToUniversalTime().ToString("o"),
+                StartTime = startTime,
+                Period = CalculatePeriodSeconds(startTime, expireTime),
+                ExpireTime = expireTime,
                 Attachment = MapAttachmentDtos(mail.Attachments)
             },
             MailMetaData = new MailMetaDataDto
@@ -415,7 +417,7 @@ public static class MailSchemaHelper
         {
             MessageId = mail.MessageId,
             StartTime = mail.StartTime.ToUniversalTime().ToString("o"),
-            ExpireTime = mail.EndTime.ToUniversalTime().ToString("o"),
+            ExpireTime = mail.EndTime?.ToUniversalTime().ToString("o"),
             DedupKey = dedupKey,
             Version = 4
         };
