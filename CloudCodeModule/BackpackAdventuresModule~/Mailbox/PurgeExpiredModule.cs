@@ -21,7 +21,7 @@ public class PurgeExpiredModule
     }
 
     [CloudCodeFunction("PurgeExpired")]
-    public async Task<PurgeExpiredResponse> PurgeExpiredAsync(PurgeExpiredRequest request)
+    public async Task<ApiResponse<PurgeExpiredResponse>> PurgeExpiredAsync(PurgeExpiredRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
         var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
@@ -29,15 +29,15 @@ public class PurgeExpiredModule
         var mails = collection.Mails;
 
         if (mails.Count == 0)
-            return new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
+            return ApiResponse<PurgeExpiredResponse>.Ok(new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") });
 
         var purgedCount = GlobalMailStore.RemoveExpired(mails);
         if (purgedCount == 0)
-            return new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
+            return ApiResponse<PurgeExpiredResponse>.Ok(new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") });
 
         var purgedAt = DateTime.UtcNow.ToString("o");
         await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
 
-        return new PurgeExpiredResponse { PurgedCount = purgedCount, PurgedAt = purgedAt };
+        return ApiResponse<PurgeExpiredResponse>.Ok(new PurgeExpiredResponse { PurgedCount = purgedCount, PurgedAt = purgedAt });
     }
 }

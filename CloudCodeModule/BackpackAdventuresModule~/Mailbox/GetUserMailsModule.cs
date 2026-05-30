@@ -24,7 +24,7 @@ public class GetUserMailsModule
     }
 
     [CloudCodeFunction("GetUserMails")]
-    public async Task<PagedMailResponse> GetUserMailsAsync(GetMailsRequest request)
+    public async Task<ApiResponse<PagedMailResponse>> GetUserMailsAsync(GetMailsRequest request)
     {
         var playerId = _context.PlayerId ?? string.Empty;
         _logger.LogInformation("GetUserMails called for {PlayerId}, page={Page}, pageSize={PageSize}", playerId, request.Page, request.PageSize);
@@ -51,13 +51,13 @@ public class GetUserMailsModule
         for (var i = startIdx; i < Math.Min(startIdx + pageSize, totalCount); i++)
             slice.Add(mailbox.Mails[i]);
 
-        return new PagedMailResponse
+        return ApiResponse<PagedMailResponse>.Ok(new PagedMailResponse
         {
             Mails = slice,
             TotalCount = totalCount,
             Page = request.Page,
             PageSize = pageSize,
             HasMore = (startIdx + pageSize) < totalCount
-        };
+        });
     }
 }

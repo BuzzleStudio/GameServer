@@ -84,11 +84,26 @@ Add `CloudCodeIntegrationTest` MonoBehaviour to any GameObject to run all 3 APIs
 
 ## API Contracts
 
+All Cloud Code functions now return the same top-level envelope:
+
+```json
+{
+  "StatusCode": 200,
+  "Message": "OK",
+  "Data": {}
+}
+```
+
+`BackpackCloudCodeService` unwraps `Data` and keeps its existing method return
+types for backward compatibility. Direct `CloudCodeService` callers can request
+either `ApiResponse` for status-only handling or `ApiResponse<TData>` when they
+need the typed data payload.
+
 | Function | Input | Output |
 |----------|-------|--------|
-| `HealthCheck` | — | `{ success, message, timestamp }` |
-| `PlayerEcho` | `playerId: string` | `{ success, playerId, serverTime }` |
-| `ServerConfig` | — | `{ environment, version, deploymentTime }` |
+| `HealthCheck` | — | `ApiResponse<HealthCheckData>` |
+| `PlayerEcho` | `playerId: string` | `ApiResponse<PlayerEchoData>` |
+| `ServerConfig` | — | `ApiResponse<ServerConfigData>` |
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full documentation.
 
@@ -142,8 +157,8 @@ per-mail results. The Unity client exposes this through
 | `SendUserMail` | Compatibility wrapper | `{ targetPlayerId/userId/targetUserIds, subject, body, expiresAt?, attachments? }` | `{ mailId, sentAt }` |
 | `GetMailbox` | Implemented, not yet committed | — | `{ success, mails[] }` |
 | `MarkMailRead` | Implemented, not yet committed | `{ mailIds[] }` | `{ success }` |
-| `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` or raw `"mailId"` in `request` | `{ success, claimedItems[] }` |
-| `ClaimAllAttachments` | Implemented | `{ mailType?, requestId? }` | `{ claimedCount, alreadyClaimedCount, skippedCount, results[], grantedAttachments[] }` |
+| `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` or raw `"mailId"` in `request` | `ApiResponse<ClaimAttachmentData>` |
+| `ClaimAllAttachments` | Implemented | `{ mailType?, requestId? }` | `ApiResponse<ClaimAllAttachmentsData>` |
 
 ### Quick Usage Example
 

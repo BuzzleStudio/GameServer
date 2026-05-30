@@ -17,17 +17,17 @@ public class ServerConfigModule
     }
 
     [CloudCodeFunction("ServerConfig")]
-    public ServerConfigResponse GetServerConfig()
+    public ApiResponse<ServerConfigResponse> GetServerConfig()
     {
         _logger.LogInformation("ServerConfig called for environment: {EnvironmentId}", _context.EnvironmentId);
         try
         {
-            return new ServerConfigResponse
+            return ApiResponse<ServerConfigResponse>.Ok(new ServerConfigResponse
             {
                 Environment = _context.EnvironmentId ?? "production",
                 Version = "1.0.0",
                 DeploymentTime = DateTime.UtcNow.ToString("o")
-            };
+            });
         }
         catch (Exception ex)
         {

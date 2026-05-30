@@ -23,7 +23,7 @@ public class GiftMailModule
     }
 
     [CloudCodeFunction("GiftMail")]
-    public async Task<GiftMailResponse> GiftMailAsync(GiftMailRequest request)
+    public async Task<ApiResponse<GiftMailResponse>> GiftMailAsync(GiftMailRequest request)
     {
         var senderId = _context.PlayerId ?? string.Empty;
         if (string.IsNullOrWhiteSpace(request.TargetPlayerId) || senderId == request.TargetPlayerId)
@@ -66,7 +66,7 @@ public class GiftMailModule
             _logger.LogWarning(ex, "GiftMail: sender meta update conflict for {SenderId}", senderId);
         }
 
-        return new GiftMailResponse { MailId = mailId, SentAt = sentAt };
+        return ApiResponse<GiftMailResponse>.Ok(new GiftMailResponse { MailId = mailId, SentAt = sentAt });
     }
 
     private async Task InsertIntoTargetMailboxAsync(string targetPlayerId, MailItemDto newMail)

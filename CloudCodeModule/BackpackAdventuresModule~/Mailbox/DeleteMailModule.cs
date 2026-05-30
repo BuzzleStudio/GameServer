@@ -21,7 +21,7 @@ public class DeleteMailModule
     }
 
     [CloudCodeFunction("DeleteMail")]
-    public async Task<DeleteMailResponse> DeleteMailAsync(DeleteMailRequest request)
+    public async Task<ApiResponse<DeleteMailResponse>> DeleteMailAsync(DeleteMailRequest request)
     {
         var playerId = _context.PlayerId ?? string.Empty;
         if (string.IsNullOrWhiteSpace(request.MailId))
@@ -29,11 +29,11 @@ public class DeleteMailModule
         if (request.MailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase))
         {
             await DeleteGlobalForPlayerWithRetryAsync(playerId, request.MailId);
-            return new DeleteMailResponse { MailId = request.MailId };
+            return ApiResponse<DeleteMailResponse>.Ok(new DeleteMailResponse { MailId = request.MailId });
         }
 
         await DeleteWithRetryAsync(playerId, request.MailId);
-        return new DeleteMailResponse { MailId = request.MailId };
+        return ApiResponse<DeleteMailResponse>.Ok(new DeleteMailResponse { MailId = request.MailId });
     }
 
     private async Task DeleteGlobalForPlayerWithRetryAsync(string playerId, string mailId)

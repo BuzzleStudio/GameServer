@@ -12,3 +12,27 @@ public class ModuleConfig : ICloudCodeSetup
         // failures in this project.
     }
 }
+
+public class ApiResponse
+{
+    public int StatusCode { get; set; } = 200;
+    public string Message { get; set; } = string.Empty;
+    public object? Data { get; set; }
+}
+
+public class ApiResponse<T>
+{
+    public int StatusCode { get; set; } = 200;
+    public string Message { get; set; } = string.Empty;
+    public T? Data { get; set; }
+
+    public static ApiResponse<T> Ok(T data, string message = "OK")
+    {
+        return new ApiResponse<T>
+        {
+            StatusCode = 200,
+            Message = message,
+            Data = data
+        };
+    }
+}

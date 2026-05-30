@@ -21,7 +21,7 @@ public class ExpireMailModule
     }
 
     [CloudCodeFunction("ExpireMail")]
-    public async Task<ExpireMailResponse> ExpireMailAsync(ExpireMailRequest request)
+    public async Task<ApiResponse<ExpireMailResponse>> ExpireMailAsync(ExpireMailRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
         if (string.IsNullOrWhiteSpace(request.MailId))
@@ -48,11 +48,11 @@ public class ExpireMailModule
             throw new InvalidOperationException(MailboxError.Conflict);
         }
 
-        return new ExpireMailResponse { MailId = request.MailId, ExpiredAt = expiredAt };
+        return ApiResponse<ExpireMailResponse>.Ok(new ExpireMailResponse { MailId = request.MailId, ExpiredAt = expiredAt });
     }
 
     [CloudCodeFunction("SetMailEndTime")]
-    public async Task<SetMailEndTimeResponse> SetMailEndTimeAsync(SetMailEndTimeRequest request)
+    public async Task<ApiResponse<SetMailEndTimeResponse>> SetMailEndTimeAsync(SetMailEndTimeRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
         if (string.IsNullOrWhiteSpace(request.MailId))
@@ -80,11 +80,11 @@ public class ExpireMailModule
             throw new InvalidOperationException(MailboxError.Conflict);
         }
 
-        return new SetMailEndTimeResponse { MailId = request.MailId, EndTime = endTimeIso };
+        return ApiResponse<SetMailEndTimeResponse>.Ok(new SetMailEndTimeResponse { MailId = request.MailId, EndTime = endTimeIso });
     }
 
     [CloudCodeFunction("DeleteGlobalMail")]
-    public async Task<DeleteMailResponse> DeleteGlobalMailAsync(AdminDeleteMailRequest request)
+    public async Task<ApiResponse<DeleteMailResponse>> DeleteGlobalMailAsync(AdminDeleteMailRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
         if (string.IsNullOrWhiteSpace(request.MailId))
@@ -108,7 +108,7 @@ public class ExpireMailModule
             throw new InvalidOperationException(MailboxError.Conflict);
         }
 
-        return new DeleteMailResponse { MailId = request.MailId };
+        return ApiResponse<DeleteMailResponse>.Ok(new DeleteMailResponse { MailId = request.MailId });
     }
 
     private static DateTime? ResolveEndTime(string? endTime)

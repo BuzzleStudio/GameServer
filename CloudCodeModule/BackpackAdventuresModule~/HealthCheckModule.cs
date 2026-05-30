@@ -14,16 +14,16 @@ public class HealthCheckModule
     }
 
     [CloudCodeFunction("HealthCheck")]
-    public HealthCheckResponse GetHealthCheck()
+    public ApiResponse<HealthCheckResponse> GetHealthCheck()
     {
         _logger.LogInformation("HealthCheck called");
         try
         {
-            return new HealthCheckResponse
+            return ApiResponse<HealthCheckResponse>.Ok(new HealthCheckResponse
             {
                 Message = "Cloud Code module online",
                 Timestamp = DateTime.UtcNow.ToString("o")
-            };
+            });
         }
         catch (Exception ex)
         {

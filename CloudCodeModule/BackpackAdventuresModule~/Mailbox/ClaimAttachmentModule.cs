@@ -27,7 +27,7 @@ public class ClaimAttachmentModule
     }
 
     [CloudCodeFunction("ClaimAttachment")]
-    public async Task<ClaimAttachmentResponse> ClaimAttachmentAsync(object request)
+    public async Task<ApiResponse<ClaimAttachmentResponse>> ClaimAttachmentAsync(object request)
     {
         var claimRequest = NormalizeClaimAttachmentRequest(request);
         var playerId = _context.PlayerId ?? string.Empty;
@@ -39,7 +39,7 @@ public class ClaimAttachmentModule
         {
             var cached = await IdempotencyService.TryGetCachedResponseAsync(_gameApiClient, _context, playerId, requestId, "ClaimAttachment", claimRequest.MailId);
             if (cached != null)
-                return new ClaimAttachmentResponse { MailId = claimRequest.MailId, AlreadyClaimed = false };
+                return ApiResponse<ClaimAttachmentResponse>.Ok(new ClaimAttachmentResponse { MailId = claimRequest.MailId, AlreadyClaimed = false });
         }
 
         ClaimAttachmentResponse result = IsGlobalMail(claimRequest.MailId, claimRequest.MailType)
@@ -49,11 +49,11 @@ public class ClaimAttachmentModule
         if (requestId != null && !result.AlreadyClaimed)
             await IdempotencyService.StoreResponseAsync(_gameApiClient, _context, playerId, requestId, "ClaimAttachment", claimRequest.MailId, new { alreadyClaimed = false });
 
-        return result;
+        return ApiResponse<ClaimAttachmentResponse>.Ok(result);
     }
 
     [CloudCodeFunction("ClaimAllAttachments")]
-    public async Task<ClaimAllAttachmentsResponse> ClaimAllAttachmentsAsync(ClaimAllAttachmentsRequest request)
+    public async Task<ApiResponse<ClaimAllAttachmentsResponse>> ClaimAllAttachmentsAsync(ClaimAllAttachmentsRequest request)
     {
         var playerId = _context.PlayerId ?? string.Empty;
         var scope = NormalizeClaimAllScope(request?.MailType);
@@ -65,7 +65,7 @@ public class ClaimAttachmentModule
         if (scope == "user" || scope == "all")
             await ClaimAllUserAttachmentsAsync(playerId, request?.RequestId, response);
 
-        return response;
+        return ApiResponse<ClaimAllAttachmentsResponse>.Ok(response);
     }
 
     private static ClaimAttachmentRequest NormalizeClaimAttachmentRequest(object? request)

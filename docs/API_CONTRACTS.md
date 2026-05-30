@@ -6,6 +6,47 @@ SDK: `Com.Unity.Services.CloudCode.Core` 0.0.4
 
 ---
 
+## Response Envelope
+
+All public Cloud Code functions return a shared envelope:
+
+```csharp
+public class ApiResponse
+{
+    public int StatusCode { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public object Data { get; set; }
+}
+
+public class ApiResponse<T>
+{
+    public int StatusCode { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public T Data { get; set; }
+}
+```
+
+Success responses use `StatusCode = 200` and `Message = "OK"`. Errors still throw
+through Cloud Code as HTTP failures. Direct Unity callers can choose:
+
+```csharp
+var statusOnly = await CloudCodeService.Instance
+    .CallModuleEndpointAsync<ApiResponse>("BackpackAdventuresModule", "ClaimAllAttachments", args);
+
+var typed = await CloudCodeService.Instance
+    .CallModuleEndpointAsync<ApiResponse<ClaimAllAttachmentsData>>(
+        "BackpackAdventuresModule",
+        "ClaimAllAttachments",
+        args);
+
+var data = typed.Data;
+```
+
+`BackpackCloudCodeService` unwraps `Data` internally, so existing wrapper methods
+still return the endpoint data DTO directly.
+
+---
+
 ## HealthCheck
 
 **Function name:** `HealthCheck`
@@ -14,9 +55,12 @@ SDK: `Com.Unity.Services.CloudCode.Core` 0.0.4
 **Response:**
 ```json
 {
-  "Success": true,
-  "Message": "Cloud Code module online",
-  "Timestamp": "2024-01-01T00:00:00.0000000Z"
+  "StatusCode": 200,
+  "Message": "OK",
+  "Data": {
+    "Message": "Cloud Code module online",
+    "Timestamp": "2024-01-01T00:00:00.0000000Z"
+  }
 }
 ```
 
@@ -33,7 +77,7 @@ public class HealthCheckResponse
 **Unity client call:**
 ```csharp
 var result = await CloudCodeService.Instance
-    .CallModuleEndpointAsync<HealthCheckResponse>("BackpackAdventures", "HealthCheck");
+    .CallModuleEndpointAsync<ApiResponse<HealthCheckData>>("BackpackAdventuresModule", "HealthCheck");
 ```
 
 ---
