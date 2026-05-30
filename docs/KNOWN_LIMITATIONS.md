@@ -58,9 +58,13 @@ Cloud Save limits individual key values to approximately 5 MB of JSON. The `glob
 
 ---
 
-## 7. ExpiresAt Not Validated at Write Time
+## 7. Malformed ExpiresAt Becomes No Expiration
 
-`SendGlobalMail` and `SendUserMail` accept any `expiresAt` string without parsing or range validation. A past date, malformed string, or null value is stored as-is. Filtering is applied at read time in `GetMailbox`.
+`SendGlobalMail` and the admin compatibility `SendUserMail` wrapper parse `expiresAt`
+into nullable `Mail.EndTime`. A null or blank value intentionally stores
+`EndTime = null`, which means no expiration. A malformed non-empty value currently
+also resolves to null instead of returning a validation error, so callers should use
+the Admin Mail editor's `Use UTC time` mode or send a valid ISO 8601 UTC string.
 
 ---
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -48,7 +49,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
         private string _globalSubject = string.Empty;
         private string _globalBody = string.Empty;
-        private string _globalExpiresAt = string.Empty;
+        private bool _globalUseEndTime;
+        private string _globalEndDate = string.Empty;
+        private string _globalEndTime = string.Empty;
         private string _globalDedupKey = string.Empty;
         private string _globalSenderName = string.Empty;
         private int _globalCategoryIndex;
@@ -57,7 +60,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private readonly List<string> _targetUserIds = new List<string>();
         private string _userSubject = string.Empty;
         private string _userBody = string.Empty;
-        private string _userExpiresAt = string.Empty;
+        private bool _userUseEndTime;
+        private string _userEndDate = string.Empty;
+        private string _userEndTime = string.Empty;
         private string _userDedupKey = string.Empty;
         private string _userSenderName = string.Empty;
         private int _userCategoryIndex;
@@ -175,7 +180,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _globalSubject = EditorGUILayout.TextField("MailInfo.Title", _globalSubject);
             EditorGUILayout.LabelField("MailInfo.Content");
             _globalBody = EditorGUILayout.TextArea(_globalBody, GUILayout.MinHeight(60));
-            _globalExpiresAt = EditorGUILayout.TextField("MailInfo.EndTime/ExpiresAt (ISO UTC, blank=never)", _globalExpiresAt);
+            DrawEndTimeEditor("MailInfo.EndTime", ref _globalUseEndTime, ref _globalEndDate, ref _globalEndTime);
             _globalCategoryIndex = EditorGUILayout.Popup("Category", _globalCategoryIndex, CategoryOptions);
             _globalSenderName = EditorGUILayout.TextField("Sender Name", _globalSenderName);
             _globalDedupKey = EditorGUILayout.TextField("Dedup Key", _globalDedupKey);
@@ -195,7 +200,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _userSubject = EditorGUILayout.TextField("MailInfo.Title", _userSubject);
             EditorGUILayout.LabelField("MailInfo.Content");
             _userBody = EditorGUILayout.TextArea(_userBody, GUILayout.MinHeight(60));
-            _userExpiresAt = EditorGUILayout.TextField("MailInfo.EndTime/ExpiresAt (ISO UTC, blank=never)", _userExpiresAt);
+            DrawEndTimeEditor("MailInfo.EndTime", ref _userUseEndTime, ref _userEndDate, ref _userEndTime);
             _userCategoryIndex = EditorGUILayout.Popup("Category", _userCategoryIndex, CategoryOptions);
             _userSenderName = EditorGUILayout.TextField("Sender Name", _userSenderName);
             _userDedupKey = EditorGUILayout.TextField("Dedup Key", _userDedupKey);
@@ -304,7 +309,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 _globalSubject.Trim(),
                 _globalBody.Trim(),
-                NormalizeOptional(_globalExpiresAt),
+                BuildEndTimeIso(_globalUseEndTime, _globalEndDate, _globalEndTime),
                 CategoryOptions[_globalCategoryIndex],
                 NormalizeOptional(_globalSenderName),
                 NormalizeOptional(_globalDedupKey),
@@ -326,7 +331,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 _userSubject.Trim(),
                 _userBody.Trim(),
-                NormalizeOptional(_userExpiresAt),
+                BuildEndTimeIso(_userUseEndTime, _userEndDate, _userEndTime),
                 CategoryOptions[_userCategoryIndex],
                 NormalizeOptional(_userSenderName),
                 NormalizeOptional(_userDedupKey),
@@ -394,6 +399,86 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private static string NormalizeOptional(string value)
         {
             return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private static void DrawEndTimeEditor(string label, ref bool useEndTime, ref string endDate, ref string endTime)
+        {
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+
+            int mode = GUILayout.SelectionGrid(
+                useEndTime ? 1 : 0,
+                new[] { "Null / no expiration", "Use UTC time" },
+                2,
+                EditorStyles.miniButton);
+            useEndTime = mode == 1;
+
+            if (!useEndTime)
+            {
+                EditorGUILayout.LabelField("Cloud Save stores EndTime as null.", EditorStyles.miniLabel);
+                return;
+            }
+
+            EnsureEndTimeDefaults(ref endDate, ref endTime, TimeSpan.FromDays(7));
+
+            EditorGUILayout.BeginHorizontal();
+            endDate = EditorGUILayout.TextField("Date UTC", endDate);
+            endTime = EditorGUILayout.TextField("Time UTC", endTime);
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("+1d", GUILayout.Width(55)))
+                SetEndTimePreset(ref endDate, ref endTime, TimeSpan.FromDays(1));
+            if (GUILayout.Button("+7d", GUILayout.Width(55)))
+                SetEndTimePreset(ref endDate, ref endTime, TimeSpan.FromDays(7));
+            if (GUILayout.Button("+30d", GUILayout.Width(60)))
+                SetEndTimePreset(ref endDate, ref endTime, TimeSpan.FromDays(30));
+            if (GUILayout.Button("Clear", GUILayout.Width(60)))
+            {
+                useEndTime = false;
+                endDate = string.Empty;
+                endTime = string.Empty;
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.LabelField("Format: yyyy-MM-dd and HH:mm, interpreted as UTC.", EditorStyles.miniLabel);
+        }
+
+        private static void EnsureEndTimeDefaults(ref string endDate, ref string endTime, TimeSpan offset)
+        {
+            if (!string.IsNullOrWhiteSpace(endDate) && !string.IsNullOrWhiteSpace(endTime))
+                return;
+
+            SetEndTimePreset(ref endDate, ref endTime, offset);
+        }
+
+        private static void SetEndTimePreset(ref string endDate, ref string endTime, TimeSpan offset)
+        {
+            DateTime value = DateTime.UtcNow.Add(offset);
+            endDate = value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            endTime = value.ToString("HH:mm", CultureInfo.InvariantCulture);
+        }
+
+        private static string BuildEndTimeIso(bool useEndTime, string endDate, string endTime)
+        {
+            if (!useEndTime)
+                return null;
+
+            if (string.IsNullOrWhiteSpace(endDate) || string.IsNullOrWhiteSpace(endTime))
+                throw new ArgumentException("End Time date and time are required when Use UTC time is selected.");
+
+            string raw = $"{endDate.Trim()} {endTime.Trim()}";
+            string[] formats = { "yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss" };
+            if (!DateTime.TryParseExact(
+                    raw,
+                    formats,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out DateTime parsed))
+            {
+                throw new ArgumentException("End Time must use UTC date yyyy-MM-dd and time HH:mm or HH:mm:ss.");
+            }
+
+            return parsed.ToUniversalTime().ToString("o");
         }
 
         private static List<MailAttachment> BuildAttachments(List<AttachmentDraft> drafts)

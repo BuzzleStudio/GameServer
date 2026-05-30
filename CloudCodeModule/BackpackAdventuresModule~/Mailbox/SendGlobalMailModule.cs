@@ -46,7 +46,7 @@ public class SendGlobalMailModule
             throw new InvalidOperationException(MailboxError.MailboxFull);
 
         var startTime = DateTime.UtcNow;
-        var endTime = ResolveEndTime(startTime, request.ExpiresAt);
+        var endTime = ResolveEndTime(request.ExpiresAt);
         var sentAt = startTime.ToString("o");
         var mailId = "gm_" + Guid.NewGuid().ToString("N")[..8];
         var targetUserIds = NormalizeTargetUserIds(request.TargetUserIds);
@@ -111,10 +111,10 @@ public class SendGlobalMailModule
         return result.Count == 0 ? null : result;
     }
 
-    private static DateTime ResolveEndTime(DateTime startTime, string? expiresAt)
+    private static DateTime? ResolveEndTime(string? expiresAt)
     {
         if (!string.IsNullOrEmpty(expiresAt) && DateTime.TryParse(expiresAt, out var parsed))
             return parsed.ToUniversalTime();
-        return startTime.AddDays(7);
+        return null;
     }
 }

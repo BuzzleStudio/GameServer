@@ -128,6 +128,11 @@ Admin-authored mail uses Cloud Save custom data ID `global_mail`.
 `mail_global_{mailId}`, and each player only writes state to `mailbox_global_state`
 when they read, claim, or delete it.
 
+`Mail.EndTime` is nullable. `EndTime = null` means no expiration and the mail stays
+available until it is manually expired or purged by admin tooling. The Admin Mail
+editor exposes two modes: `Null / no expiration` sends `expiresAt = null`, while
+`Use UTC time` sends an ISO 8601 UTC timestamp that is stored as `EndTime`.
+
 ---
 
 ## Notes

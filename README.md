@@ -118,7 +118,10 @@ Cloud Save Keys:
 
 Admin mail payloads use `TargetUserIds = null` for broadcast. When `TargetUserIds`
 contains player IDs, the same global payload is visible only to those players.
-Player data stores only `MailMetadata` for admin mail state.
+`EndTime = null` means the admin mail does not expire. In the Admin Mail editor,
+choose `Null / no expiration` to send a null end time, or `Use UTC time` to send an
+ISO 8601 expiration timestamp. Player data stores only `MailMetadata` for admin
+mail state.
 
 ### Mailbox API Quick Reference
 
@@ -140,7 +143,7 @@ await BackpackCloudCodeService.InitializeAsync();
 var response = await BackpackCloudCodeService.SendGlobalMailAsync(
     subject: "Maintenance Reward",
     body: "Thanks for your patience!",
-    expiresAt: "2026-06-30T00:00:00Z",
+    expiresAt: null, // no expiration; pass an ISO 8601 UTC string to expire it
     attachments: new List<MailAttachment>
     {
         new MailAttachment { type = "currency", id = "gem", amount = 50 }

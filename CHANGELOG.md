@@ -8,6 +8,14 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
+### Changed: Admin mail EndTime can be null
+
+**What changed:** `Mail.EndTime` is now nullable for admin-authored global and targeted mail. `SendGlobalMail` and the compatibility `SendUserMail` wrapper no longer default a blank `expiresAt` to seven days; blank/null `expiresAt` stores `EndTime = null`.
+
+**Editor update:** `AdminMailWindow` now exposes two explicit options for `MailInfo.EndTime`: `Null / no expiration` and `Use UTC time`. When UTC time is selected, the editor provides separate date/time fields plus +1d/+7d/+30d presets and validates the input before sending.
+
+**Docs updated:** `README.md`, `docs/API_CONTRACTS.md`, `docs/MAILBOX_API_USAGE.md`, and `docs/KNOWN_LIMITATIONS.md` now describe nullable `EndTime` behavior.
+
 ### Fixed: Admin mailbox global storage deploy compile issue
 
 **What changed:** Fixed the Cloud Code module compile error in `ClaimAttachmentModule` by using the `Mail.IsExpired` property correctly after the admin mail payload schema changed from `MailItemDto` to `Mail`.
