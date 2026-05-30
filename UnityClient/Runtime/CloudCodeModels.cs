@@ -277,9 +277,34 @@ namespace BackpackAdventures.CloudCode.Client
     }
 
     [Serializable]
+    public class SetMailEndTimeRequest
+    {
+        public string mailId;
+        public string endTime;
+        public string adminToken;
+        public string operatorId;
+    }
+
+    [Serializable]
+    public class AdminDeleteMailRequest
+    {
+        public string mailId;
+        public string adminToken;
+        public string operatorId;
+    }
+
+    [Serializable]
     public class ExpireMailResponse
     {
         public string mailId;
+        public string expiredAt;
+    }
+
+    [Serializable]
+    public class SetMailEndTimeResponse
+    {
+        public string mailId;
+        public string endTime;
     }
 
     [Serializable]

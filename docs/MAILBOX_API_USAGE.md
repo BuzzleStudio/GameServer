@@ -105,6 +105,19 @@ Debug.Log($"Global mail sent: {response.mailId}");
 
 ---
 
+### Admin manage endpoints
+
+The Admin Mail editor calls these through project-scoped REST, so Play Mode is not
+required:
+
+| Function | Purpose |
+|----------|---------|
+| `SetMailEndTime` | Sets `Mail.EndTime` and the matching `global_mail_index` ref `ExpireTime`; null clears expiration |
+| `ExpireMail` | Soft expires a global mail by setting end time to current UTC |
+| `DeleteGlobalMail` | Hard deletes the global mail ref and `mail_global_{mailId}` payload |
+
+---
+
 ### 2. `SendUserMail`
 
 Sends a mail item to a specific player by appending it to that player's `user_mails` Cloud Save key.

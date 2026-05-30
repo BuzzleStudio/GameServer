@@ -63,7 +63,6 @@ public class MailAttachment
 
 public class GlobalMailIndexV2
 {
-    public int Version { get; set; } = 3;
     public List<GlobalMailRef> Refs { get; set; } = new();
 }
 
@@ -73,14 +72,12 @@ public class GlobalMailRef
     public string StartTime { get; set; } = string.Empty;
     public string? ExpireTime { get; set; }
     public string? DedupKey { get; set; }
-    public int Version { get; set; } = 3;
 
     public bool IsExpired() => MailSchemaHelper.IsExpired(ExpireTime);
 }
 
 public class GlobalMailPayload
 {
-    public int Version { get; set; } = 4;
     public Mail Mail { get; set; } = new();
 
     public bool IsExpired() => Mail?.IsExpired ?? false;
@@ -88,7 +85,6 @@ public class GlobalMailPayload
 
 public class PlayerGlobalMailState
 {
-    public int Version { get; set; } = 4;
     public List<MailMetadata> Mails { get; set; } = new();
 
     [JsonPropertyName("ClaimedIds")]
@@ -106,13 +102,11 @@ public class PlayerGlobalMailState
 
 public class PlayerUserMailbox
 {
-    public int Version { get; set; } = 3;
     public List<MailItemDto> Mails { get; set; } = new();
 }
 
 public class PlayerMailboxMeta
 {
-    public int Version { get; set; } = 2;
     public string? LastReadAt { get; set; }
     public int TotalUserMails { get; set; }
     public int TotalGlobalMails { get; set; }
@@ -133,7 +127,6 @@ public class IdemCacheEntry
 
 public class IdemCache
 {
-    public int Version { get; set; } = 1;
     public List<IdemCacheEntry> Entries { get; set; } = new();
 }
 
@@ -151,7 +144,6 @@ public class GlobalMailItem
 
 public class GlobalMailIndex
 {
-    public int Version { get; set; } = 1;
     public List<GlobalMailItem> Mails { get; set; } = new();
 }
 
@@ -406,8 +398,7 @@ public static class MailSchemaHelper
         {
             MessageId = mail.MessageId,
             StartTime = mail.MailInfo.StartTime,
-            ExpireTime = mail.MailInfo.ExpireTime,
-            Version = 3
+            ExpireTime = mail.MailInfo.ExpireTime
         };
     }
 
@@ -418,8 +409,7 @@ public static class MailSchemaHelper
             MessageId = mail.MessageId,
             StartTime = mail.StartTime.ToUniversalTime().ToString("o"),
             ExpireTime = mail.EndTime?.ToUniversalTime().ToString("o"),
-            DedupKey = dedupKey,
-            Version = 4
+            DedupKey = dedupKey
         };
     }
 
@@ -724,6 +714,33 @@ public class ExpireMailRequest
     public string OperatorId { get; set; } = string.Empty;
 }
 
+public class SetMailEndTimeRequest
+{
+    [JsonPropertyName("mailId")]
+    public string MailId { get; set; } = string.Empty;
+
+    [JsonPropertyName("endTime")]
+    public string? EndTime { get; set; }
+
+    [JsonPropertyName("adminToken")]
+    public string AdminToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("operatorId")]
+    public string OperatorId { get; set; } = string.Empty;
+}
+
+public class AdminDeleteMailRequest
+{
+    [JsonPropertyName("mailId")]
+    public string MailId { get; set; } = string.Empty;
+
+    [JsonPropertyName("adminToken")]
+    public string AdminToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("operatorId")]
+    public string OperatorId { get; set; } = string.Empty;
+}
+
 public class SendGlobalMailResponse
 {
     public string GlobalMailId { get; set; } = string.Empty;
@@ -774,6 +791,12 @@ public class ExpireMailResponse
 {
     public string MailId { get; set; } = string.Empty;
     public string ExpiredAt { get; set; } = string.Empty;
+}
+
+public class SetMailEndTimeResponse
+{
+    public string MailId { get; set; } = string.Empty;
+    public string? EndTime { get; set; }
 }
 
 public class PurgeExpiredResponse

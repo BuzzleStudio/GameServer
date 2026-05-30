@@ -123,6 +123,12 @@ choose `Null / no expiration` to send a null end time, or `Use UTC time` to send
 ISO 8601 expiration timestamp. Player data stores only `MailMetadata` for admin
 mail state.
 
+In **CloudCode > Admin Mail > Manage**, admin REST actions do not require Play Mode:
+`Set EndTime` updates an existing global mail's end time, `Expire Global` sets it
+to now, and `Delete Global` removes both the global index ref and
+`mail_global_{mailId}` payload. New Cloud Save writes omit mailbox `"Version"`
+fields.
+
 ### Mailbox API Quick Reference
 
 | Function | Status | Input | Output |
