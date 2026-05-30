@@ -8,7 +8,7 @@ public static class MailboxConstants
 {
     public const string KeyGlobalMailIndex = "global_mail_index_legacy";
     public const string KeyMailsAll = "mails_all";
-    public const string KeyGlobalState = "mailbox_global_state";
+    public const string KeyGlobalState = "mail_meta_state";
     public const string KeyUserItems = "mailbox_user_items";
     public const string KeyMeta = "mailbox_meta";
     public const string KeyIdemCache = "mailbox_idem_cache";
