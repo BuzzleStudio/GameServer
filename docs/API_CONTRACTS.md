@@ -111,6 +111,25 @@ var result = await CloudCodeService.Instance
 
 ---
 
+## Mailbox Storage Contract
+
+Admin-authored mail uses Cloud Save custom data ID `global_mail`.
+
+| Key | Scope | Contents |
+|-----|-------|----------|
+| `global_mail_index` | Custom data | `GlobalMailIndexV2` lightweight refs for active admin mail |
+| `mail_global_{mailId}` | Custom data | Full `Mail` payload (`TargetUserIds`, title/content, availability, attachments) |
+| `global_mail_index_legacy` | Custom data | Read-only fallback for legacy v1 global mail, if present |
+| `mailbox_global_state` | Player data | Per-player `MailMetadata` only: `MessageId`, `IsClaim`, `IsRead`, `IsDelete` |
+| `mailbox_user_items` | Player data | Full user-to-user `GiftMail` payloads |
+
+`TargetUserIds = null` or an empty list means broadcast to all players. A non-empty
+`TargetUserIds` list means targeted admin mail; the mail still lives in
+`mail_global_{mailId}`, and each player only writes state to `mailbox_global_state`
+when they read, claim, or delete it.
+
+---
+
 ## Notes
 
 - All timestamps are UTC ISO 8601 format (`DateTime.UtcNow.ToString("o")`).

@@ -103,24 +103,29 @@ Cloud Save-backed in-game mail with global broadcast and targeted player deliver
 ```
 Unity Client
   └─► Cloud Code C# Module (BackpackAdventuresModule)
-        ├─► SendGlobalMail  — broadcast to all players via Cloud Save custom key
-        ├─► SendUserMail    — targeted mail to a specific player
+        ├─► SendGlobalMail  — admin broadcast or targeted mail via global_mail custom data
+        ├─► SendUserMail    — backward-compatible admin targeted wrapper
         ├─► GetMailbox      — fetch merged mailbox with read/claim status [not yet deployed]
         ├─► MarkMailRead    — mark a mail as read [not yet deployed]
         └─► ClaimAttachment — claim attachment with idempotency guard [not yet deployed]
 
 Cloud Save Keys:
-  global_mails   (custom, project-wide)  — broadcast mail list
-  user_mails     (player)                — targeted mail list per player
-  mailbox_state  (player)                — ReadIds[], ClaimedIds[] per player
+  global_mail_index        (custom, project-wide) — lightweight refs for admin mail
+  mail_global_{mailId}     (custom, project-wide) — full admin mail payload
+  mailbox_global_state     (player)               — per-player read/claim/delete metadata
+  mailbox_user_items       (player)               — user-to-user GiftMail payloads
 ```
+
+Admin mail payloads use `TargetUserIds = null` for broadcast. When `TargetUserIds`
+contains player IDs, the same global payload is visible only to those players.
+Player data stores only `MailMetadata` for admin mail state.
 
 ### Mailbox API Quick Reference
 
 | Function | Status | Input | Output |
 |----------|--------|-------|--------|
-| `SendGlobalMail` | Implemented, not yet committed | `{ subject, body, expiresAt?, attachments? }` | `{ success, mailId }` |
-| `SendUserMail` | Implemented, not yet committed | `{ userId, subject, body, expiresAt?, attachments? }` | `{ success, mailId }` |
+| `SendGlobalMail` | Implemented | `{ targetUserIds?, subject, body, expiresAt?, attachments? }` | `{ globalMailId, sentAt }` |
+| `SendUserMail` | Compatibility wrapper | `{ targetPlayerId/userId/targetUserIds, subject, body, expiresAt?, attachments? }` | `{ mailId, sentAt }` |
 | `GetMailbox` | Implemented, not yet committed | — | `{ success, mails[] }` |
 | `MarkMailRead` | Implemented, not yet committed | `{ mailIds[] }` | `{ success }` |
 | `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` | `{ success, claimedItems[] }` |
