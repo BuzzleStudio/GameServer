@@ -24,7 +24,7 @@ public class GetGlobalMailsModule
     }
 
     [CloudCodeFunction("GetGlobalMails")]
-    public async Task<PagedMailResponse> GetGlobalMailsAsync(GetMailsRequest request)
+    public async Task<ApiResponse<PagedMailResponse>> GetGlobalMailsAsync(GetMailsRequest request)
     {
         var playerId = _context.PlayerId ?? string.Empty;
         if (request.Page < 0 || request.PageSize > MailboxConstants.MaxPageSize)
@@ -51,14 +51,14 @@ public class GetGlobalMailsModule
         for (var i = startIdx; i < Math.Min(startIdx + pageSize, totalCount); i++)
             slice.Add(allMails[i]);
 
-        return new PagedMailResponse
+        return ApiResponse<PagedMailResponse>.Ok(new PagedMailResponse
         {
             Mails = slice,
             TotalCount = totalCount,
             Page = request.Page,
             PageSize = pageSize,
             HasMore = (startIdx + pageSize) < totalCount
-        };
+        });
     }
 
     private static List<MailItemDto> BuildDtosFromAllMails(List<GlobalMailPayload> mails, PlayerGlobalMailState state, string playerId)

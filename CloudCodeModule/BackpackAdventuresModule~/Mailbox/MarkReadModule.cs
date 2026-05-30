@@ -21,7 +21,7 @@ public class MarkReadModule
     }
 
     [CloudCodeFunction("MarkMailRead")]
-    public async Task<MarkMailReadResponse> MarkMailReadAsync(MarkMailReadRequest request)
+    public async Task<ApiResponse<MarkMailReadResponse>> MarkMailReadAsync(MarkMailReadRequest request)
     {
         var playerId = _context.PlayerId ?? string.Empty;
         if (string.IsNullOrWhiteSpace(request.MailId))
@@ -31,7 +31,7 @@ public class MarkReadModule
         {
             var cached = await IdempotencyService.TryGetCachedResponseAsync(_gameApiClient, _context, playerId, request.RequestId, "MarkMailRead", request.MailId);
             if (cached != null)
-                return new MarkMailReadResponse { MailId = request.MailId, IsRead = true };
+                return ApiResponse<MarkMailReadResponse>.Ok(new MarkMailReadResponse { MailId = request.MailId, IsRead = true });
         }
 
         if (IsGlobalMail(request.MailId, request.MailType))
@@ -42,17 +42,17 @@ public class MarkReadModule
         if (!string.IsNullOrEmpty(request.RequestId))
             await IdempotencyService.StoreResponseAsync(_gameApiClient, _context, playerId, request.RequestId, "MarkMailRead", request.MailId, new { isRead = true });
 
-        return new MarkMailReadResponse { MailId = request.MailId, IsRead = true };
+        return ApiResponse<MarkMailReadResponse>.Ok(new MarkMailReadResponse { MailId = request.MailId, IsRead = true });
     }
 
     [CloudCodeFunction("MarkAllRead")]
-    public async Task<MarkAllReadResponse> MarkAllReadAsync()
+    public async Task<ApiResponse<MarkAllReadResponse>> MarkAllReadAsync()
     {
         var playerId = _context.PlayerId ?? string.Empty;
         var now = DateTime.UtcNow.ToString("o");
         await MarkAllUserMailsReadWithRetryAsync(playerId);
         await UpdateMetaLastReadAtWithRetryAsync(playerId, now);
-        return new MarkAllReadResponse { LastReadAt = now };
+        return ApiResponse<MarkAllReadResponse>.Ok(new MarkAllReadResponse { LastReadAt = now });
     }
 
     private async Task MarkGlobalReadAsync(string playerId, string mailId)

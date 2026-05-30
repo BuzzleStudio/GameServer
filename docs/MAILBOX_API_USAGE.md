@@ -299,6 +299,32 @@ var args = new Dictionary<string, object>
 
 The compact string form is equivalent to `{ mailId = messageId }`.
 
+All mailbox endpoints return `ApiResponse<TData>` when called directly through
+Unity's official Cloud Code API. For example:
+
+```csharp
+var response = await CloudCodeService.Instance
+    .CallModuleEndpointAsync<ApiResponse<ClaimAttachmentData>>(
+        "BackpackAdventuresModule",
+        "ClaimAttachment",
+        args);
+
+if (response.StatusCode == 200)
+{
+    var data = response.Data;
+}
+```
+
+If the caller only needs status and message:
+
+```csharp
+var response = await CloudCodeService.Instance
+    .CallModuleEndpointAsync<ApiResponse>(
+        "BackpackAdventuresModule",
+        "ClaimAttachment",
+        args);
+```
+
 **Response shape (success path only):**
 
 ```json

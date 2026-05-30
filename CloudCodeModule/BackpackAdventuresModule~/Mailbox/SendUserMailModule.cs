@@ -26,7 +26,7 @@ public class SendUserMailModule
     }
 
     [CloudCodeFunction("SendUserMail")]
-    public async Task<SendUserMailResponse> SendUserMailAsync(SendUserMailRequest request)
+    public async Task<ApiResponse<SendUserMailResponse>> SendUserMailAsync(SendUserMailRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
         var targetUserIds = ResolveTargetUserIds(request);
@@ -43,7 +43,7 @@ public class SendUserMailModule
         var mailId = CreateMailId(request.DedupKey);
         var existing = GlobalMailStore.FindById(mails, mailId);
         if (existing?.Mail != null)
-            return new SendUserMailResponse { MailId = existing.Mail.MessageId, SentAt = existing.Mail.StartTime.ToUniversalTime().ToString("o") };
+            return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = existing.Mail.MessageId, SentAt = existing.Mail.StartTime.ToUniversalTime().ToString("o") });
 
         if (mails.Count >= MailboxConstants.MaxGlobalMailsStored)
             throw new InvalidOperationException(MailboxError.MailboxFull);
@@ -74,12 +74,12 @@ public class SendUserMailModule
             GlobalMailStore.RemoveExpired(freshMails);
             var freshExisting = GlobalMailStore.FindById(freshMails, mailId);
             if (freshExisting?.Mail != null)
-                return new SendUserMailResponse { MailId = freshExisting.Mail.MessageId, SentAt = freshExisting.Mail.StartTime.ToUniversalTime().ToString("o") };
+                return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = freshExisting.Mail.MessageId, SentAt = freshExisting.Mail.StartTime.ToUniversalTime().ToString("o") });
             freshMails.Add(new GlobalMailPayload { Mail = newMail });
             await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshCollection, freshLock);
         }
 
-        return new SendUserMailResponse { MailId = mailId, SentAt = sentAt };
+        return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = mailId, SentAt = sentAt });
     }
 
     private static void ValidateRequest(string subject, string body, System.Collections.Generic.List<MailAttachment>? attachments)

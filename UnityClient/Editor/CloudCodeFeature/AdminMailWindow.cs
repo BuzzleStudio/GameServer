@@ -748,8 +748,12 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                         throw new CloudCodeRestException(endpoint, httpResponse);
 
                     var response = JObject.Parse(httpResponse.Body);
+                    // The Cloud Code REST envelope wraps the module return value under "output".
+                    // The module returns ApiResponse<T> whose Data field holds the actual payload.
+                    // Unwrap: envelope["output"]["Data"] → T (matches what the Unity SDK delivers).
                     JToken output = response["output"] ?? response;
-                    return output.ToObject<T>();
+                    JToken data = output["Data"] ?? output["data"] ?? output;
+                    return data.ToObject<T>();
                 }
                 catch (CloudCodeRestException)
                 {

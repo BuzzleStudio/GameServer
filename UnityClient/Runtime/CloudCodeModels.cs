@@ -4,6 +4,22 @@ using System.Collections.Generic;
 namespace BackpackAdventures.CloudCode.Client
 {
     [Serializable]
+    public class ApiResponse
+    {
+        public int StatusCode;
+        public string Message;
+        public object Data;
+    }
+
+    [Serializable]
+    public class ApiResponse<T>
+    {
+        public int StatusCode;
+        public string Message;
+        public T Data;
+    }
+
+    [Serializable]
     public class HealthCheckResponse
     {
         public string message;
@@ -347,6 +363,23 @@ namespace BackpackAdventures.CloudCode.Client
         public string adminToken;
         public string operatorId;
     }
+
+    [Serializable] public class HealthCheckData : HealthCheckResponse { }
+    [Serializable] public class PlayerEchoData : PlayerEchoResponse { }
+    [Serializable] public class ServerConfigData : ServerConfigResponse { }
+    [Serializable] public class SendGlobalMailData : SendGlobalMailResponse { }
+    [Serializable] public class SendUserMailData : SendUserMailResponse { }
+    [Serializable] public class GiftMailData : GiftMailResponse { }
+    [Serializable] public class GetMailboxData : GetMailboxResponse { }
+    [Serializable] public class GetMailboxPageData : GetMailboxPageResponse { }
+    [Serializable] public class MarkMailReadData : MarkMailReadResponse { }
+    [Serializable] public class MarkAllReadData : MarkAllReadResponse { }
+    [Serializable] public class ClaimAttachmentData : ClaimAttachmentResponse { }
+    [Serializable] public class ClaimAllAttachmentsData : ClaimAllAttachmentsResponse { }
+    [Serializable] public class DeleteMailData : DeleteMailResponse { }
+    [Serializable] public class ExpireMailData : ExpireMailResponse { }
+    [Serializable] public class SetMailEndTimeData : SetMailEndTimeResponse { }
+    [Serializable] public class PurgeExpiredData : PurgeExpiredResponse { }
 }
 
 

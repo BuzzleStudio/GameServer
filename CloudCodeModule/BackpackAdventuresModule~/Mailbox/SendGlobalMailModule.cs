@@ -26,7 +26,7 @@ public class SendGlobalMailModule
     }
 
     [CloudCodeFunction("SendGlobalMail")]
-    public async Task<SendGlobalMailResponse> SendGlobalMailAsync(SendGlobalMailRequest request)
+    public async Task<ApiResponse<SendGlobalMailResponse>> SendGlobalMailAsync(SendGlobalMailRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
         ValidateRequest(request.Subject, request.Body, request.Attachments);
@@ -39,7 +39,7 @@ public class SendGlobalMailModule
         var mailId = CreateMailId(request.DedupKey);
         var existing = GlobalMailStore.FindById(mails, mailId);
         if (existing?.Mail != null)
-            return new SendGlobalMailResponse { GlobalMailId = existing.Mail.MessageId, SentAt = existing.Mail.StartTime.ToUniversalTime().ToString("o") };
+            return ApiResponse<SendGlobalMailResponse>.Ok(new SendGlobalMailResponse { GlobalMailId = existing.Mail.MessageId, SentAt = existing.Mail.StartTime.ToUniversalTime().ToString("o") });
 
         if (mails.Count >= MailboxConstants.MaxGlobalMailsStored)
             throw new InvalidOperationException(MailboxError.MailboxFull);
@@ -71,12 +71,12 @@ public class SendGlobalMailModule
             GlobalMailStore.RemoveExpired(freshMails);
             var freshExisting = GlobalMailStore.FindById(freshMails, mailId);
             if (freshExisting?.Mail != null)
-                return new SendGlobalMailResponse { GlobalMailId = freshExisting.Mail.MessageId, SentAt = freshExisting.Mail.StartTime.ToUniversalTime().ToString("o") };
+                return ApiResponse<SendGlobalMailResponse>.Ok(new SendGlobalMailResponse { GlobalMailId = freshExisting.Mail.MessageId, SentAt = freshExisting.Mail.StartTime.ToUniversalTime().ToString("o") });
             freshMails.Add(new GlobalMailPayload { Mail = mail });
             await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshCollection, freshLock);
         }
 
-        return new SendGlobalMailResponse { GlobalMailId = mailId, SentAt = sentAt };
+        return ApiResponse<SendGlobalMailResponse>.Ok(new SendGlobalMailResponse { GlobalMailId = mailId, SentAt = sentAt });
     }
 
     private static void ValidateRequest(string subject, string body, System.Collections.Generic.List<MailAttachment>? attachments)

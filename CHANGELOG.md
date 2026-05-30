@@ -8,6 +8,14 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
+### Changed: Cloud Code functions return ApiResponse envelopes
+
+**What changed:** Added shared `ApiResponse` and `ApiResponse<T>` contracts. Every public `[CloudCodeFunction]` now returns `{ StatusCode, Message, Data }` with the endpoint-specific payload under `Data`.
+
+**Client impact:** `BackpackCloudCodeService` unwraps `Data` internally, so existing wrapper method return types stay the same. Direct `CloudCodeService.Instance.CallModuleEndpointAsync` callers can request either `ApiResponse` for status-only handling or `ApiResponse<TData>` for typed payload access.
+
+**Test update:** The fake EditMode backend now returns wrapped responses to match the server contract while the service wrapper preserves previous test-facing DTOs.
+
 ### Changed: ClaimAttachment accepts raw mail id requests
 
 **What changed:** `ClaimAttachment` now normalizes both object requests (`{ mailId, mailType?, requestId? }`) and raw string requests (`"gm_..."`) into `ClaimAttachmentRequest`.
