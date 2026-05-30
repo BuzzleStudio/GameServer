@@ -62,7 +62,7 @@ public class SendUserMailModule
             endTime,
             request.Attachments);
 
-        await CloudSaveHelper.SetCustomDataAsync(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId), new GlobalMailPayload { Mail = newMail, Version = 4 });
+        await CloudSaveHelper.SetCustomDataAsync(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId), new GlobalMailPayload { Mail = newMail });
         index.Refs.Add(MailSchemaHelper.CreateGlobalRef(newMail, request.DedupKey));
 
         try

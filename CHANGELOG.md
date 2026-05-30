@@ -8,6 +8,14 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
+### Changed: Admin Manage Mail supports EndTime update and hard delete
+
+**What changed:** `AdminMailWindow` Manage Mail now supports project-scoped REST admin actions without Play Mode: `Set EndTime`, `Expire Global`, and `Delete Global`.
+
+**Backend update:** Added `SetMailEndTime` to update `Mail.EndTime` and `global_mail_index.Refs[].ExpireTime` for a global mail ID. Added `DeleteGlobalMail` to remove the global index ref and delete the `mail_global_{mailId}` payload from Cloud Save. `ExpireMail` remains a soft expire operation that sets the end time to now.
+
+**Cloud Save JSON update:** Removed mailbox storage `Version` properties from the server models, so new Cloud Save writes no longer include `"Version"` in mailbox payload/index/state JSON.
+
 ### Changed: Admin mail EndTime can be null
 
 **What changed:** `Mail.EndTime` is now nullable for admin-authored global and targeted mail. `SendGlobalMail` and the compatibility `SendUserMail` wrapper no longer default a blank `expiresAt` to seven days; blank/null `expiresAt` stores `EndTime = null`.

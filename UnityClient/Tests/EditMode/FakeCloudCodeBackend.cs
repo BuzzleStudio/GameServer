@@ -105,6 +105,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 case "DeleteMail":      return HandleDeleteMail((DeleteMailRequest)request);
                 case "PurgeExpired":    return HandlePurgeExpired((PurgeExpiredRequest)request);
                 case "ExpireMail":      return HandleExpireMail((ExpireMailRequest)request);
+                case "SetMailEndTime":  return HandleSetMailEndTime((SetMailEndTimeRequest)request);
+                case "DeleteGlobalMail": return HandleDeleteGlobalMail((AdminDeleteMailRequest)request);
                 default: throw new NotSupportedException($"FakeCloudCodeBackend: unknown endpoint '{endpoint}'");
             }
         }
@@ -536,10 +538,30 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         {
             RequireAdmin(req.adminToken, req.operatorId);
             // Stub — known prod bug, no test currently exercises this path
-            return new ExpireMailResponse { mailId = req.mailId };
+            return new ExpireMailResponse { mailId = req.mailId, expiredAt = _clock.UtcNow.ToString("o") };
         }
 
         // ── Eviction policy (§5.7 MailboxEviction) ────────────────────────────
+
+        private SetMailEndTimeResponse HandleSetMailEndTime(SetMailEndTimeRequest req)
+        {
+            RequireAdmin(req.adminToken, req.operatorId);
+            if (!_globalMails.TryGetValue(req.mailId, out var mail))
+                throw new InvalidOperationException("MailNotFound");
+
+            mail.ExpiresAt = req.endTime;
+            return new SetMailEndTimeResponse { mailId = req.mailId, endTime = mail.ExpiresAt };
+        }
+
+        private DeleteMailResponse HandleDeleteGlobalMail(AdminDeleteMailRequest req)
+        {
+            RequireAdmin(req.adminToken, req.operatorId);
+            if (!_globalMails.Remove(req.mailId))
+                throw new InvalidOperationException("MailNotFound");
+
+            _globalMailIndex.Remove(req.mailId);
+            return new DeleteMailResponse { mailId = req.mailId };
+        }
 
         private void EvictUserMailbox(List<FakeUserMail> mails)
         {

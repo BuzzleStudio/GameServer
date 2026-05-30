@@ -188,6 +188,36 @@ namespace BackpackAdventures.CloudCode.Client
             return await Backend.CallEndpointAsync<ExpireMailResponse>("ExpireMail", request);
         }
 
+        public static async Task<SetMailEndTimeResponse> CallSetMailEndTimeAsync(
+            string mailId,
+            string endTime,
+            string adminToken = null,
+            string operatorId = null)
+        {
+            var request = new SetMailEndTimeRequest
+            {
+                mailId = mailId,
+                endTime = endTime,
+                adminToken = adminToken ?? string.Empty,
+                operatorId = operatorId ?? string.Empty
+            };
+            return await Backend.CallEndpointAsync<SetMailEndTimeResponse>("SetMailEndTime", request);
+        }
+
+        public static async Task<DeleteMailResponse> CallAdminDeleteGlobalMailAsync(
+            string mailId,
+            string adminToken = null,
+            string operatorId = null)
+        {
+            var request = new AdminDeleteMailRequest
+            {
+                mailId = mailId,
+                adminToken = adminToken ?? string.Empty,
+                operatorId = operatorId ?? string.Empty
+            };
+            return await Backend.CallEndpointAsync<DeleteMailResponse>("DeleteGlobalMail", request);
+        }
+
         public static async Task<PurgeExpiredResponse> CallPurgeExpiredAsync(
             string adminToken = null,
             string operatorId = null)

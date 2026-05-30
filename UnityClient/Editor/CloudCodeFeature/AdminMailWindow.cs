@@ -69,6 +69,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private readonly List<AttachmentDraft> _userAttachments = new List<AttachmentDraft>();
 
         private string _manageMailId = string.Empty;
+        private bool _manageUseEndTime;
+        private string _manageEndDate = string.Empty;
+        private string _manageEndTime = string.Empty;
 
         private static readonly string[] CategoryOptions =
         {
@@ -279,19 +282,21 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             EditorGUILayout.LabelField("Manage Mail", EditorStyles.boldLabel);
             _manageMailId = EditorGUILayout.TextField("Mail ID", _manageMailId);
+            DrawEndTimeEditor("Set MailInfo.EndTime", ref _manageUseEndTime, ref _manageEndDate, ref _manageEndTime);
             EditorGUILayout.Space(4);
 
             EditorGUILayout.BeginHorizontal();
-            GUI.enabled = false;
-            if (GUILayout.Button("Delete Mail", GUILayout.Width(110)))
-                RunAsync(DeleteMailAsync);
             GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_manageMailId) && HasOperatorId();
+            if (GUILayout.Button("Set EndTime", GUILayout.Width(110)))
+                RunAsync(SetMailEndTimeAsync);
             if (GUILayout.Button("Expire Global", GUILayout.Width(110)))
                 RunAsync(ExpireMailAsync);
+            if (GUILayout.Button("Delete Global", GUILayout.Width(110)))
+                RunAsync(DeleteMailAsync);
             GUI.enabled = true;
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.HelpBox(
-                "Delete Mail is player-scoped and still requires player-authenticated runtime call. Service-account editor flow supports admin global operations only.",
+                "Manage actions use project-scoped admin REST. Delete Global removes the global index ref and mail_global_{mailId} payload.",
                 MessageType.Info);
 
             EditorGUILayout.Space(6);
@@ -350,9 +355,20 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (string.IsNullOrWhiteSpace(_manageMailId))
                 throw new ArgumentException("Mail ID is required for Delete.");
             using var backendScope = UseRestBackend();
-            var result = await BackpackCloudCodeService.CallDeleteMailAsync(_manageMailId.Trim());
-            _rawJson = backendScope.Backend.FormatSuccessResponse("DeleteMail", result);
-            _statusMessage = $"DeleteMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId}";
+            var result = await BackpackCloudCodeService.CallAdminDeleteGlobalMailAsync(_manageMailId.Trim(), adminToken: null, operatorId: _operatorId);
+            _rawJson = backendScope.Backend.FormatSuccessResponse("DeleteGlobalMail", result);
+            _statusMessage = $"DeleteGlobalMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId}";
+        }
+
+        private async Task SetMailEndTimeAsync()
+        {
+            if (string.IsNullOrWhiteSpace(_manageMailId))
+                throw new ArgumentException("Mail ID is required for Set EndTime.");
+            using var backendScope = UseRestBackend();
+            var endTime = BuildEndTimeIso(_manageUseEndTime, _manageEndDate, _manageEndTime);
+            var result = await BackpackCloudCodeService.CallSetMailEndTimeAsync(_manageMailId.Trim(), endTime, adminToken: null, operatorId: _operatorId);
+            _rawJson = backendScope.Backend.FormatSuccessResponse("SetMailEndTime", result);
+            _statusMessage = $"SetMailEndTime: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId} endTime={result.endTime ?? "null"}";
         }
 
         private async Task ExpireMailAsync()

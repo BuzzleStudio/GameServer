@@ -133,6 +133,17 @@ available until it is manually expired or purged by admin tooling. The Admin Mai
 editor exposes two modes: `Null / no expiration` sends `expiresAt = null`, while
 `Use UTC time` sends an ISO 8601 UTC timestamp that is stored as `EndTime`.
 
+Admin management behavior:
+- `SetMailEndTime` updates both `mail_global_{mailId}.Mail.EndTime` and
+  `global_mail_index.Refs[].ExpireTime`.
+- `ExpireMail` is a soft expire operation; it sets EndTime/ExpireTime to the
+  current UTC time so list endpoints filter the mail out.
+- `DeleteGlobalMail` is the hard delete operation; it removes the index ref and
+  deletes the `mail_global_{mailId}` custom-data key.
+
+New mailbox Cloud Save writes omit `"Version"` fields. Existing stored records with
+`Version` still deserialize normally, but rewritten records drop that field.
+
 ---
 
 ## Notes
