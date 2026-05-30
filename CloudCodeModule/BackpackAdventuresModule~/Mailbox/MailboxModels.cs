@@ -105,6 +105,60 @@ public class GlobalMailPayloadConverter : JsonConverter<GlobalMailPayload>
     }
 }
 
+// The value stored under the `mails_all` Cloud Save key. Serializes as
+// { "Mails": [ <bare mail>, … ] }. Reads ALL of these shapes:
+//   new    → { "Mails": [ … ] }                 (current)
+//   legacy → [ … ]                              (raw array — wrapped into Mails)
+//   foreign/empty/null → treated as no mails    (self-heals on next write)
+// Inner elements stay bare mail objects via GlobalMailPayloadConverter; mail
+// fields are preserved exactly, never mapped to IsRead/IsClaim/IsDelete state.
+[JsonConverter(typeof(GlobalMailCollectionConverter))]
+public class GlobalMailCollection
+{
+    public List<GlobalMailPayload> Mails { get; set; } = new();
+}
+
+public class GlobalMailCollectionConverter : JsonConverter<GlobalMailCollection>
+{
+    public override GlobalMailCollection Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var doc = JsonDocument.ParseValue(ref reader);
+        var root = doc.RootElement;
+
+        // Legacy raw array: [ … ] → wrap the entire array under Mails, in order.
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            return new GlobalMailCollection
+            {
+                Mails = root.Deserialize<List<GlobalMailPayload>>(options) ?? new List<GlobalMailPayload>()
+            };
+        }
+
+        // Expected object shape: { "Mails": [ … ] }.
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("Mails", out var mailsProp)
+            && mailsProp.ValueKind == JsonValueKind.Array)
+        {
+            return new GlobalMailCollection
+            {
+                Mails = mailsProp.Deserialize<List<GlobalMailPayload>>(options) ?? new List<GlobalMailPayload>()
+            };
+        }
+
+        // Foreign / null / malformed value — treat as no mails; the next write
+        // overwrites the key with the correct { "Mails": [ … ] } shape.
+        return new GlobalMailCollection();
+    }
+
+    public override void Write(Utf8JsonWriter writer, GlobalMailCollection value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        writer.WritePropertyName("Mails");
+        JsonSerializer.Serialize(writer, value.Mails ?? new List<GlobalMailPayload>(), options);
+        writer.WriteEndObject();
+    }
+}
+
 public static class GlobalMailStore
 {
     public static GlobalMailPayload? FindById(List<GlobalMailPayload>? mails, string mailId)

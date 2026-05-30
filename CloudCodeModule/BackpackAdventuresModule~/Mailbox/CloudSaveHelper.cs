@@ -24,6 +24,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Unity.Services.CloudCode.Apis;
 using Unity.Services.CloudCode.Core;
@@ -236,10 +237,17 @@ internal static class CloudSaveHelper
     private static T? DeserializeChecked<T>(JsonElement element)
     {
         var type = typeof(T);
-        if (ExpectsJsonArray(type) && element.ValueKind != JsonValueKind.Array)
-            return default;
-        if (ExpectsJsonObject(type) && element.ValueKind != JsonValueKind.Object)
-            return default;
+        // Types with a custom JsonConverter (e.g. GlobalMailCollection) accept multiple
+        // root shapes by design — array vs object — so the generic shape guard below
+        // must not pre-reject them. Defer entirely to the converter, which still
+        // returns a safe default for foreign/malformed values.
+        if (!HasCustomConverter(type))
+        {
+            if (ExpectsJsonArray(type) && element.ValueKind != JsonValueKind.Array)
+                return default;
+            if (ExpectsJsonObject(type) && element.ValueKind != JsonValueKind.Object)
+                return default;
+        }
         try
         {
             return JsonSerializer.Deserialize<T>(element.GetRawText());
@@ -249,6 +257,9 @@ internal static class CloudSaveHelper
             return default;
         }
     }
+
+    private static bool HasCustomConverter(Type type) =>
+        Attribute.IsDefined(type, typeof(JsonConverterAttribute));
 
     private static bool ExpectsJsonArray(Type type)
     {

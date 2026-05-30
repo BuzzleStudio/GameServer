@@ -31,8 +31,9 @@ public class SendGlobalMailModule
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
         ValidateRequest(request.Subject, request.Body, request.Attachments);
 
-        var (mails, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
-        mails ??= new List<GlobalMailPayload>();
+        var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        collection ??= new GlobalMailCollection();
+        var mails = collection.Mails;
         GlobalMailStore.RemoveExpired(mails);
 
         var mailId = CreateMailId(request.DedupKey);
@@ -60,18 +61,19 @@ public class SendGlobalMailModule
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, mails, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
-            var (freshMails, freshLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
-            freshMails ??= new List<GlobalMailPayload>();
+            var (freshCollection, freshLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+            freshCollection ??= new GlobalMailCollection();
+            var freshMails = freshCollection.Mails;
             GlobalMailStore.RemoveExpired(freshMails);
             var freshExisting = GlobalMailStore.FindById(freshMails, mailId);
             if (freshExisting?.Mail != null)
                 return new SendGlobalMailResponse { GlobalMailId = freshExisting.Mail.MessageId, SentAt = freshExisting.Mail.StartTime.ToUniversalTime().ToString("o") };
             freshMails.Add(new GlobalMailPayload { Mail = mail });
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshMails, freshLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshCollection, freshLock);
         }
 
         return new SendGlobalMailResponse { GlobalMailId = mailId, SentAt = sentAt };

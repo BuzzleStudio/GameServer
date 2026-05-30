@@ -29,8 +29,9 @@ public class ExpireMailModule
         if (!request.MailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(MailboxError.CannotExpireUserMail);
 
-        var (mails, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
-        var payload = GlobalMailStore.FindById(mails, request.MailId);
+        var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        collection ??= new GlobalMailCollection();
+        var payload = GlobalMailStore.FindById(collection.Mails, request.MailId);
         if (payload?.Mail == null)
             throw new InvalidOperationException(MailboxError.MailNotFound);
 
@@ -39,7 +40,7 @@ public class ExpireMailModule
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, mails ?? new List<GlobalMailPayload>(), writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
@@ -61,8 +62,9 @@ public class ExpireMailModule
 
         var endTime = ResolveEndTime(request.EndTime);
         var endTimeIso = endTime?.ToString("o");
-        var (mails, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
-        var payload = GlobalMailStore.FindById(mails, request.MailId);
+        var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        collection ??= new GlobalMailCollection();
+        var payload = GlobalMailStore.FindById(collection.Mails, request.MailId);
         if (payload?.Mail == null)
             throw new InvalidOperationException(MailboxError.MailNotFound);
 
@@ -70,7 +72,7 @@ public class ExpireMailModule
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, mails ?? new List<GlobalMailPayload>(), writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
@@ -90,15 +92,15 @@ public class ExpireMailModule
         if (!request.MailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException(MailboxError.InvalidInput);
 
-        var (mails, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
-        mails ??= new List<GlobalMailPayload>();
-        var removed = mails.RemoveAll(m => string.Equals(m.Mail?.MessageId, request.MailId, StringComparison.OrdinalIgnoreCase));
+        var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        collection ??= new GlobalMailCollection();
+        var removed = collection.Mails.RemoveAll(m => string.Equals(m.Mail?.MessageId, request.MailId, StringComparison.OrdinalIgnoreCase));
         if (removed == 0)
             throw new InvalidOperationException(MailboxError.MailNotFound);
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, mails, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {

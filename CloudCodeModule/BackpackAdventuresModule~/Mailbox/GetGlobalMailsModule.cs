@@ -32,12 +32,12 @@ public class GetGlobalMailsModule
 
         var pageSize = request.PageSize <= 0 ? MailboxConstants.DefaultPageSize : request.PageSize;
         var stateTask = CloudSaveHelper.GetPlayerDataAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
-        var mailsTask = CloudSaveHelper.GetCustomDataAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        var mailsTask = CloudSaveHelper.GetCustomDataAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
         await Task.WhenAll(stateTask, mailsTask);
 
         var state = stateTask.Result ?? new PlayerGlobalMailState();
         MailSchemaHelper.MigrateLegacyMetadata(state);
-        var mails = mailsTask.Result ?? new List<GlobalMailPayload>();
+        var mails = mailsTask.Result?.Mails ?? new List<GlobalMailPayload>();
 
         var allMails = mails.Count > 0
             ? BuildDtosFromAllMails(mails, state, playerId)

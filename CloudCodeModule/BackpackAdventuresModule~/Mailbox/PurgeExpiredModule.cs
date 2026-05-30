@@ -24,8 +24,9 @@ public class PurgeExpiredModule
     public async Task<PurgeExpiredResponse> PurgeExpiredAsync(PurgeExpiredRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
-        var (mails, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
-        mails ??= new List<GlobalMailPayload>();
+        var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        collection ??= new GlobalMailCollection();
+        var mails = collection.Mails;
 
         if (mails.Count == 0)
             return new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
@@ -35,7 +36,7 @@ public class PurgeExpiredModule
             return new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
 
         var purgedAt = DateTime.UtcNow.ToString("o");
-        await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, mails, writeLock);
+        await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
 
         return new PurgeExpiredResponse { PurgedCount = purgedCount, PurgedAt = purgedAt };
     }
