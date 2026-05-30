@@ -38,7 +38,8 @@ public class DeleteMailModule
 
     private async Task DeleteGlobalForPlayerWithRetryAsync(string playerId, string mailId)
     {
-        var payload = await CloudSaveHelper.GetCustomDataAsync<GlobalMailPayload>(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId));
+        var mails = await CloudSaveHelper.GetCustomDataAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        var payload = GlobalMailStore.FindById(mails, mailId);
         if (payload?.Mail == null)
         {
             var v1Index = await CloudSaveHelper.GetCustomDataAsync<GlobalMailIndex>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex);

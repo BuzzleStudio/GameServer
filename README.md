@@ -110,8 +110,7 @@ Unity Client
         └─► ClaimAttachment — claim attachment with idempotency guard [not yet deployed]
 
 Cloud Save Keys:
-  global_mail_index        (custom, project-wide) — lightweight refs for admin mail
-  mail_global_{mailId}     (custom, project-wide) — full admin mail payload
+  mails_all                (custom, project-wide) — all admin mail payloads as [{ Mail }]
   mailbox_global_state     (player)               — per-player read/claim/delete metadata
   mailbox_user_items       (player)               — user-to-user GiftMail payloads
 ```
@@ -125,9 +124,8 @@ mail state.
 
 In **CloudCode > Admin Mail > Manage**, admin REST actions do not require Play Mode:
 `Set EndTime` updates an existing global mail's end time, `Expire Global` sets it
-to now, and `Delete Global` removes both the global index ref and
-`mail_global_{mailId}` payload. New Cloud Save writes omit mailbox `"Version"`
-fields.
+to now, and `Delete Global` removes the matching `{ Mail }` object from `mails_all`.
+New Cloud Save writes omit mailbox `"Version"` fields.
 
 ### Mailbox API Quick Reference
 

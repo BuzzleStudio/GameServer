@@ -7,8 +7,7 @@ namespace BackpackAdventures.CloudCode;
 public static class MailboxConstants
 {
     public const string KeyGlobalMailIndex = "global_mail_index_legacy";
-    public const string KeyGlobalMailIndexV2 = "global_mail_index";
-    public const string KeyGlobalMailPayloadFmt = "mail_global_{0}";
+    public const string KeyMailsAll = "mails_all";
     public const string KeyGlobalState = "mailbox_global_state";
     public const string KeyUserItems = "mailbox_user_items";
     public const string KeyMeta = "mailbox_meta";
@@ -16,7 +15,7 @@ public static class MailboxConstants
     public const string KeyPlayerWallet = "player_wallet";
     public const int MaxUserMailsStored = 200;
     public const int HardCapUserMailsStored = 250;
-    public const int MaxGlobalMailRefs = 500;
+    public const int MaxGlobalMailsStored = 500;
     public const int DefaultPageSize = 20;
     public const int MaxPageSize = 50;
     public const int MaxIdemCacheEntries = 50;
@@ -61,26 +60,36 @@ public class MailAttachment
     public int Quantity { get; set; }
 }
 
-public class GlobalMailIndexV2
-{
-    public List<GlobalMailRef> Refs { get; set; } = new();
-}
-
-public class GlobalMailRef
-{
-    public string MessageId { get; set; } = string.Empty;
-    public string StartTime { get; set; } = string.Empty;
-    public string? ExpireTime { get; set; }
-    public string? DedupKey { get; set; }
-
-    public bool IsExpired() => MailSchemaHelper.IsExpired(ExpireTime);
-}
-
 public class GlobalMailPayload
 {
     public Mail Mail { get; set; } = new();
 
     public bool IsExpired() => Mail?.IsExpired ?? false;
+}
+
+public static class GlobalMailStore
+{
+    public static GlobalMailPayload? FindById(List<GlobalMailPayload>? mails, string mailId)
+    {
+        return mails?.Find(m => string.Equals(m.Mail?.MessageId, mailId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static int RemoveExpired(List<GlobalMailPayload> mails)
+    {
+        return mails.RemoveAll(m => m.Mail == null || m.Mail.IsExpired);
+    }
+
+    public static HashSet<string> LiveIds(List<GlobalMailPayload>? mails)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (mails == null) return result;
+        foreach (var payload in mails)
+        {
+            if (!string.IsNullOrEmpty(payload.Mail?.MessageId))
+                result.Add(payload.Mail.MessageId);
+        }
+        return result;
+    }
 }
 
 public class PlayerGlobalMailState
@@ -389,27 +398,6 @@ public static class MailSchemaHelper
                 Sender = sender,
                 DedupKey = dedupKey
             }
-        };
-    }
-
-    public static GlobalMailRef CreateGlobalRef(MailItemDto mail)
-    {
-        return new GlobalMailRef
-        {
-            MessageId = mail.MessageId,
-            StartTime = mail.MailInfo.StartTime,
-            ExpireTime = mail.MailInfo.ExpireTime
-        };
-    }
-
-    public static GlobalMailRef CreateGlobalRef(Mail mail, string? dedupKey = null)
-    {
-        return new GlobalMailRef
-        {
-            MessageId = mail.MessageId,
-            StartTime = mail.StartTime.ToUniversalTime().ToString("o"),
-            ExpireTime = mail.EndTime?.ToUniversalTime().ToString("o"),
-            DedupKey = dedupKey
         };
     }
 
