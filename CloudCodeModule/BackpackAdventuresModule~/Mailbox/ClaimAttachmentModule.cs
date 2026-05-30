@@ -58,6 +58,11 @@ public class ClaimAttachmentModule
 
         var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
         state ??= new PlayerGlobalMailState();
+        state.DeletedIds ??= new List<string>();
+        state.ClaimedIds ??= new List<string>();
+        state.ReadIds ??= new List<string>();
+        if (state.DeletedIds.Contains(mailId))
+            throw new InvalidOperationException(MailboxError.MailNotFound);
         if (state.ClaimedIds.Contains(mailId))
             return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
         if (payload.Mail.IsExpired())
@@ -69,12 +74,9 @@ public class ClaimAttachmentModule
         await GrantRewardsAsync(playerId, mailId, attachments ?? new List<MailAttachment>(), requestId);
         state.ClaimedIds.Add(mailId);
         if (!state.ReadIds.Contains(mailId)) state.ReadIds.Add(mailId);
-        payload.Mail.MailMetaData.IsClaimed = true;
-        payload.Mail.MailMetaData.IsRead = true;
 
         try
         {
-            await CloudSaveHelper.SetCustomDataAsync(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId), payload);
             await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
@@ -89,6 +91,11 @@ public class ClaimAttachmentModule
     {
         var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
         state ??= new PlayerGlobalMailState();
+        state.DeletedIds ??= new List<string>();
+        state.ClaimedIds ??= new List<string>();
+        state.ReadIds ??= new List<string>();
+        if (state.DeletedIds.Contains(mail.GlobalMailId))
+            throw new InvalidOperationException(MailboxError.MailNotFound);
         if (state.ClaimedIds.Contains(mail.GlobalMailId))
             return new ClaimAttachmentResponse { MailId = mail.GlobalMailId, AlreadyClaimed = true };
         if (mail.IsExpired())

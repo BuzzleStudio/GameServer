@@ -10,7 +10,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
     /// <summary>
     /// Editor window for browsing a player's mailbox.
     /// MenuItem: CloudCode/Mailbox
-    /// Supports paginated fetch of user/global mails; per-mail Mark Read and Claim Attachment actions.
+    /// Supports paginated fetch of user/global mails; per-mail Mark Read, Claim Attachment, and Delete actions.
     /// </summary>
     public class MailboxWindow : EditorWindow
     {
@@ -68,7 +68,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             string scopeLabel = _mailboxScope == MailboxScope.Global ? "Global Mails" : "User Mails";
             string endpointLabel = _mailboxScope == MailboxScope.Global ? "GetGlobalMails" : "GetUserMails";
             EditorGUILayout.LabelField($"Mailbox - {scopeLabel}", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField($"Reads {endpointLabel} with pagination. Mark Read / Claim per mail.",
+            EditorGUILayout.LabelField($"Reads {endpointLabel} with pagination. Mark Read / Claim / Delete per mail.",
                 EditorStyles.miniLabel);
             EditorGUILayout.Space(2);
         }
@@ -187,6 +187,18 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 string ownershipType = GetCurrentMailOwnershipType();
                 RunAsync(() => ClaimAttachmentAsync(mailId, ownershipType));
             }
+            GUI.enabled = !_isBusy;
+            if (GUILayout.Button("Delete", GUILayout.Width(80)))
+            {
+                string mailId = mail.MessageId;
+                string ownershipType = GetCurrentMailOwnershipType();
+                string title = ownershipType == "global" ? "Delete Global Mail" : "Delete User Mail";
+                string message = ownershipType == "global"
+                    ? "Hide this global mail for the signed-in player? Other players will still see it."
+                    : "Delete this user mail from the signed-in player's mailbox?";
+                if (EditorUtility.DisplayDialog(title, message, "Delete", "Cancel"))
+                    RunAsync(() => DeleteMailAsync(mailId, ownershipType));
+            }
             GUI.enabled = true;
             EditorGUILayout.EndHorizontal();
             EditorGUI.indentLevel--;
@@ -248,6 +260,17 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, mailType, requestId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"ClaimAttachment: alreadyClaimed={result.alreadyClaimed}";
+            await FetchMailboxAsync();
+        }
+
+        private async Task DeleteMailAsync(string mailId, string mailType)
+        {
+            await EnsureInitializedAsync();
+            var result = await BackpackCloudCodeService.CallDeleteMailAsync(mailId);
+            _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
+            _statusMessage = mailType == "global"
+                ? $"DeleteMail: hidden global mail {result.mailId} for this player"
+                : $"DeleteMail: deleted user mail {result.mailId}";
             await FetchMailboxAsync();
         }
 

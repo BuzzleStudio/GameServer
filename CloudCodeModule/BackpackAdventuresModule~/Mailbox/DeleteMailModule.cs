@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -26,10 +27,50 @@ public class DeleteMailModule
         if (string.IsNullOrWhiteSpace(request.MailId))
             throw new ArgumentException(MailboxError.InvalidInput);
         if (request.MailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException(MailboxError.CannotDeleteGlobal);
+        {
+            await DeleteGlobalForPlayerWithRetryAsync(playerId, request.MailId);
+            return new DeleteMailResponse { MailId = request.MailId };
+        }
 
         await DeleteWithRetryAsync(playerId, request.MailId);
         return new DeleteMailResponse { MailId = request.MailId };
+    }
+
+    private async Task DeleteGlobalForPlayerWithRetryAsync(string playerId, string mailId)
+    {
+        var payload = await CloudSaveHelper.GetCustomDataAsync<GlobalMailPayload>(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId));
+        if (payload?.Mail == null)
+        {
+            var v1Index = await CloudSaveHelper.GetCustomDataAsync<GlobalMailIndex>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex);
+            if (v1Index?.Mails.Find(m => m.GlobalMailId == mailId) == null)
+                throw new InvalidOperationException(MailboxError.MailNotFound);
+        }
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
+            state ??= new PlayerGlobalMailState();
+            state.DeletedIds ??= new List<string>();
+            state.ReadIds ??= new List<string>();
+            state.ClaimedIds ??= new List<string>();
+            if (state.DeletedIds.Contains(mailId)) return;
+
+            state.DeletedIds.Add(mailId);
+            state.ReadIds.RemoveAll(id => id == mailId);
+            state.ClaimedIds.RemoveAll(id => id == mailId);
+
+            try
+            {
+                await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
+                return;
+            }
+            catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0)
+            {
+                _logger.LogWarning(ex, "Delete global mail conflict retry for {PlayerId}", playerId);
+            }
+        }
+
+        throw new InvalidOperationException(MailboxError.Conflict);
     }
 
     private async Task DeleteWithRetryAsync(string playerId, string mailId)
