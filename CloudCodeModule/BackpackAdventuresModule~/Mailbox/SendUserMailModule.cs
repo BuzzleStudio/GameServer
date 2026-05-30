@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -26,50 +27,58 @@ public class SendUserMailModule
     public async Task<SendUserMailResponse> SendUserMailAsync(SendUserMailRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
-        if (string.IsNullOrWhiteSpace(request.TargetPlayerId))
+        var targetUserIds = ResolveTargetUserIds(request);
+        if (targetUserIds.Count == 0)
             throw new ArgumentException(MailboxError.InvalidInput);
 
         ValidateRequest(request.Subject, request.Body, request.Attachments);
 
-        var sentAt = DateTime.UtcNow.ToString("o");
-        var mailId = "um_" + Guid.NewGuid().ToString("N")[..8];
-        var newMail = MailSchemaHelper.CreateMail(
+        var (index, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailIndexV2>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
+        index ??= new GlobalMailIndexV2();
+
+        if (!string.IsNullOrEmpty(request.DedupKey))
+        {
+            foreach (var existingRef in index.Refs)
+            {
+                if (existingRef.DedupKey == request.DedupKey)
+                    return new SendUserMailResponse { MailId = existingRef.MessageId, SentAt = existingRef.StartTime };
+            }
+        }
+
+        index.Refs.RemoveAll(r => r.IsExpired());
+        if (index.Refs.Count >= MailboxConstants.MaxGlobalMailRefs)
+            throw new InvalidOperationException(MailboxError.MailboxFull);
+
+        var startTime = DateTime.UtcNow;
+        var endTime = ResolveEndTime(startTime, request.ExpiresAt);
+        var sentAt = startTime.ToString("o");
+        var mailId = "gm_" + Guid.NewGuid().ToString("N")[..8];
+        var newMail = MailSchemaHelper.CreateAdminMail(
             mailId,
+            targetUserIds,
             request.Subject,
             request.Body,
-            sentAt,
-            request.ExpiresAt,
-            request.Attachments,
-            false,
-            false,
-            request.MailCategory,
-            SenderType.Admin,
-            request.SenderName,
-            request.DedupKey);
+            startTime,
+            endTime,
+            request.Attachments);
 
-        await InsertMailWithRetryAsync(request.TargetPlayerId, newMail);
-        return new SendUserMailResponse { MailId = mailId, SentAt = sentAt };
-    }
-
-    private async Task InsertMailWithRetryAsync(string targetPlayerId, MailItemDto newMail)
-    {
-        var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(_gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems);
-        mailbox ??= new PlayerUserMailbox();
-        MailboxEviction.Evict(mailbox, targetPlayerId, _logger);
-        mailbox.Mails.Add(newMail);
+        await CloudSaveHelper.SetCustomDataAsync(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId), new GlobalMailPayload { Mail = newMail, Version = 4 });
+        index.Refs.Add(MailSchemaHelper.CreateGlobalRef(newMail, request.DedupKey));
 
         try
         {
-            await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2, index, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
-            var (freshMailbox, freshLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(_gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems);
-            freshMailbox ??= new PlayerUserMailbox();
-            MailboxEviction.Evict(freshMailbox, targetPlayerId, _logger);
-            freshMailbox.Mails.Add(newMail);
-            await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems, freshMailbox, freshLock);
+            var (freshIndex, freshLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailIndexV2>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
+            freshIndex ??= new GlobalMailIndexV2();
+            freshIndex.Refs.RemoveAll(r => r.IsExpired());
+            freshIndex.Refs.Add(MailSchemaHelper.CreateGlobalRef(newMail, request.DedupKey));
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2, freshIndex, freshLock);
         }
+
+        return new SendUserMailResponse { MailId = mailId, SentAt = sentAt };
     }
 
     private static void ValidateRequest(string subject, string body, System.Collections.Generic.List<MailAttachment>? attachments)
@@ -84,5 +93,36 @@ public class SendUserMailModule
             if (string.IsNullOrEmpty(att.ItemId) || att.Quantity <= 0 || (att.Type != "currency" && att.Type != "item"))
                 throw new ArgumentException(MailboxError.InvalidInput);
         }
+    }
+
+    private static List<string> ResolveTargetUserIds(SendUserMailRequest request)
+    {
+        var result = new List<string>();
+        AddTargetUserIds(result, request.TargetUserIds);
+        AddTargetUserId(result, request.TargetPlayerId);
+        AddTargetUserId(result, request.UserId);
+        return result;
+    }
+
+    private static void AddTargetUserIds(List<string> result, List<string>? targetUserIds)
+    {
+        if (targetUserIds == null) return;
+        foreach (var targetUserId in targetUserIds)
+            AddTargetUserId(result, targetUserId);
+    }
+
+    private static void AddTargetUserId(List<string> result, string? targetUserId)
+    {
+        if (string.IsNullOrWhiteSpace(targetUserId)) return;
+        var normalized = targetUserId.Trim();
+        if (!result.Contains(normalized))
+            result.Add(normalized);
+    }
+
+    private static DateTime ResolveEndTime(DateTime startTime, string? expiresAt)
+    {
+        if (!string.IsNullOrEmpty(expiresAt) && DateTime.TryParse(expiresAt, out var parsed))
+            return parsed.ToUniversalTime();
+        return startTime.AddDays(7);
     }
 }

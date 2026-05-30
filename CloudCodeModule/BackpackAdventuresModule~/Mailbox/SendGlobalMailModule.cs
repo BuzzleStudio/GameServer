@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -35,8 +36,7 @@ public class SendGlobalMailModule
         {
             foreach (var existingRef in index.Refs)
             {
-                var payload = await CloudSaveHelper.GetCustomDataAsync<GlobalMailPayload>(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, existingRef.MessageId));
-                if (payload?.Mail?.MailMetaData?.DedupKey == request.DedupKey)
+                if (existingRef.DedupKey == request.DedupKey)
                     return new SendGlobalMailResponse { GlobalMailId = existingRef.MessageId, SentAt = existingRef.StartTime };
             }
         }
@@ -45,24 +45,22 @@ public class SendGlobalMailModule
         if (index.Refs.Count >= MailboxConstants.MaxGlobalMailRefs)
             throw new InvalidOperationException(MailboxError.MailboxFull);
 
-        var sentAt = DateTime.UtcNow.ToString("o");
+        var startTime = DateTime.UtcNow;
+        var endTime = ResolveEndTime(startTime, request.ExpiresAt);
+        var sentAt = startTime.ToString("o");
         var mailId = "gm_" + Guid.NewGuid().ToString("N")[..8];
-        var mail = MailSchemaHelper.CreateMail(
+        var targetUserIds = NormalizeTargetUserIds(request.TargetUserIds);
+        var mail = MailSchemaHelper.CreateAdminMail(
             mailId,
+            targetUserIds,
             request.Subject,
             request.Body,
-            sentAt,
-            request.ExpiresAt,
-            request.Attachments,
-            false,
-            false,
-            request.MailCategory,
-            SenderType.Admin,
-            request.SenderName,
-            request.DedupKey);
+            startTime,
+            endTime,
+            request.Attachments);
 
-        await CloudSaveHelper.SetCustomDataAsync(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId), new GlobalMailPayload { Mail = mail, Version = 3 });
-        index.Refs.Add(MailSchemaHelper.CreateGlobalRef(mail));
+        await CloudSaveHelper.SetCustomDataAsync(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId), new GlobalMailPayload { Mail = mail, Version = 4 });
+        index.Refs.Add(MailSchemaHelper.CreateGlobalRef(mail, request.DedupKey));
 
         try
         {
@@ -73,7 +71,7 @@ public class SendGlobalMailModule
             var (freshIndex, freshLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailIndexV2>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
             freshIndex ??= new GlobalMailIndexV2();
             freshIndex.Refs.RemoveAll(r => r.IsExpired());
-            freshIndex.Refs.Add(MailSchemaHelper.CreateGlobalRef(mail));
+            freshIndex.Refs.Add(MailSchemaHelper.CreateGlobalRef(mail, request.DedupKey));
             await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2, freshIndex, freshLock);
         }
 
@@ -92,5 +90,31 @@ public class SendGlobalMailModule
             if (string.IsNullOrEmpty(att.ItemId) || att.Quantity <= 0 || (att.Type != "currency" && att.Type != "item"))
                 throw new ArgumentException(MailboxError.InvalidInput);
         }
+    }
+
+    private static List<string>? NormalizeTargetUserIds(List<string>? targetUserIds)
+    {
+        if (targetUserIds == null || targetUserIds.Count == 0)
+            return null;
+
+        var result = new List<string>();
+        foreach (var targetUserId in targetUserIds)
+        {
+            if (string.IsNullOrWhiteSpace(targetUserId))
+                continue;
+
+            var normalized = targetUserId.Trim();
+            if (!result.Contains(normalized))
+                result.Add(normalized);
+        }
+
+        return result.Count == 0 ? null : result;
+    }
+
+    private static DateTime ResolveEndTime(DateTime startTime, string? expiresAt)
+    {
+        if (!string.IsNullOrEmpty(expiresAt) && DateTime.TryParse(expiresAt, out var parsed))
+            return parsed.ToUniversalTime();
+        return startTime.AddDays(7);
     }
 }

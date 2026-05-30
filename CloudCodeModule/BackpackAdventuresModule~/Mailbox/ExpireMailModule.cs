@@ -44,8 +44,7 @@ public class ExpireMailModule
 
         var expiredAt = DateTime.UtcNow.ToString("o");
         mailRef.ExpireTime = expiredAt;
-        payload.Mail.MailInfo.ExpireTime = expiredAt;
-        payload.Mail.MailInfo.Period = MailSchemaHelper.CalculatePeriodSeconds(payload.Mail.MailInfo.StartTime, expiredAt);
+        payload.Mail.EndTime = DateTime.UtcNow;
 
         try
         {

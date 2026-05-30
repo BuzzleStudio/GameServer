@@ -67,6 +67,7 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class SendGlobalMailRequest
     {
+        public List<string> targetUserIds;
         public string subject;
         public string body;
         public string expiresAt;
@@ -89,6 +90,7 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable]
     public class SendUserMailRequest
     {
+        public List<string> targetUserIds;
         public string targetPlayerId;
         public string userId;
         public string subject;

@@ -6,8 +6,8 @@ namespace BackpackAdventures.CloudCode;
 
 public static class MailboxConstants
 {
-    public const string KeyGlobalMailIndex = "global_mail_index";
-    public const string KeyGlobalMailIndexV2 = "global_mail_index_v2";
+    public const string KeyGlobalMailIndex = "global_mail_index_legacy";
+    public const string KeyGlobalMailIndexV2 = "global_mail_index";
     public const string KeyGlobalMailPayloadFmt = "mail_global_{0}";
     public const string KeyGlobalState = "mailbox_global_state";
     public const string KeyUserItems = "mailbox_user_items";
@@ -72,6 +72,7 @@ public class GlobalMailRef
     public string MessageId { get; set; } = string.Empty;
     public string StartTime { get; set; } = string.Empty;
     public string? ExpireTime { get; set; }
+    public string? DedupKey { get; set; }
     public int Version { get; set; } = 3;
 
     public bool IsExpired() => MailSchemaHelper.IsExpired(ExpireTime);
@@ -79,18 +80,28 @@ public class GlobalMailRef
 
 public class GlobalMailPayload
 {
-    public int Version { get; set; } = 3;
-    public MailItemDto Mail { get; set; } = new();
+    public int Version { get; set; } = 4;
+    public Mail Mail { get; set; } = new();
 
-    public bool IsExpired() => MailSchemaHelper.IsExpired(Mail?.MailInfo?.ExpireTime);
+    public bool IsExpired() => Mail?.IsExpired ?? false;
 }
 
 public class PlayerGlobalMailState
 {
-    public int Version { get; set; } = 3;
-    public List<string> ClaimedIds { get; set; } = new();
-    public List<string> ReadIds { get; set; } = new();
-    public List<string> DeletedIds { get; set; } = new();
+    public int Version { get; set; } = 4;
+    public List<MailMetadata> Mails { get; set; } = new();
+
+    [JsonPropertyName("ClaimedIds")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? LegacyClaimedIds { get; set; }
+
+    [JsonPropertyName("ReadIds")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? LegacyReadIds { get; set; }
+
+    [JsonPropertyName("DeletedIds")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? LegacyDeletedIds { get; set; }
 }
 
 public class PlayerUserMailbox
@@ -142,6 +153,42 @@ public class GlobalMailIndex
 {
     public int Version { get; set; } = 1;
     public List<GlobalMailItem> Mails { get; set; } = new();
+}
+
+public class Mail
+{
+    public string MessageId { get; set; } = string.Empty;
+    public List<string>? TargetUserIds { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public DateTime StartTime { get; set; }
+    public DateTime EndTime { get; set; }
+    public List<Payout> Attachments { get; set; } = new();
+
+    [JsonIgnore]
+    public bool HasAttachment => Attachments != null && Attachments.Count > 0;
+
+    [JsonIgnore]
+    public bool IsExpired => DateTime.UtcNow > EndTime;
+
+    [JsonIgnore]
+    public bool IsAvailable => DateTime.UtcNow >= StartTime && DateTime.UtcNow <= EndTime;
+}
+
+public class Payout
+{
+    public string PayoutAssetId { get; set; } = string.Empty;
+    public double Chance { get; set; } = 1.0;
+    public string AssetType { get; set; } = string.Empty;
+    public int PayoutAmount { get; set; }
+}
+
+public class MailMetadata
+{
+    public string MessageId { get; set; } = string.Empty;
+    public bool IsClaim { get; set; }
+    public bool IsRead { get; set; }
+    public bool IsDelete { get; set; }
 }
 
 public class MailItemDto
@@ -217,6 +264,102 @@ public class MailAttachmentDto
 
 public static class MailSchemaHelper
 {
+    public static Mail CreateAdminMail(
+        string messageId,
+        List<string>? targetUserIds,
+        string title,
+        string content,
+        DateTime startTime,
+        DateTime endTime,
+        List<MailAttachment>? attachments)
+    {
+        return new Mail
+        {
+            MessageId = messageId,
+            TargetUserIds = targetUserIds == null || targetUserIds.Count == 0 ? null : new List<string>(targetUserIds),
+            Title = title,
+            Content = content,
+            StartTime = startTime,
+            EndTime = endTime,
+            Attachments = MapPayouts(attachments)
+        };
+    }
+
+    public static MailItemDto ToMailItemDto(Mail mail, MailMetadata? metadata)
+    {
+        return new MailItemDto
+        {
+            MessageId = mail.MessageId,
+            MailInfo = new MailInfoDto
+            {
+                Title = mail.Title,
+                Content = mail.Content,
+                StartTime = mail.StartTime.ToUniversalTime().ToString("o"),
+                Period = CalculatePeriodSeconds(mail.StartTime.ToUniversalTime().ToString("o"), mail.EndTime.ToUniversalTime().ToString("o")),
+                ExpireTime = mail.EndTime.ToUniversalTime().ToString("o"),
+                Attachment = MapAttachmentDtos(mail.Attachments)
+            },
+            MailMetaData = new MailMetaDataDto
+            {
+                IsRead = metadata?.IsRead ?? false,
+                IsClaimed = metadata?.IsClaim ?? false,
+                MailCategory = "System",
+                SenderType = "Admin",
+                Sender = null,
+                DedupKey = null
+            }
+        };
+    }
+
+    public static bool IsVisibleToPlayer(Mail mail, string playerId)
+    {
+        return mail.TargetUserIds == null || mail.TargetUserIds.Count == 0 || mail.TargetUserIds.Contains(playerId);
+    }
+
+    public static MailMetadata GetOrCreateMetadata(PlayerGlobalMailState state, string mailId)
+    {
+        state.Mails ??= new List<MailMetadata>();
+        MigrateLegacyMetadata(state);
+        var metadata = state.Mails.Find(m => m.MessageId == mailId);
+        if (metadata != null) return metadata;
+        metadata = new MailMetadata { MessageId = mailId };
+        state.Mails.Add(metadata);
+        return metadata;
+    }
+
+    public static MailMetadata? FindMetadata(PlayerGlobalMailState state, string mailId)
+    {
+        state.Mails ??= new List<MailMetadata>();
+        MigrateLegacyMetadata(state);
+        return state.Mails.Find(m => m.MessageId == mailId);
+    }
+
+    public static void MigrateLegacyMetadata(PlayerGlobalMailState state)
+    {
+        state.Mails ??= new List<MailMetadata>();
+        AddLegacyMetadata(state, state.LegacyClaimedIds, m => m.IsClaim = true);
+        AddLegacyMetadata(state, state.LegacyReadIds, m => m.IsRead = true);
+        AddLegacyMetadata(state, state.LegacyDeletedIds, m => m.IsDelete = true);
+        state.LegacyClaimedIds = null;
+        state.LegacyReadIds = null;
+        state.LegacyDeletedIds = null;
+    }
+
+    private static void AddLegacyMetadata(PlayerGlobalMailState state, List<string>? ids, Action<MailMetadata> mutate)
+    {
+        if (ids == null) return;
+        foreach (var id in ids)
+        {
+            var metadata = state.Mails.Find(m => m.MessageId == id);
+            if (metadata == null)
+            {
+                metadata = new MailMetadata { MessageId = id };
+                state.Mails.Add(metadata);
+            }
+            mutate(metadata);
+        }
+    }
+
     public static MailItemDto CreateMail(
         string messageId,
         string title,
@@ -266,7 +409,35 @@ public static class MailSchemaHelper
         };
     }
 
+    public static GlobalMailRef CreateGlobalRef(Mail mail, string? dedupKey = null)
+    {
+        return new GlobalMailRef
+        {
+            MessageId = mail.MessageId,
+            StartTime = mail.StartTime.ToUniversalTime().ToString("o"),
+            ExpireTime = mail.EndTime.ToUniversalTime().ToString("o"),
+            DedupKey = dedupKey,
+            Version = 4
+        };
+    }
+
     public static List<MailAttachment>? ToAttachments(List<MailAttachmentDto>? attachments)
+    {
+        if (attachments == null || attachments.Count == 0) return null;
+        var result = new List<MailAttachment>(attachments.Count);
+        foreach (var attachment in attachments)
+        {
+            result.Add(new MailAttachment
+            {
+                ItemId = attachment.PayoutAssetId,
+                Quantity = attachment.PayoutAmount,
+                Type = NormalizeAssetTypeToStorage(attachment.AssetType)
+            });
+        }
+        return result;
+    }
+
+    public static List<MailAttachment>? ToAttachments(List<Payout>? attachments)
     {
         if (attachments == null || attachments.Count == 0) return null;
         var result = new List<MailAttachment>(attachments.Count);
@@ -301,6 +472,11 @@ public static class MailSchemaHelper
         return mail.MailInfo?.Attachment != null && mail.MailInfo.Attachment.Count > 0;
     }
 
+    public static bool HasAttachments(Mail mail)
+    {
+        return mail.Attachments != null && mail.Attachments.Count > 0;
+    }
+
     public static bool IsExpired(string? expireTime)
     {
         if (string.IsNullOrEmpty(expireTime)) return false;
@@ -330,6 +506,40 @@ public static class MailSchemaHelper
                 Chance = 1.0,
                 AssetType = NormalizeAssetTypeForDto(attachment.Type),
                 PayoutAmount = attachment.Quantity
+            });
+        }
+        return result;
+    }
+
+    public static List<Payout> MapPayouts(List<MailAttachment>? attachments)
+    {
+        var result = new List<Payout>();
+        if (attachments == null || attachments.Count == 0) return result;
+        foreach (var attachment in attachments)
+        {
+            result.Add(new Payout
+            {
+                PayoutAssetId = attachment.ItemId,
+                Chance = 1.0,
+                AssetType = NormalizeAssetTypeForDto(attachment.Type),
+                PayoutAmount = attachment.Quantity
+            });
+        }
+        return result;
+    }
+
+    public static List<MailAttachmentDto>? MapAttachmentDtos(List<Payout>? attachments)
+    {
+        if (attachments == null || attachments.Count == 0) return null;
+        var result = new List<MailAttachmentDto>(attachments.Count);
+        foreach (var attachment in attachments)
+        {
+            result.Add(new MailAttachmentDto
+            {
+                PayoutAssetId = attachment.PayoutAssetId,
+                Chance = attachment.Chance,
+                AssetType = NormalizeAssetTypeForDto(attachment.AssetType),
+                PayoutAmount = attachment.PayoutAmount
             });
         }
         return result;
@@ -377,6 +587,9 @@ public class PagedMailResponse
 
 public class SendGlobalMailRequest
 {
+    [JsonPropertyName("targetUserIds")]
+    public List<string>? TargetUserIds { get; set; }
+
     [JsonPropertyName("subject")]
     public string Subject { get; set; } = string.Empty;
 
@@ -408,8 +621,14 @@ public class SendGlobalMailRequest
 
 public class SendUserMailRequest
 {
+    [JsonPropertyName("targetUserIds")]
+    public List<string>? TargetUserIds { get; set; }
+
     [JsonPropertyName("targetPlayerId")]
     public string TargetPlayerId { get; set; } = string.Empty;
+
+    [JsonPropertyName("userId")]
+    public string UserId { get; set; } = string.Empty;
 
     [JsonPropertyName("subject")]
     public string Subject { get; set; } = string.Empty;

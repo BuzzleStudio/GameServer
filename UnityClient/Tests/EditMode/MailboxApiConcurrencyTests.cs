@@ -114,7 +114,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         [Test]
         [Description("C02 — Fire two concurrent AdminSendGlobalMail calls from the same admin. " +
                      "Expected: both succeed with DIFFERENT globalMailIds; " +
-                     "both refs present in global_mail_index_v2 (verified via GetGlobalMails).")]
+                     "both refs present in global_mail_index (verified via GetGlobalMails).")]
         public async Task C02_SendGlobalMail_ConcurrentAdmins_BothSucceed()
         {
             // Fire two sends simultaneously

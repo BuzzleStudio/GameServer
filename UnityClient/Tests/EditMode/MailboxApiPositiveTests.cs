@@ -583,7 +583,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
         [Test]
         [Description("P15 — Seed 2 expired global mails, call PurgeExpired as admin. " +
-                     "Expected: both refs absent from global_mail_index_v2; GetGlobalMails no longer returns them.")]
+                     "Expected: both refs absent from global_mail_index; GetGlobalMails no longer returns them.")]
         public async Task P15_PurgeExpired_Admin_RemovesExpiredRefs()
         {
             // Seed 2 expired global mails

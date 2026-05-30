@@ -33,7 +33,7 @@ namespace BackpackAdventures.CloudCode;
 internal static class CloudSaveHelper
 {
     // Must match the Cloud Save custom data ID configured in the UGS dashboard.
-    // Stores mailbox project-wide custom data such as global_mail_index_v2 and mail_global_{mailId}.
+    // Stores mailbox project-wide custom data such as global_mail_index and mail_global_{mailId}.
     internal const string GlobalCustomId = "global_mail";
 
     // Cloud Save uses a dedicated subdomain (matches the SDK's

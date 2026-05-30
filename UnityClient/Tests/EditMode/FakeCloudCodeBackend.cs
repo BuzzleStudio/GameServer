@@ -152,7 +152,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 MailCategory = req.mailCategory ?? "System",
                 Sender       = req.senderName,
                 DedupKey     = req.dedupKey,
-                Attachments  = req.attachments
+                Attachments  = req.attachments,
+                TargetUserIds = NormalizeTargetUserIds(req.targetUserIds)
             };
             _globalMails[mailId] = mail;
             _globalMailIndex.Add(mailId);
@@ -171,34 +172,28 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         {
             RequireAdmin(req.adminToken, req.operatorId);
 
+            var targetUserIds = NormalizeTargetUserIds(req.targetUserIds);
             var targetId = !string.IsNullOrWhiteSpace(req.targetPlayerId) ? req.targetPlayerId : req.userId;
-            if (string.IsNullOrWhiteSpace(targetId))
+            if (targetUserIds == null && string.IsNullOrWhiteSpace(targetId))
                 throw new InvalidOperationException("InvalidInput");
 
             ValidateMailContent(req.subject, req.body, req.attachments);
 
-            var sentAt = NextSentAt();
-            var mailId = $"um_{_userCounter++:D5}";
-
-            var mail = new FakeUserMail
+            var response = HandleSendGlobalMail(new SendGlobalMailRequest
             {
-                MailId       = mailId,
-                Subject      = req.subject,
-                Body         = req.body,
-                SentAt       = sentAt,
-                ExpiresAt    = req.expiresAt,
-                MailCategory = req.mailCategory ?? "System",
-                SenderType   = "Admin",
-                Sender       = req.senderName,
-                DedupKey     = req.dedupKey,
-                Attachments  = req.attachments
-            };
+                targetUserIds = targetUserIds ?? new List<string> { targetId.Trim() },
+                subject = req.subject,
+                body = req.body,
+                expiresAt = req.expiresAt,
+                mailCategory = req.mailCategory,
+                senderName = req.senderName,
+                dedupKey = req.dedupKey,
+                attachments = req.attachments,
+                adminToken = req.adminToken,
+                operatorId = req.operatorId
+            });
 
-            var mailbox = GetOrCreateUserMailbox(targetId);
-            EvictUserMailbox(mailbox);
-            mailbox.Add(mail);
-
-            return new SendUserMailResponse { mailId = mailId, sentAt = sentAt };
+            return new SendUserMailResponse { mailId = response.mailId, sentAt = response.sentAt };
         }
 
         // ── GiftMail ───────────────────────────────────────────────────────────
@@ -295,6 +290,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 {
                     if (!_globalMails.TryGetValue(id, out var gm)) continue;
                     if (deletedIds.Contains(id)) continue;
+                    if (!gm.IsVisibleTo(playerId)) continue;
                     if (gm.IsExpired(now)) continue;
                     allMails.Add(gm.ToMailItem(readIds.Contains(id), claimedIds.Contains(id)));
                 }
@@ -334,7 +330,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 throw new InvalidOperationException("InvalidInput");
 
             var playerId = CurrentPlayerId;
-            bool isGlobal = string.Equals(req.mailType, "global", StringComparison.OrdinalIgnoreCase);
+            bool isGlobal = IsGlobalMail(req.mailId, req.mailType);
 
             if (isGlobal)
             {
@@ -377,7 +373,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
             var playerId  = CurrentPlayerId;
             var requestId = string.IsNullOrEmpty(req.requestId) ? null : req.requestId;
-            bool isGlobal = string.Equals(req.mailType, "global", StringComparison.OrdinalIgnoreCase);
+            bool isGlobal = IsGlobalMail(req.mailId, req.mailType);
 
             // Step 1: idempotency cache check
             if (requestId != null && CheckIdemCache(playerId, requestId, "ClaimAttachment", req.mailId))
@@ -404,6 +400,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         private ClaimAttachmentResponse ClaimGlobalAttachment(string playerId, string mailId, string requestId)
         {
             if (!_globalMails.TryGetValue(mailId, out var gm))
+                throw new InvalidOperationException("MailNotFound");
+
+            if (!gm.IsVisibleTo(playerId))
                 throw new InvalidOperationException("MailNotFound");
 
             if (GetPlayerGlobalDeletedIds(playerId).Contains(mailId))
@@ -482,6 +481,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             if (req.mailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase))
             {
                 if (!_globalMails.ContainsKey(req.mailId) && !_legacyV1Mails.Any(m => m.mailId == req.mailId))
+                    throw new InvalidOperationException("MailNotFound");
+                if (_globalMails.TryGetValue(req.mailId, out var gm) && !gm.IsVisibleTo(playerId))
                     throw new InvalidOperationException("MailNotFound");
 
                 var deletedIds = GetPlayerGlobalDeletedIds(playerId);
@@ -816,16 +817,45 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
         // ── Internal model types ───────────────────────────────────────────────
 
+        private static List<string> NormalizeTargetUserIds(List<string> targetUserIds)
+        {
+            if (targetUserIds == null || targetUserIds.Count == 0)
+                return null;
+
+            var result = new List<string>();
+            foreach (string targetUserId in targetUserIds)
+            {
+                if (string.IsNullOrWhiteSpace(targetUserId))
+                    continue;
+
+                string normalized = targetUserId.Trim();
+                if (!result.Contains(normalized))
+                    result.Add(normalized);
+            }
+
+            return result.Count == 0 ? null : result;
+        }
+
+        private static bool IsGlobalMail(string mailId, string mailType)
+        {
+            return string.Equals(mailType, "global", StringComparison.OrdinalIgnoreCase)
+                   || (!string.IsNullOrEmpty(mailId) && mailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase));
+        }
+
         private sealed class FakeGlobalMail
         {
             public string MailId, Subject, Body, SentAt, ExpiresAt;
             public string MailCategory, Sender, DedupKey;
             public List<MailAttachment> Attachments;
+            public List<string> TargetUserIds;
 
             public bool IsExpired(DateTimeOffset now) =>
                 ExpiresAt != null &&
                 DateTimeOffset.TryParse(ExpiresAt, out var exp) &&
                 exp < now;
+
+            public bool IsVisibleTo(string playerId) =>
+                TargetUserIds == null || TargetUserIds.Count == 0 || TargetUserIds.Contains(playerId);
 
             public MailItem ToMailItem(bool isRead, bool attachmentClaimed) => CreateMailItem(
                 MailId,
