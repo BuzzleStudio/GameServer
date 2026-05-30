@@ -35,9 +35,20 @@ jobs:
     env:
       UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
       UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
-      DEPLOY_ENV: ${{ startsWith(github.ref, 'refs/heads/release/') && secrets.UNITY_ENVIRONMENT_PRODUCTION || secrets.UNITY_ENVIRONMENT }}
 
     steps:
+      # ------------------------------------------------------------------
+      # 0. Determine target environment based on branch
+      # ------------------------------------------------------------------
+      - name: Determine deploy environment
+        run: |
+          if [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
+            echo "DEPLOY_ENV=${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }}" >> "$GITHUB_ENV"
+          else
+            echo "DEPLOY_ENV=${{ secrets.UNITY_ENVIRONMENT }}" >> "$GITHUB_ENV"
+          fi
+          echo "Branch: ${{ github.ref_name }}"
+
       # ------------------------------------------------------------------
       # 1. Checkout repository
       # ------------------------------------------------------------------
