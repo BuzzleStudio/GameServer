@@ -16,7 +16,7 @@ Any authenticated player can call `SendGlobalMail` and `SendUserMail`. There is 
 
 ## 2. ClaimAttachment Has No Atomic Guard Against Double-Claim
 
-The claim operation uses a read-then-write pattern: read `mailbox_global_state` or `mailbox_user_items`, check the `AttachmentClaimed` flag, then write the updated state. Cloud Save is last-write-wins with no native transactions.
+The claim operation uses a read-then-write pattern: read `mail_meta_state` or `mailbox_user_items`, check the claim flag, then write the updated state. Cloud Save is last-write-wins with no native transactions.
 
 **Race condition:** Two simultaneous claim requests from the same player may both read `AttachmentClaimed = false` before either write completes, causing both to proceed and potentially granting the reward twice.
 
@@ -44,7 +44,7 @@ Cloud Save limits individual key values to approximately 5 MB of JSON. The `mail
 
 ---
 
-## 5. mailbox_global_state Grows Indefinitely
+## 5. mail_meta_state Grows Indefinitely
 
 `PlayerGlobalMailState.ReadIds` and `PlayerGlobalMailState.ClaimedIds` are append-only lists that are never pruned, even when the referenced global mail has expired. This counts toward the player's Cloud Save storage quota.
 

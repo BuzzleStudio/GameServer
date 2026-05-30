@@ -26,7 +26,7 @@ Read state is tracked per-player. A mail is considered read once the client call
 
 ### 2.4 Attachment Claim Tracking
 
-Attachments on global mails: claimed status is stored in the player's `mailbox_global_state` key as a set of claimed global mail IDs. Granting happens inside the same Cloud Code function as claiming, ensuring atomicity via a read-modify-write on Cloud Save (last-write-wins; idempotent if the reward grant is also idempotent on the economy service side).
+Attachments on global mails: claimed status is stored in the player's `mail_meta_state` key as `MailMetadata` entries. Granting happens inside the same Cloud Code function as claiming, ensuring atomicity via a read-modify-write on Cloud Save (last-write-wins; idempotent if the reward grant is also idempotent on the economy service side).
 
 Attachments on user mails: the mail record itself carries a `claimed` boolean. Claiming writes `claimed: true` back to the player's `mailbox_user_items` key before issuing the reward. Idempotency is enforced by checking `claimed` before granting.
 
@@ -93,7 +93,7 @@ Field notes:
 
 ### 3.2 Player Global Mail State (Private per player)
 
-**Key:** `mailbox_global_state`  
+**Key:** `mail_meta_state`
 **Access:** Player-private
 
 ```json
@@ -168,14 +168,14 @@ GLOBAL MAIL:
        |
        v
   Cloud Code reads mails_all, filters expired/targeted/deleted,
-  reads player mailbox_global_state,
+  reads player mail_meta_state,
   annotates each mail with read/claimed flags
        |
        v
   Player calls MailboxMarkRead(mailId)
        |
        v
-  Append mailId to mailbox_global_state.readIds
+  Upsert mailId in mail_meta_state.MailMetadata with IsRead=true
        |
        v
   Player calls MailboxClaimAttachment(mailId, "global")
@@ -187,7 +187,7 @@ GLOBAL MAIL:
   Call economy service server-side to grant reward
        |
        v
-  Append mailId to mailbox_global_state.claimedIds
+  Upsert mailId in mail_meta_state.MailMetadata with IsClaimed=true
        |
        v
   Return ClaimResult to client
@@ -478,7 +478,7 @@ Each module follows the same pattern as `HealthCheckModule.cs`:
 
 Cloud Save keys to use (from `MailboxConstants` in `MailboxModels.cs`):
 - `mails_all` — admin global/targeted mail list in custom data
-- `mailbox_global_state` — per-player global mail read/claim state
+- `mail_meta_state` — per-player global mail read/claim/delete state
 - `mailbox_user_items` — per-player user mail list
 - `mailbox_meta` — per-player metadata and lastReadAt
 

@@ -186,7 +186,12 @@ public static class GlobalMailStore
 
 public class PlayerGlobalMailState
 {
+    [JsonPropertyName("MailMetadata")]
     public List<MailMetadata> Mails { get; set; } = new();
+
+    [JsonPropertyName("Mails")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<MailMetadata>? LegacyMails { get; set; }
 
     [JsonPropertyName("ClaimedIds")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -279,9 +284,22 @@ public class Payout
 public class MailMetadata
 {
     public string MessageId { get; set; } = string.Empty;
+
+    [JsonPropertyName("IsClaimed")]
     public bool IsClaim { get; set; }
+
     public bool IsRead { get; set; }
+
+    [JsonPropertyName("IsDeleted")]
     public bool IsDelete { get; set; }
+
+    [JsonPropertyName("IsClaim")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyIsClaim { get; set; }
+
+    [JsonPropertyName("IsDelete")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyIsDelete { get; set; }
 }
 
 public class MailItemDto
@@ -432,12 +450,55 @@ public static class MailSchemaHelper
     public static void MigrateLegacyMetadata(PlayerGlobalMailState state)
     {
         state.Mails ??= new List<MailMetadata>();
+        MergeLegacyMetadataList(state);
+        NormalizeLegacyMetadataFields(state.Mails);
         AddLegacyMetadata(state, state.LegacyClaimedIds, m => m.IsClaim = true);
         AddLegacyMetadata(state, state.LegacyReadIds, m => m.IsRead = true);
         AddLegacyMetadata(state, state.LegacyDeletedIds, m => m.IsDelete = true);
         state.LegacyClaimedIds = null;
         state.LegacyReadIds = null;
         state.LegacyDeletedIds = null;
+    }
+
+    private static void MergeLegacyMetadataList(PlayerGlobalMailState state)
+    {
+        if (state.LegacyMails == null) return;
+        foreach (var legacy in state.LegacyMails)
+        {
+            if (legacy == null || string.IsNullOrEmpty(legacy.MessageId)) continue;
+            var metadata = state.Mails.Find(m => m.MessageId == legacy.MessageId);
+            if (metadata == null)
+            {
+                state.Mails.Add(legacy);
+                continue;
+            }
+
+            metadata.IsClaim = metadata.IsClaim || legacy.IsClaim;
+            metadata.IsRead = metadata.IsRead || legacy.IsRead;
+            metadata.IsDelete = metadata.IsDelete || legacy.IsDelete;
+            if (legacy.LegacyIsClaim.HasValue) metadata.IsClaim = metadata.IsClaim || legacy.LegacyIsClaim.Value;
+            if (legacy.LegacyIsDelete.HasValue) metadata.IsDelete = metadata.IsDelete || legacy.LegacyIsDelete.Value;
+        }
+
+        state.LegacyMails = null;
+    }
+
+    private static void NormalizeLegacyMetadataFields(List<MailMetadata> metadataList)
+    {
+        foreach (var metadata in metadataList)
+        {
+            if (metadata.LegacyIsClaim.HasValue)
+            {
+                metadata.IsClaim = metadata.IsClaim || metadata.LegacyIsClaim.Value;
+                metadata.LegacyIsClaim = null;
+            }
+
+            if (metadata.LegacyIsDelete.HasValue)
+            {
+                metadata.IsDelete = metadata.IsDelete || metadata.LegacyIsDelete.Value;
+                metadata.LegacyIsDelete = null;
+            }
+        }
     }
 
     private static void AddLegacyMetadata(PlayerGlobalMailState state, List<string>? ids, Action<MailMetadata> mutate)

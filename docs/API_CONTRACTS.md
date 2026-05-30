@@ -119,13 +119,31 @@ Admin-authored mail uses Cloud Save custom data ID `global_mail`.
 |-----|-------|----------|
 | `mails_all` | Custom data | Array of admin mail payloads; each item is `{ "Mail": { ... } }` |
 | `global_mail_index_legacy` | Custom data | Read-only fallback for legacy v1 global mail, if present |
-| `mailbox_global_state` | Player data | Per-player `MailMetadata` only: `MessageId`, `IsClaim`, `IsRead`, `IsDelete` |
+| `mail_meta_state` | Player data | Per-player state only: `MailMetadata[]` with `MessageId`, `IsClaimed`, `IsRead`, `IsDeleted` |
 | `mailbox_user_items` | Player data | Full user-to-user `GiftMail` payloads |
 
 `TargetUserIds = null` or an empty list means broadcast to all players. A non-empty
 `TargetUserIds` list means targeted admin mail; the mail still lives in `mails_all`,
-and each player only writes state to `mailbox_global_state` when they read, claim,
+and each player only writes state to `mail_meta_state` when they read, claim,
 or delete it.
+
+Current player metadata JSON:
+
+```json
+{
+  "MailMetadata": [
+    {
+      "MessageId": "gm_3bb179b9",
+      "IsClaimed": true,
+      "IsRead": true,
+      "IsDeleted": false
+    }
+  ]
+}
+```
+
+Legacy records using `{ "Mails": [...] }`, `IsClaim`, or `IsDelete` still read
+normally and are normalized on the next write.
 
 `Mail.EndTime` is nullable. `EndTime = null` means no expiration and the mail stays
 available until it is manually expired or purged by admin tooling. The Admin Mail
