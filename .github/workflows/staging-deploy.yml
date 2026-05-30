@@ -16,11 +16,6 @@ on:
     branches:
       - staging
   workflow_dispatch:
-    inputs:
-      admin_test_player_id:
-        description: 'Optional target Player ID for SendUserMail post-deploy smoke test'
-        required: false
-        type: string
 
 concurrency:
   group: staging-deploy
@@ -155,25 +150,24 @@ jobs:
       #       1. Resolve env name -> env UUID via `ugs env list`
       #          (token-exchange requires the UUID, not the name).
       #       2. POST token-exchange with Basic(keyId:secret) -> JWT.
-      #       3. POST the module function with Bearer JWT.
+      #       3. POST the HealthCheck function with Bearer JWT.
       #
       #     Endpoints (Unity docs, May 2026):
       #       https://services.api.unity.com/auth/v1/token-exchange
       #       https://cloud-code.services.api.unity.com/v1/projects/{p}/modules/{m}/{fn}
       #
-      # TODO(qa-runner): Extend to the full MailboxTestRunner.RunAllAsync
-      #     once a headless Unity Test Runner invocation is wired. HealthCheck
-      #     plus admin SendGlobalMail stay as fast smoke checks. SendUserMail
-      #     also runs when workflow_dispatch input admin_test_player_id is set.
+      #     HealthCheck ONLY. Send smoke tests (SendGlobalMail/SendUserMail)
+      #     were removed: they wrote real CI mail into the shared, project-wide
+      #     `mails_all` Cloud Save key on every deploy, polluting live mailbox
+      #     data. Deploy success is gated on a clean deploy + HealthCheck.
       # ------------------------------------------------------------------
-      - name: Post-deploy smoke test (HealthCheck + admin mail)
+      - name: Post-deploy smoke test (HealthCheck)
         continue-on-error: false
         env:
           PROJECT_ID:  ${{ secrets.UNITY_PROJECT_ID }}
           ENV_NAME:    ${{ secrets.UNITY_ENVIRONMENT }}
           SA_KEY:      ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
           SA_SECRET:   ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
-          ADMIN_TEST_PLAYER_ID: ${{ inputs.admin_test_player_id }}
         run: |
           set -e
 
@@ -224,94 +218,6 @@ jobs:
             exit 1
           fi
           echo "HealthCheck passed."
-
-          call_module() {
-            local endpoint="$1"
-            local payload="$2"
-            local url="https://cloud-code.services.api.unity.com/v1/projects/$PROJECT_ID/modules/BackpackAdventuresModule/$endpoint"
-            local resp http_code body
-            # Do NOT use -f here: -f suppresses the error body, which is the
-            # only place the real server error (ScriptError/Unauthorized/422) lives.
-            resp=$(curl -s -w $'\n%{http_code}' -X POST \
-              -H "Authorization: Bearer $ACCESS_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "$payload" \
-              "$url") || true
-            http_code=$(printf '%s' "$resp" | tail -n1)
-            body=$(printf '%s' "$resp" | sed '$d')
-            if [ "${http_code:-000}" -lt 200 ] || [ "${http_code:-000}" -ge 300 ]; then
-              echo "ERROR: $endpoint returned HTTP ${http_code:-000}" >&2
-              echo "Response body: $body" >&2
-              return 1
-            fi
-            printf '%s' "$body"
-          }
-
-          extract_mail_id() {
-            python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); o=d.get("output", d); print(o.get("globalMailId") or o.get("mailId") or "")'
-          }
-
-          export RUN_TAG="ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-
-          echo "--- Smoke test: SendGlobalMail ---"
-          GLOBAL_PAYLOAD=$(python3 - <<'PY'
-          import json, os
-          run_tag = os.environ["RUN_TAG"]
-          print(json.dumps({"params":{"request":{
-            "subject": f"CI global smoke {run_tag}",
-            "body": "Post-deploy admin global mail smoke test.",
-            "expiresAt": None,
-            "mailCategory": "System",
-            "senderName": "CI Deploy",
-            "dedupKey": f"{run_tag}-global",
-            "attachments": None,
-            "adminToken": "",
-            "operatorId": "github-actions"
-          }}}))
-          PY
-          )
-          # The mail probes are NON-BLOCKING. The job's hard gate is a clean
-          # deploy + a passing HealthCheck (proven above). Admin mail sends
-          # depend on the service-account token carrying Cloud Save scope —
-          # a dashboard/permissions concern, not a deploy outcome — so a
-          # failure here is surfaced as a warning, not a red build.
-          GLOBAL_RESPONSE=$(call_module "SendGlobalMail" "$GLOBAL_PAYLOAD") || true
-          GLOBAL_MAIL_ID=$(echo "$GLOBAL_RESPONSE" | extract_mail_id 2>/dev/null || true)
-          if [ -z "$GLOBAL_MAIL_ID" ]; then
-            echo "::warning::SendGlobalMail smoke test did not return a mail id (non-blocking). Response: $GLOBAL_RESPONSE"
-          else
-            echo "SendGlobalMail passed: mailId=$GLOBAL_MAIL_ID"
-          fi
-
-          if [ -n "${ADMIN_TEST_PLAYER_ID:-}" ]; then
-            echo "--- Smoke test: SendUserMail ---"
-            USER_PAYLOAD=$(python3 - <<'PY'
-          import json, os
-          run_tag = os.environ["RUN_TAG"]
-          print(json.dumps({"params":{"request":{
-            "targetPlayerId": os.environ["ADMIN_TEST_PLAYER_ID"],
-            "subject": f"CI user smoke {run_tag}",
-            "body": "Post-deploy admin user mail smoke test.",
-            "expiresAt": None,
-            "mailCategory": "System",
-            "senderName": "CI Deploy",
-            "dedupKey": f"{run_tag}-user",
-            "attachments": None,
-            "adminToken": "",
-            "operatorId": "github-actions"
-          }}}))
-          PY
-            )
-            USER_RESPONSE=$(call_module "SendUserMail" "$USER_PAYLOAD") || true
-            USER_MAIL_ID=$(echo "$USER_RESPONSE" | extract_mail_id 2>/dev/null || true)
-            if [ -z "$USER_MAIL_ID" ]; then
-              echo "::warning::SendUserMail smoke test did not return a mail id (non-blocking). Response: $USER_RESPONSE"
-            else
-              echo "SendUserMail passed: mailId=$USER_MAIL_ID target=$ADMIN_TEST_PLAYER_ID"
-            fi
-          else
-            echo "SendUserMail skipped: workflow_dispatch input admin_test_player_id was not provided."
-          fi
 
 
       # ------------------------------------------------------------------

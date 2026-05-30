@@ -8,6 +8,20 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
+### Changed: mails_all stores bare mail objects (dropped the { "Mail": … } wrapper)
+
+**What changed:** Each element of the `mails_all` array now serializes as the bare mail object (`{ "MessageId": …, "Title": …, … }`) instead of the redundant `{ "Mail": { … } }` wrapper. Implemented via `GlobalMailPayloadConverter` (a `JsonConverter<GlobalMailPayload>`) so the 8 mailbox modules that use `GlobalMailPayload` are unchanged.
+
+**Backward compatible:** The converter reads BOTH shapes — legacy `{ "Mail": { … } }` and new bare `{ … }` — so existing `mails_all` data keeps deserializing. The next write rewrites each element flat, migrating the key in place with no data loss. Verified by round-trip test (legacy read, flat read, flat serialize, mixed-array migration).
+
+### Fixed: Malformed Cloud Save value no longer 422s every mailbox endpoint
+
+**What changed:** `CloudSaveHelper.DeserializeValue<T>` now shape-checks the stored JSON before deserializing and returns `default` (instead of throwing `JsonException`) when the value cannot map to `T` — for example an object `{…}` stored under a key the code reads as `List<GlobalMailPayload>` (array `[…]`).
+
+**Why:** A foreign/stale value under the shared, project-wide `mails_all` key caused `JsonException` (`Path: $`, byte 1) on read, which Cloud Code surfaced as **HTTP 422**. Because every admin/mailbox endpoint (`SendGlobalMail`, `SendUserMail`, `GetGlobalMails`, `PurgeExpired`, `ExpireMail`, `DeleteMail`, `ClaimAttachment`, `MarkMailRead`) reads that one key, a single bad value bricked the entire mailbox.
+
+**Behavior update:** A malformed shared-key value is now treated as "no data yet." The next write (with the still-valid `writeLock`) overwrites and self-heals the key with the correct shape. Field-level data on a matching shape is preserved unchanged. No client change required.
+
 ### Changed: Admin mail storage uses mails_all
 
 **What changed:** Admin global and targeted mail no longer writes split custom-data keys (`global_mail_index` + `mail_global_{mailId}`). New sends write all admin mail payloads into the custom-data key `mails_all` as an array of `{ "Mail": { ... } }` objects.
