@@ -8,11 +8,11 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
-### Changed: mails_all stores bare mail objects (dropped the { "Mail": … } wrapper)
+### Changed: mails_all wraps mails under a "Mails" property
 
-**What changed:** Each element of the `mails_all` array now serializes as the bare mail object (`{ "MessageId": …, "Title": …, … }`) instead of the redundant `{ "Mail": { … } }` wrapper. Implemented via `GlobalMailPayloadConverter` (a `JsonConverter<GlobalMailPayload>`) so the 8 mailbox modules that use `GlobalMailPayload` are unchanged.
+**What changed:** The `mails_all` Cloud Save value is now an object `{ "Mails": [ … ] }` whose array elements are bare mail objects (`{ "MessageId": …, "Title": …, … }`). Introduced `GlobalMailCollection` (with `GlobalMailCollectionConverter`) as the stored type; the 8 mailbox modules read/write it and operate on `.Mails`. Inner elements stay bare via `GlobalMailPayloadConverter`.
 
-**Backward compatible:** The converter reads BOTH shapes — legacy `{ "Mail": { … } }` and new bare `{ … }` — so existing `mails_all` data keeps deserializing. The next write rewrites each element flat, migrating the key in place with no data loss. Verified by round-trip test (legacy read, flat read, flat serialize, mixed-array migration).
+**Backward compatible (in-place migration):** The converter reads ALL prior shapes — a legacy raw array `[ … ]` is wrapped under `Mails` in order, the new `{ "Mails": [ … ] }` object reads directly, and per-element `{ "Mail": { … } }` wrappers still deserialize. Mail fields are preserved exactly; nothing is dropped, merged, or mapped to `IsRead`/`IsClaim`/`IsDelete` state. The next write normalizes the key to `{ "Mails": [ … ] }`. A foreign/malformed value reads as empty and self-heals on the next write. Verified by round-trip test (legacy-array → wrapped, multi-mail order preserved, wrapped round-trip, foreign→empty, legacy per-element wrapper).
 
 ### Fixed: Malformed Cloud Save value no longer 422s every mailbox endpoint
 
