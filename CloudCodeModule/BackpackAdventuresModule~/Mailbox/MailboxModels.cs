@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace BackpackAdventures.CloudCode;
@@ -60,11 +61,48 @@ public class MailAttachment
     public int Quantity { get; set; }
 }
 
+// Stored inside the `mails_all` array. Serializes as the bare Mail object (the
+// redundant { "Mail": { … } } wrapper was dropped). Reads BOTH shapes:
+//   new  → { "MessageId": …, "Title": …, … }          (bare mail)
+//   old  → { "Mail": { "MessageId": …, "Title": … } }  (legacy wrapper)
+// so existing data keeps deserializing; the next write rewrites it flat.
+[JsonConverter(typeof(GlobalMailPayloadConverter))]
 public class GlobalMailPayload
 {
     public Mail Mail { get; set; } = new();
 
     public bool IsExpired() => Mail?.IsExpired ?? false;
+}
+
+public class GlobalMailPayloadConverter : JsonConverter<GlobalMailPayload>
+{
+    public override GlobalMailPayload Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var doc = JsonDocument.ParseValue(ref reader);
+        var root = doc.RootElement;
+
+        // Legacy wrapper: { "Mail": { … } }. Detected only when a "Mail" property
+        // holds an object — a bare mail never nests another mail under "Mail".
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("Mail", out var inner)
+            && inner.ValueKind == JsonValueKind.Object)
+        {
+            return new GlobalMailPayload
+            {
+                Mail = inner.Deserialize<Mail>(options) ?? new Mail()
+            };
+        }
+
+        return new GlobalMailPayload
+        {
+            Mail = root.Deserialize<Mail>(options) ?? new Mail()
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, GlobalMailPayload value, JsonSerializerOptions options)
+    {
+        JsonSerializer.Serialize(writer, value.Mail ?? new Mail(), options);
+    }
 }
 
 public static class GlobalMailStore

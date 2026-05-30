@@ -211,8 +211,56 @@ internal static class CloudSaveHelper
         if (val.ValueKind == JsonValueKind.String)
         {
             var s = val.GetString();
-            return string.IsNullOrEmpty(s) ? default : JsonSerializer.Deserialize<T>(s);
+            if (string.IsNullOrEmpty(s)) return default;
+            // Stored as an escaped JSON string — parse once, then shape-check the inner value.
+            try
+            {
+                using var inner = JsonDocument.Parse(s);
+                return DeserializeChecked<T>(inner.RootElement);
+            }
+            catch (JsonException)
+            {
+                return default;
+            }
         }
-        return JsonSerializer.Deserialize<T>(val.GetRawText());
+        return DeserializeChecked<T>(val);
+    }
+
+    // Deserializes `element` into T, but returns default (instead of throwing) when the
+    // stored JSON's shape cannot map to T — e.g. an object {…} stored where a List<>
+    // (array […]) is expected. A single malformed value on a shared, project-wide key
+    // such as `mails_all` would otherwise throw a JsonException that Cloud Code reports
+    // as HTTP 422, bricking every mailbox endpoint that reads the key. Returning default
+    // lets callers treat it as "no data yet"; the next write overwrites (self-heals) the
+    // key with the correct shape. Field-level data is preserved on a matching shape.
+    private static T? DeserializeChecked<T>(JsonElement element)
+    {
+        var type = typeof(T);
+        if (ExpectsJsonArray(type) && element.ValueKind != JsonValueKind.Array)
+            return default;
+        if (ExpectsJsonObject(type) && element.ValueKind != JsonValueKind.Object)
+            return default;
+        try
+        {
+            return JsonSerializer.Deserialize<T>(element.GetRawText());
+        }
+        catch (JsonException)
+        {
+            return default;
+        }
+    }
+
+    private static bool ExpectsJsonArray(Type type)
+    {
+        if (type == typeof(string)) return false;
+        if (type.IsArray) return true;
+        return typeof(System.Collections.IEnumerable).IsAssignableFrom(type);
+    }
+
+    private static bool ExpectsJsonObject(Type type)
+    {
+        if (type == typeof(string)) return false;
+        if (ExpectsJsonArray(type)) return false;
+        return type.IsClass;
     }
 }
