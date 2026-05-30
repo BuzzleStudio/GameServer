@@ -35,7 +35,7 @@ public class ClaimAttachmentModule
                 return new ClaimAttachmentResponse { MailId = request.MailId, AlreadyClaimed = false };
         }
 
-        ClaimAttachmentResponse result = string.Equals(request.MailType, "global", StringComparison.OrdinalIgnoreCase)
+        ClaimAttachmentResponse result = IsGlobalMail(request.MailId, request.MailType)
             ? await ClaimGlobalAttachmentAsync(playerId, request.MailId, requestId)
             : await ClaimUserAttachmentAsync(playerId, request.MailId, requestId);
 
@@ -58,22 +58,23 @@ public class ClaimAttachmentModule
 
         var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
         state ??= new PlayerGlobalMailState();
-        state.DeletedIds ??= new List<string>();
-        state.ClaimedIds ??= new List<string>();
-        state.ReadIds ??= new List<string>();
-        if (state.DeletedIds.Contains(mailId))
+        MailSchemaHelper.MigrateLegacyMetadata(state);
+        var metadata = MailSchemaHelper.GetOrCreateMetadata(state, mailId);
+        if (metadata.IsDelete)
             throw new InvalidOperationException(MailboxError.MailNotFound);
-        if (state.ClaimedIds.Contains(mailId))
+        if (metadata.IsClaim)
             return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
         if (payload.Mail.IsExpired())
             throw new InvalidOperationException(MailboxError.MailExpired);
+        if (!payload.Mail.IsAvailable || !MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId))
+            throw new InvalidOperationException(MailboxError.MailNotFound);
         if (!MailSchemaHelper.HasAttachments(payload.Mail))
             throw new InvalidOperationException(MailboxError.NoAttachment);
 
-        var attachments = MailSchemaHelper.ToAttachments(payload.Mail.MailInfo.Attachment);
+        var attachments = MailSchemaHelper.ToAttachments(payload.Mail.Attachments);
         await GrantRewardsAsync(playerId, mailId, attachments ?? new List<MailAttachment>(), requestId);
-        state.ClaimedIds.Add(mailId);
-        if (!state.ReadIds.Contains(mailId)) state.ReadIds.Add(mailId);
+        metadata.IsClaim = true;
+        metadata.IsRead = true;
 
         try
         {
@@ -91,12 +92,11 @@ public class ClaimAttachmentModule
     {
         var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
         state ??= new PlayerGlobalMailState();
-        state.DeletedIds ??= new List<string>();
-        state.ClaimedIds ??= new List<string>();
-        state.ReadIds ??= new List<string>();
-        if (state.DeletedIds.Contains(mail.GlobalMailId))
+        MailSchemaHelper.MigrateLegacyMetadata(state);
+        var metadata = MailSchemaHelper.GetOrCreateMetadata(state, mail.GlobalMailId);
+        if (metadata.IsDelete)
             throw new InvalidOperationException(MailboxError.MailNotFound);
-        if (state.ClaimedIds.Contains(mail.GlobalMailId))
+        if (metadata.IsClaim)
             return new ClaimAttachmentResponse { MailId = mail.GlobalMailId, AlreadyClaimed = true };
         if (mail.IsExpired())
             throw new InvalidOperationException(MailboxError.MailExpired);
@@ -104,8 +104,8 @@ public class ClaimAttachmentModule
             throw new InvalidOperationException(MailboxError.NoAttachment);
 
         await GrantRewardsAsync(playerId, mail.GlobalMailId, mail.Attachments, requestId);
-        state.ClaimedIds.Add(mail.GlobalMailId);
-        if (!state.ReadIds.Contains(mail.GlobalMailId)) state.ReadIds.Add(mail.GlobalMailId);
+        metadata.IsClaim = true;
+        metadata.IsRead = true;
         await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
         return new ClaimAttachmentResponse { MailId = mail.GlobalMailId, AlreadyClaimed = false, GrantedAttachments = mail.Attachments };
     }
@@ -151,5 +151,11 @@ public class ClaimAttachmentModule
         {
             throw new InvalidOperationException(MailboxError.GrantUnavailable);
         }
+    }
+
+    private static bool IsGlobalMail(string mailId, string mailType)
+    {
+        return string.Equals(mailType, "global", StringComparison.OrdinalIgnoreCase)
+               || (!string.IsNullOrEmpty(mailId) && mailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase));
     }
 }

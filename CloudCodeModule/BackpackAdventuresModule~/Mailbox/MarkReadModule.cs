@@ -34,7 +34,7 @@ public class MarkReadModule
                 return new MarkMailReadResponse { MailId = request.MailId, IsRead = true };
         }
 
-        if (string.Equals(request.MailType, "global", StringComparison.OrdinalIgnoreCase))
+        if (IsGlobalMail(request.MailId, request.MailType))
             await MarkGlobalReadAsync(playerId, request.MailId);
         else
             await MarkUserReadAsync(playerId, request.MailId);
@@ -57,16 +57,20 @@ public class MarkReadModule
 
     private async Task MarkGlobalReadAsync(string playerId, string mailId)
     {
+        var payload = await CloudSaveHelper.GetCustomDataAsync<GlobalMailPayload>(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId));
+        if (payload?.Mail != null && !MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId))
+            throw new InvalidOperationException(MailboxError.MailNotFound);
+
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
             state ??= new PlayerGlobalMailState();
-            state.DeletedIds ??= new List<string>();
-            state.ReadIds ??= new List<string>();
-            if (state.DeletedIds.Contains(mailId)) throw new InvalidOperationException(MailboxError.MailNotFound);
-            if (state.ReadIds.Contains(mailId)) return;
+            MailSchemaHelper.MigrateLegacyMetadata(state);
+            var metadata = MailSchemaHelper.GetOrCreateMetadata(state, mailId);
+            if (metadata.IsDelete) throw new InvalidOperationException(MailboxError.MailNotFound);
+            if (metadata.IsRead) return;
             await PruneDeadGlobalStateIdsAsync(state);
-            state.ReadIds.Add(mailId);
+            metadata.IsRead = true;
             try
             {
                 await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
@@ -133,11 +137,13 @@ public class MarkReadModule
         if (index == null) return;
         var liveIds = new HashSet<string>();
         foreach (var reference in index.Refs) liveIds.Add(reference.MessageId);
-        state.ClaimedIds ??= new List<string>();
-        state.ReadIds ??= new List<string>();
-        state.DeletedIds ??= new List<string>();
-        state.ClaimedIds.RemoveAll(id => !liveIds.Contains(id));
-        state.ReadIds.RemoveAll(id => !liveIds.Contains(id));
-        state.DeletedIds.RemoveAll(id => !liveIds.Contains(id));
+        MailSchemaHelper.MigrateLegacyMetadata(state);
+        state.Mails.RemoveAll(m => !liveIds.Contains(m.MessageId));
+    }
+
+    private static bool IsGlobalMail(string mailId, string mailType)
+    {
+        return string.Equals(mailType, "global", StringComparison.OrdinalIgnoreCase)
+               || (!string.IsNullOrEmpty(mailId) && mailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase));
     }
 }

@@ -18,7 +18,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private const string EnvironmentIdPrefKey = "BackpackAdventures.AdminMail.EnvironmentId";
         private const string ServiceKeyIdPrefKey = "BackpackAdventures.AdminMail.ServiceKeyId";
 
-        private enum Tab { SendGlobal, SendUser, Manage }
+        private enum Tab { SendGlobal, SendTargeted, Manage }
         private enum AssetTypeOption { Currency, Item }
 
         [Serializable]
@@ -35,6 +35,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private string _statusMessage = string.Empty;
         private string _rawJson = string.Empty;
         private bool _showRawJson = true;
+        private bool _showGlobalAttachments;
+        private bool _showTargetUserIds;
+        private bool _showUserAttachments;
         private Vector2 _scroll;
 
         private string _projectId = string.Empty;
@@ -51,7 +54,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private int _globalCategoryIndex;
         private readonly List<AttachmentDraft> _globalAttachments = new List<AttachmentDraft>();
 
-        private string _userTargetId = string.Empty;
+        private readonly List<string> _targetUserIds = new List<string>();
         private string _userSubject = string.Empty;
         private string _userBody = string.Empty;
         private string _userExpiresAt = string.Empty;
@@ -98,7 +101,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             switch (_activeTab)
             {
                 case Tab.SendGlobal: DrawSendGlobalTab(); break;
-                case Tab.SendUser: DrawSendUserTab(); break;
+                case Tab.SendTargeted: DrawSendTargetedTab(); break;
                 case Tab.Manage: DrawManageTab(); break;
             }
             EditorGUILayout.EndScrollView();
@@ -159,8 +162,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Toggle(_activeTab == Tab.SendGlobal, "Send Global", EditorStyles.toolbarButton))
                 _activeTab = Tab.SendGlobal;
-            if (GUILayout.Toggle(_activeTab == Tab.SendUser, "Send User", EditorStyles.toolbarButton))
-                _activeTab = Tab.SendUser;
+            if (GUILayout.Toggle(_activeTab == Tab.SendTargeted, "Send Targeted", EditorStyles.toolbarButton))
+                _activeTab = Tab.SendTargeted;
             if (GUILayout.Toggle(_activeTab == Tab.Manage, "Manage", EditorStyles.toolbarButton))
                 _activeTab = Tab.Manage;
             EditorGUILayout.EndHorizontal();
@@ -176,7 +179,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _globalCategoryIndex = EditorGUILayout.Popup("Category", _globalCategoryIndex, CategoryOptions);
             _globalSenderName = EditorGUILayout.TextField("Sender Name", _globalSenderName);
             _globalDedupKey = EditorGUILayout.TextField("Dedup Key", _globalDedupKey);
-            DrawAttachmentEditor("MailInfo.Attachment", _globalAttachments);
+            DrawAttachmentEditor("MailInfo.Attachment", _globalAttachments, ref _showGlobalAttachments);
 
             EditorGUILayout.Space(4);
             GUI.enabled = !_isBusy && HasRestCredentials() && HasOperatorId();
@@ -185,10 +188,10 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             GUI.enabled = true;
         }
 
-        private void DrawSendUserTab()
+        private void DrawSendTargetedTab()
         {
-            EditorGUILayout.LabelField("Send User Mail", EditorStyles.boldLabel);
-            _userTargetId = EditorGUILayout.TextField("Target Player ID", _userTargetId);
+            EditorGUILayout.LabelField("Send Targeted Admin Mail", EditorStyles.boldLabel);
+            DrawTargetUserIdsEditor();
             _userSubject = EditorGUILayout.TextField("MailInfo.Title", _userSubject);
             EditorGUILayout.LabelField("MailInfo.Content");
             _userBody = EditorGUILayout.TextArea(_userBody, GUILayout.MinHeight(60));
@@ -196,19 +199,50 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             _userCategoryIndex = EditorGUILayout.Popup("Category", _userCategoryIndex, CategoryOptions);
             _userSenderName = EditorGUILayout.TextField("Sender Name", _userSenderName);
             _userDedupKey = EditorGUILayout.TextField("Dedup Key", _userDedupKey);
-            DrawAttachmentEditor("MailInfo.Attachment", _userAttachments);
+            DrawAttachmentEditor("MailInfo.Attachment", _userAttachments, ref _showUserAttachments);
 
             EditorGUILayout.Space(4);
-            GUI.enabled = !_isBusy && HasRestCredentials() && !string.IsNullOrWhiteSpace(_userTargetId) && HasOperatorId();
-            if (GUILayout.Button("Send User Mail"))
+            GUI.enabled = !_isBusy && HasRestCredentials() && HasTargetUserIds() && HasOperatorId();
+            if (GUILayout.Button("Send Targeted Mail"))
                 RunAsync(SendUserMailAsync);
             GUI.enabled = true;
         }
 
-        private void DrawAttachmentEditor(string label, List<AttachmentDraft> attachments)
+        private void DrawTargetUserIdsEditor()
         {
             EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+            _showTargetUserIds = EditorGUILayout.Foldout(_showTargetUserIds, $"TargetUserIds ({CountTargetUserIds()})", true);
+            if (!_showTargetUserIds)
+                return;
+
+            EditorGUILayout.LabelField("Each row is one player ID. Empty rows are ignored.", EditorStyles.wordWrappedMiniLabel);
+
+            int removeIndex = -1;
+            for (int i = 0; i < _targetUserIds.Count; i++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                _targetUserIds[i] = EditorGUILayout.TextField($"User {i + 1}", _targetUserIds[i]);
+                GUI.enabled = _targetUserIds.Count > 1;
+                if (GUILayout.Button("Remove", GUILayout.Width(70)))
+                    removeIndex = i;
+                GUI.enabled = true;
+                EditorGUILayout.EndHorizontal();
+            }
+
+            if (removeIndex >= 0)
+                _targetUserIds.RemoveAt(removeIndex);
+
+            if (GUILayout.Button("Add User ID", GUILayout.Width(120)))
+                _targetUserIds.Add(string.Empty);
+        }
+
+        private void DrawAttachmentEditor(string label, List<AttachmentDraft> attachments, ref bool isExpanded)
+        {
+            EditorGUILayout.Space(4);
+            isExpanded = EditorGUILayout.Foldout(isExpanded, $"{label} ({CountAttachments(attachments)})", true);
+            if (!isExpanded)
+                return;
+
             EditorGUILayout.HelpBox("Client builds List<MailAttachment> from rows below. The server will map these values into the current mailbox DTO and storage schema.", MessageType.Info);
 
             int removeIndex = -1;
@@ -276,7 +310,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 NormalizeOptional(_globalDedupKey),
                 BuildAttachments(_globalAttachments),
                 adminToken: null,
-                operatorId: _operatorId);
+                operatorId: _operatorId,
+                targetUserIds: null);
 
             _rawJson = backendScope.Backend.FormatSuccessResponse("SendGlobalMail", result);
             string mailId = string.IsNullOrEmpty(result.mailId) ? result.globalMailId : result.mailId;
@@ -285,12 +320,10 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
         private async Task SendUserMailAsync()
         {
-            if (string.IsNullOrWhiteSpace(_userTargetId))
-                throw new ArgumentException("Target Player ID is required.");
+            var targetUserIds = BuildTargetUserIds();
             ValidateSubjectBody(_userSubject, _userBody);
             using var backendScope = UseRestBackend();
-            var result = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
-                _userTargetId.Trim(),
+            var result = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 _userSubject.Trim(),
                 _userBody.Trim(),
                 NormalizeOptional(_userExpiresAt),
@@ -299,10 +332,12 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 NormalizeOptional(_userDedupKey),
                 BuildAttachments(_userAttachments),
                 adminToken: null,
-                operatorId: _operatorId);
+                operatorId: _operatorId,
+                targetUserIds: targetUserIds);
 
-            _rawJson = backendScope.Backend.FormatSuccessResponse("SendUserMail", result);
-            _statusMessage = $"SendUserMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId} sentAt={result.sentAt}";
+            _rawJson = backendScope.Backend.FormatSuccessResponse("SendGlobalMail", result);
+            string mailId = string.IsNullOrEmpty(result.mailId) ? result.globalMailId : result.mailId;
+            _statusMessage = $"SendTargetedMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={mailId} targets={targetUserIds.Count} sentAt={result.sentAt}";
         }
 
         private async Task DeleteMailAsync()
@@ -388,8 +423,65 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             return result.Count > 0 ? result : null;
         }
 
+        private List<string> BuildTargetUserIds()
+        {
+            var result = new List<string>();
+            foreach (string targetUserId in _targetUserIds)
+            {
+                if (string.IsNullOrWhiteSpace(targetUserId))
+                    continue;
+
+                string normalized = targetUserId.Trim();
+                if (!result.Contains(normalized))
+                    result.Add(normalized);
+            }
+
+            if (result.Count == 0)
+                throw new ArgumentException("At least one Target User ID is required.");
+
+            return result;
+        }
+
+        private bool HasTargetUserIds()
+        {
+            foreach (string targetUserId in _targetUserIds)
+            {
+                if (!string.IsNullOrWhiteSpace(targetUserId))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private int CountTargetUserIds()
+        {
+            int count = 0;
+            foreach (string targetUserId in _targetUserIds)
+            {
+                if (!string.IsNullOrWhiteSpace(targetUserId))
+                    count++;
+            }
+
+            return count;
+        }
+
+        private static int CountAttachments(List<AttachmentDraft> attachments)
+        {
+            if (attachments == null) return 0;
+            int count = 0;
+            foreach (AttachmentDraft attachment in attachments)
+            {
+                if (!string.IsNullOrWhiteSpace(attachment.payoutAssetId))
+                    count++;
+            }
+
+            return count;
+        }
+
         private void EnsureAttachmentDefaults()
         {
+            if (_targetUserIds.Count == 0)
+                _targetUserIds.Add(string.Empty);
             if (_globalAttachments.Count == 0)
                 _globalAttachments.Add(new AttachmentDraft());
             if (_userAttachments.Count == 0)

@@ -284,22 +284,22 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
 
         // -----------------------------------------------------------------------
-        // R06 — GlobalMailIndexV2 legacy fallback: global_mail_index v1 read compat
+        // R06 — GlobalMailIndexV2 legacy fallback: global_mail_index_legacy v1 read compat
         // Devlog row: R04 — GlobalMailIndexV2_LegacyFallback
         //
-        // BLOCKED: Requires a test player with no global_mail_index_v2 state and
-        // a pre-existing global_mail_index (v1) key. Cannot be created programmatically
+        // BLOCKED: Requires a test player with no global_mail_index state and
+        // a pre-existing global_mail_index_legacy (v1) key. Cannot be created programmatically
         // from the Unity client — requires UGS Dashboard manual seeding.
         // -----------------------------------------------------------------------
 
         [Test]
-        [Description("R06 — global_mail_index_v2 absent, global_mail_index v1 seeded via " +
+        [Description("R06 — global_mail_index absent, global_mail_index_legacy v1 seeded via " +
                      "FakeCloudCodeBackend.SeedLegacyV1GlobalIndex. " +
                      "Expected: GetGlobalMails returns the v1-seeded mail via the legacy compat layer.")]
         public async Task R06_GlobalMailIndexV2_LegacyFallback()
         {
             // Seed a v1 legacy mail via the fake's compat hook (simulates a player whose
-            // Cloud Save contains global_mail_index but no global_mail_index_v2).
+            // Cloud Save contains global_mail_index_legacy but no global_mail_index).
             var v1Mail = new MailItem
             {
                 MessageId = "v1-legacy-mail-r06",
@@ -330,7 +330,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             bool v1MailFound = getResp.mails.Any(m => m.mailId == v1Mail.mailId);
             Assert.IsTrue(v1MailFound,
                 $"R06: v1 legacy mail id={v1Mail.mailId} must appear in GetGlobalMails " +
-                "via the compat layer (global_mail_index → global_mail_index_v2 migration path).");
+                "via the compat layer (global_mail_index_legacy → global_mail_index migration path).");
         }
 
         // -----------------------------------------------------------------------

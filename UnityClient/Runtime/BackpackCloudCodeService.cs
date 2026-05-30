@@ -74,7 +74,7 @@ namespace BackpackAdventures.CloudCode.Client
 
         public static async Task<MarkMailReadResponse> CallMarkMailReadAsync(string mailId, string mailType)
         {
-            var request = new MarkMailReadRequest { mailId = mailId, mailType = mailType };
+            var request = new MarkMailReadRequest { mailId = mailId, mailType = ResolveMailType(mailId, mailType) };
             return await Backend.CallEndpointAsync<MarkMailReadResponse>("MarkMailRead", request);
         }
 
@@ -89,7 +89,7 @@ namespace BackpackAdventures.CloudCode.Client
             var request = new ClaimAttachmentRequest
             {
                 mailId = mailId,
-                mailType = mailType,
+                mailType = ResolveMailType(mailId, mailType),
                 requestId = requestId
             };
             return await Backend.CallEndpointAsync<ClaimAttachmentResponse>("ClaimAttachment", request);
@@ -104,10 +104,12 @@ namespace BackpackAdventures.CloudCode.Client
             string dedupKey = null,
             List<MailAttachment> attachments = null,
             string adminToken = null,
-            string operatorId = null)
+            string operatorId = null,
+            List<string> targetUserIds = null)
         {
             var request = new SendGlobalMailRequest
             {
+                targetUserIds = NormalizeTargetUserIds(targetUserIds),
                 subject = subject,
                 body = body,
                 expiresAt = expiresAt,
@@ -133,10 +135,9 @@ namespace BackpackAdventures.CloudCode.Client
             string adminToken = null,
             string operatorId = null)
         {
-            var request = new SendUserMailRequest
+            var request = new SendGlobalMailRequest
             {
-                targetPlayerId = targetPlayerId,
-                userId = targetPlayerId,
+                targetUserIds = NormalizeTargetUserIds(new List<string> { targetPlayerId }),
                 subject = subject,
                 body = body,
                 expiresAt = expiresAt,
@@ -147,7 +148,12 @@ namespace BackpackAdventures.CloudCode.Client
                 adminToken = adminToken ?? string.Empty,
                 operatorId = operatorId ?? string.Empty
             };
-            return await Backend.CallEndpointAsync<SendUserMailResponse>("SendUserMail", request);
+            var response = await Backend.CallEndpointAsync<SendGlobalMailResponse>("SendGlobalMail", request);
+            return new SendUserMailResponse
+            {
+                mailId = string.IsNullOrEmpty(response.mailId) ? response.globalMailId : response.mailId,
+                sentAt = response.sentAt
+            };
         }
 
         public static async Task<GiftMailResponse> CallUserSendGiftMailAsync(
@@ -192,6 +198,33 @@ namespace BackpackAdventures.CloudCode.Client
                 operatorId = operatorId ?? string.Empty
             };
             return await Backend.CallEndpointAsync<PurgeExpiredResponse>("PurgeExpired", request);
+        }
+
+        private static List<string> NormalizeTargetUserIds(List<string> targetUserIds)
+        {
+            if (targetUserIds == null || targetUserIds.Count == 0)
+                return null;
+
+            var result = new List<string>();
+            foreach (string targetUserId in targetUserIds)
+            {
+                if (string.IsNullOrWhiteSpace(targetUserId))
+                    continue;
+
+                string normalized = targetUserId.Trim();
+                if (!result.Contains(normalized))
+                    result.Add(normalized);
+            }
+
+            return result.Count == 0 ? null : result;
+        }
+
+        private static string ResolveMailType(string mailId, string mailType)
+        {
+            if (!string.IsNullOrEmpty(mailId) && mailId.StartsWith("gm_", System.StringComparison.OrdinalIgnoreCase))
+                return "global";
+
+            return string.IsNullOrEmpty(mailType) ? "user" : mailType;
         }
     }
 }

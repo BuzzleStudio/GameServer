@@ -36,16 +36,14 @@ public class GetGlobalMailsModule
         await Task.WhenAll(stateTask, indexTask);
 
         var state = stateTask.Result ?? new PlayerGlobalMailState();
-        var claimedIds = new HashSet<string>(state.ClaimedIds ?? new List<string>());
-        var readIds = new HashSet<string>(state.ReadIds ?? new List<string>());
-        var deletedIds = new HashSet<string>(state.DeletedIds ?? new List<string>());
+        MailSchemaHelper.MigrateLegacyMetadata(state);
         var index = indexTask.Result;
 
         List<MailItemDto> allMails;
         if (index != null && index.Refs.Count > 0)
-            allMails = await BuildDtosFromV2Async(index, claimedIds, readIds, deletedIds);
+            allMails = await BuildDtosFromV2Async(index, state, playerId);
         else
-            allMails = await BuildDtosFromV1LegacyAsync(claimedIds, readIds, deletedIds);
+            allMails = await BuildDtosFromV1LegacyAsync(state);
 
         allMails.Sort((a, b) => string.Compare(b.MailInfo.StartTime, a.MailInfo.StartTime, StringComparison.Ordinal));
 
@@ -65,7 +63,7 @@ public class GetGlobalMailsModule
         };
     }
 
-    private async Task<List<MailItemDto>> BuildDtosFromV2Async(GlobalMailIndexV2 index, HashSet<string> claimedIds, HashSet<string> readIds, HashSet<string> deletedIds)
+    private async Task<List<MailItemDto>> BuildDtosFromV2Async(GlobalMailIndexV2 index, PlayerGlobalMailState state, string playerId)
     {
         var dtos = new List<MailItemDto>();
         var payloadTasks = new List<Task<GlobalMailPayload?>>();
@@ -73,7 +71,6 @@ public class GetGlobalMailsModule
 
         foreach (var reference in index.Refs)
         {
-            if (deletedIds.Contains(reference.MessageId)) continue;
             if (reference.IsExpired()) continue;
             validRefs.Add(reference);
             payloadTasks.Add(CloudSaveHelper.GetCustomDataAsync<GlobalMailPayload>(
@@ -88,15 +85,17 @@ public class GetGlobalMailsModule
         {
             var payload = payloadTasks[i].Result;
             if (payload?.Mail == null) continue;
-            payload.Mail.MailMetaData.IsRead = readIds.Contains(validRefs[i].MessageId);
-            payload.Mail.MailMetaData.IsClaimed = claimedIds.Contains(validRefs[i].MessageId);
-            dtos.Add(payload.Mail);
+            if (!payload.Mail.IsAvailable) continue;
+            if (!MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId)) continue;
+            var metadata = MailSchemaHelper.FindMetadata(state, validRefs[i].MessageId);
+            if (metadata?.IsDelete == true) continue;
+            dtos.Add(MailSchemaHelper.ToMailItemDto(payload.Mail, metadata));
         }
 
         return dtos;
     }
 
-    private async Task<List<MailItemDto>> BuildDtosFromV1LegacyAsync(HashSet<string> claimedIds, HashSet<string> readIds, HashSet<string> deletedIds)
+    private async Task<List<MailItemDto>> BuildDtosFromV1LegacyAsync(PlayerGlobalMailState state)
     {
         var v1Index = await CloudSaveHelper.GetCustomDataAsync<GlobalMailIndex>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex);
         if (v1Index == null) return new List<MailItemDto>();
@@ -104,9 +103,10 @@ public class GetGlobalMailsModule
         var dtos = new List<MailItemDto>();
         foreach (var mail in v1Index.Mails)
         {
-            if (deletedIds.Contains(mail.GlobalMailId)) continue;
+            var metadata = MailSchemaHelper.FindMetadata(state, mail.GlobalMailId);
+            if (metadata?.IsDelete == true) continue;
             if (mail.IsExpired()) continue;
-            dtos.Add(MailSchemaHelper.FromLegacyGlobalMail(mail, readIds.Contains(mail.GlobalMailId), claimedIds.Contains(mail.GlobalMailId)));
+            dtos.Add(MailSchemaHelper.FromLegacyGlobalMail(mail, metadata?.IsRead ?? false, metadata?.IsClaim ?? false));
         }
         return dtos;
     }

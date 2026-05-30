@@ -93,7 +93,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
 
         public const string KeyUserItems = "mailbox_user_items";
         public const string KeyGlobalState = "mailbox_global_state";
-        public const string KeyGlobalIndexV2 = "global_mail_index_v2";
+        public const string KeyGlobalIndexV2 = "global_mail_index";
         public const string KeyMailboxMeta = "mailbox_meta";
         public const string KeyIdempotencyCache = "mailbox_idem_cache";
     }

@@ -45,19 +45,21 @@ public class DeleteMailModule
             if (v1Index?.Mails.Find(m => m.GlobalMailId == mailId) == null)
                 throw new InvalidOperationException(MailboxError.MailNotFound);
         }
+        else if (!MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId))
+        {
+            throw new InvalidOperationException(MailboxError.MailNotFound);
+        }
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
             state ??= new PlayerGlobalMailState();
-            state.DeletedIds ??= new List<string>();
-            state.ReadIds ??= new List<string>();
-            state.ClaimedIds ??= new List<string>();
-            if (state.DeletedIds.Contains(mailId)) return;
-
-            state.DeletedIds.Add(mailId);
-            state.ReadIds.RemoveAll(id => id == mailId);
-            state.ClaimedIds.RemoveAll(id => id == mailId);
+            MailSchemaHelper.MigrateLegacyMetadata(state);
+            var metadata = MailSchemaHelper.GetOrCreateMetadata(state, mailId);
+            if (metadata.IsDelete) return;
+            metadata.IsDelete = true;
+            metadata.IsRead = false;
+            metadata.IsClaim = false;
 
             try
             {
