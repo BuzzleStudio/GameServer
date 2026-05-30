@@ -1,13 +1,13 @@
 # Deploy Cloud Code Modules to Production
 #
-# Triggers on every push to release/* branches.
-# Builds the .NET Cloud Code Module, authenticates with UGS, deploys to production, and verifies.
+# Triggers on every push to release/* branches, or manually via workflow_dispatch.
+# Builds the .NET Cloud Code Module, authenticates with UGS, deploys, and verifies.
 #
 # Required GitHub Secrets:
-#   UNITY_PROJECT_ID                        — Unity Dashboard project ID
-#   UNITY_ENVIRONMENT_PRODUCTION            — UGS production environment name (e.g. "production")
-#   UNITY_PROJECT_SERVICE_ACCOUNT_KEY       — Project-scoped service account key ID
-#   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET    — Project-scoped service account secret
+#   UNITY_PROJECT_ID              — Unity Dashboard project ID
+#   UNITY_ENVIRONMENT_PRODUCTION  — UGS target environment name (e.g. "production")
+#   UNITY_PROJECT_SERVICE_ACCOUNT_KEY     - Project-scoped service account key ID
+#   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET  - Project-scoped service account secret
 
 name: Deploy Cloud Code Modules to Production
 
@@ -15,6 +15,7 @@ on:
   push:
     branches:
       - 'release/*'
+  workflow_dispatch:
 
 concurrency:
   group: production-deploy
@@ -22,14 +23,12 @@ concurrency:
 
 jobs:
   deploy-cloud-code:
-    name: Deploy BackpackAdventures Cloud Code Module (Production)
+    name: Deploy BackpackAdventures Cloud Code Module
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
       UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
-      UGS_CLI_ENVIRONMENT_NAME: ${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }}
-      UGS_CLI_PROJECT_ID: ${{ secrets.UNITY_PROJECT_ID }}
 
     steps:
       # ------------------------------------------------------------------
@@ -120,7 +119,9 @@ jobs:
       - name: Deploy Cloud Code Module
         run: |
           set -e
-          ugs deploy CloudCodeModule/
+          ugs deploy CloudCodeModule/ \
+            --project-id ${{ secrets.UNITY_PROJECT_ID }} \
+            --environment-name ${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }}
 
       # ------------------------------------------------------------------
       # 9. Verify deployment — confirm module is listed
@@ -129,7 +130,9 @@ jobs:
         run: |
           set -e
           echo "Listing modules in project=${{ secrets.UNITY_PROJECT_ID }} env=${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }}"
-          MODULE_LIST=$(ugs cloud-code modules list)
+          MODULE_LIST=$(ugs cloud-code modules list \
+            --project-id ${{ secrets.UNITY_PROJECT_ID }} \
+            --environment-name ${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }})
           echo "$MODULE_LIST"
           if ! echo "$MODULE_LIST" | grep -qi "BackpackAdventures"; then
             echo "ERROR: BackpackAdventures module not found after deployment. Deploy may have silently failed."
@@ -193,6 +196,7 @@ jobs:
             exit 1
           fi
           echo "HealthCheck passed."
+
 
       # ------------------------------------------------------------------
       # 11. Write GitHub Actions job summary
