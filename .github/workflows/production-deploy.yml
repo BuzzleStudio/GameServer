@@ -120,9 +120,7 @@ jobs:
       - name: Deploy Cloud Code Module
         run: |
           set -e
-          ugs deploy CloudCodeModule/ \
-            --project-id ${{ secrets.UNITY_PROJECT_ID }} \
-            --environment-name ${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }}
+          ugs deploy CloudCodeModule/
 
       # ------------------------------------------------------------------
       # 9. Verify deployment — confirm module is listed
@@ -131,9 +129,7 @@ jobs:
         run: |
           set -e
           echo "Listing modules in project=${{ secrets.UNITY_PROJECT_ID }} env=${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }}"
-          MODULE_LIST=$(ugs cloud-code modules list \
-            --project-id ${{ secrets.UNITY_PROJECT_ID }} \
-            --environment-name ${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }})
+          MODULE_LIST=$(ugs cloud-code modules list)
           echo "$MODULE_LIST"
           if ! echo "$MODULE_LIST" | grep -qi "BackpackAdventures"; then
             echo "ERROR: BackpackAdventures module not found after deployment. Deploy may have silently failed."
