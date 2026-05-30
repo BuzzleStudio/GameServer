@@ -28,6 +28,8 @@ jobs:
     env:
       UGS_CLI_SERVICE_KEY_ID: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
       UGS_CLI_SERVICE_SECRET_KEY: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
+      UGS_CLI_ENVIRONMENT_NAME: ${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }}
+      UGS_CLI_PROJECT_ID: ${{ secrets.UNITY_PROJECT_ID }}
 
     steps:
       # ------------------------------------------------------------------
