@@ -1,22 +1,37 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BackpackAdventures.CloudCode.Client
 {
-    [Serializable]
     public class ApiResponse
     {
-        public int StatusCode;
-        public string Message;
-        public object Data;
+        public int StatusCode { get; set; }
+        public string Message { get; set; } = string.Empty;
+
+        // Bypass MissingMemberHandling.Error in the Cloud Code SDK deserializer.
+        // Server always sends a "data" property; without this hook, deserializing
+        // the wire JSON into the non-generic ApiResponse would throw because the
+        // class has no member to receive "data". Newtonsoft routes any unknown
+        // property here instead of erroring.
+        [JsonExtensionData]
+        private IDictionary<string, JToken> _extensionData { get; set; }
     }
 
-    [Serializable]
-    public class ApiResponse<T>
+    public class ApiResponse<T> : ApiResponse
     {
-        public int StatusCode;
-        public string Message;
-        public T Data;
+        public T Data { get; set; }
+
+        public static ApiResponse<T> Ok(T data, string message = "OK")
+        {
+            return new ApiResponse<T>
+            {
+                StatusCode = 200,
+                Message = message,
+                Data = data
+            };
+        }
     }
 
     [Serializable]

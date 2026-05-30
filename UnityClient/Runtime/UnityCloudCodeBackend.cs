@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Unity.Services.CloudCode;
 using UnityEngine;
 
@@ -19,17 +21,63 @@ namespace BackpackAdventures.CloudCode.Client
                 var args = request != null
                     ? new Dictionary<string, object> { { "request", request } }
                     : null;
-                var callTask = CloudCodeService.Instance.CallModuleEndpointAsync<T>(
+                // Use the string-returning overload so we can parse the response ourselves
+                // and tolerate either shape the server returns:
+                //   1. Bare data:        { "field1": ..., "field2": ... }
+                //   2. ApiResponse wrap: { "statusCode": 200, "message": "OK", "data": { ... } }
+                // Without this tolerance, a server-side change to wrap/unwrap the envelope
+                // breaks every client until they're rebuilt.
+                var rawTask = CloudCodeService.Instance.CallModuleEndpointAsync(
                     ModuleName, endpoint, args);
-                var result = await this.WithTimeout(callTask, endpoint);
+                string rawJson = await this.WithTimeout(rawTask, endpoint);
                 Debug.Log($"[CloudCode] {endpoint} succeeded.");
-                return result;
+                return DeserializeTolerant<T>(rawJson);
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[CloudCode] {endpoint} failed: " + ex.Message);
                 throw CloudCodeApiException.From(endpoint, ex);
             }
+        }
+
+        // Unwraps an ApiResponse envelope if present, otherwise treats the JSON as bare data.
+        // Detection: if the root has a "data" / "Data" property AND looks like an envelope
+        // (has at least one of statusCode/message), unwrap; otherwise use as-is. This avoids
+        // false positives where the bare data itself happens to have a "data" field.
+        private static T DeserializeTolerant<T>(string rawJson)
+        {
+            if (string.IsNullOrEmpty(rawJson))
+                return default;
+
+            JToken token;
+            try
+            {
+                token = JToken.Parse(rawJson);
+            }
+            catch (JsonException)
+            {
+                // Not JSON — treat as raw value (e.g. plain string)
+                return JsonConvert.DeserializeObject<T>(rawJson);
+            }
+
+            if (token is JObject obj && LooksLikeApiResponseEnvelope(obj))
+            {
+                JToken data = obj["data"] ?? obj["Data"];
+                if (data != null && data.Type != JTokenType.Null)
+                    return data.ToObject<T>();
+                return default;
+            }
+
+            return token.ToObject<T>();
+        }
+
+        private static bool LooksLikeApiResponseEnvelope(JObject obj)
+        {
+            bool hasData = obj["data"] != null || obj["Data"] != null;
+            if (!hasData) return false;
+            bool hasStatusCode = obj["statusCode"] != null || obj["StatusCode"] != null;
+            bool hasMessage = obj["message"] != null || obj["Message"] != null;
+            return hasStatusCode || hasMessage;
         }
 
         private async Task<T> WithTimeout<T>(Task<T> task, string operationName)

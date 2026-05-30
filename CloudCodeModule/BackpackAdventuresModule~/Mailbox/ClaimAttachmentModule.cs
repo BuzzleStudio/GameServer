@@ -27,9 +27,9 @@ public class ClaimAttachmentModule
     }
 
     [CloudCodeFunction("ClaimAttachment")]
-    public async Task<ApiResponse<ClaimAttachmentResponse>> ClaimAttachmentAsync(object request)
+    public async Task<ApiResponse<ClaimAttachmentResponse>> ClaimAttachmentAsync(ClaimAttachmentRequest request)
     {
-        var claimRequest = NormalizeClaimAttachmentRequest(request);
+        var claimRequest = request ?? new ClaimAttachmentRequest();
         var playerId = _context.PlayerId ?? string.Empty;
         if (string.IsNullOrWhiteSpace(claimRequest.MailId))
             throw new ArgumentException(MailboxError.InvalidInput);
