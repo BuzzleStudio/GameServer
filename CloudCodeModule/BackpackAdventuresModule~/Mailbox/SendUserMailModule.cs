@@ -6,10 +6,6 @@ using Unity.Services.CloudCode.Core;
 
 namespace BackpackAdventures.CloudCode;
 
-/// <summary>
-/// Admin-only endpoint: sends a direct mail to a specific player.
-/// Writes to the target player's mailbox_user_items with writeLock (retry-once on conflict).
-/// </summary>
 public class SendUserMailModule
 {
     private readonly IExecutionContext _context;
@@ -29,10 +25,7 @@ public class SendUserMailModule
     [CloudCodeFunction("SendUserMail")]
     public async Task<SendUserMailResponse> SendUserMailAsync(SendUserMailRequest request)
     {
-        _logger.LogInformation("SendUserMail called by operatorId={OperatorId} for target {TargetPlayerId}", request.OperatorId, request.TargetPlayerId);
-
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
-
         if (string.IsNullOrWhiteSpace(request.TargetPlayerId))
             throw new ArgumentException(MailboxError.InvalidInput);
 
@@ -40,66 +33,42 @@ public class SendUserMailModule
 
         var sentAt = DateTime.UtcNow.ToString("o");
         var mailId = "um_" + Guid.NewGuid().ToString("N")[..8];
-
-        var mailType = (request.Attachments != null && request.Attachments.Count > 0)
-            ? MailType.Attachment
-            : MailType.Notification;
-
-        var newMail = new UserMailItem
-        {
-            MailId       = mailId,
-            Subject      = request.Subject,
-            Body         = request.Body,
-            SentAt       = sentAt,
-            ExpiresAt    = request.ExpiresAt,
-            MailType     = mailType,
-            MailCategory = request.MailCategory,
-            SenderType   = SenderType.Admin,
-            Sender       = request.SenderName,
-            DedupKey     = request.DedupKey,
-            Attachments  = request.Attachments
-        };
+        var newMail = MailSchemaHelper.CreateMail(
+            mailId,
+            request.Subject,
+            request.Body,
+            sentAt,
+            request.ExpiresAt,
+            request.Attachments,
+            false,
+            false,
+            request.MailCategory,
+            SenderType.Admin,
+            request.SenderName,
+            request.DedupKey);
 
         await InsertMailWithRetryAsync(request.TargetPlayerId, newMail);
-
-        _logger.LogInformation("Admin user mail {MailId} sent to {TargetPlayerId} by {OperatorId}", mailId, request.TargetPlayerId, request.OperatorId);
         return new SendUserMailResponse { MailId = mailId, SentAt = sentAt };
     }
 
-    private async Task InsertMailWithRetryAsync(string targetPlayerId, UserMailItem newMail)
+    private async Task InsertMailWithRetryAsync(string targetPlayerId, MailItemDto newMail)
     {
-        var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(
-            _gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems);
+        var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(_gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems);
         mailbox ??= new PlayerUserMailbox();
-
         MailboxEviction.Evict(mailbox, targetPlayerId, _logger);
         mailbox.Mails.Add(newMail);
 
         try
         {
-            await CloudSaveHelper.SetPlayerDataAsync(
-                _gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
+            await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
-            _logger.LogWarning("SendUserMail: write conflict — retrying once for {TargetPlayerId}", targetPlayerId);
-            var (freshMailbox, freshLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(
-                _gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems);
+            var (freshMailbox, freshLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(_gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems);
             freshMailbox ??= new PlayerUserMailbox();
-
             MailboxEviction.Evict(freshMailbox, targetPlayerId, _logger);
             freshMailbox.Mails.Add(newMail);
-
-            try
-            {
-                await CloudSaveHelper.SetPlayerDataAsync(
-                    _gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems, freshMailbox, freshLock);
-            }
-            catch (Exception retryEx) when (CloudSaveHelper.IsWriteLockConflict(retryEx))
-            {
-                _logger.LogError("SendUserMail: write conflict on retry for {TargetPlayerId}", targetPlayerId);
-                throw new InvalidOperationException(MailboxError.Conflict);
-            }
+            await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems, freshMailbox, freshLock);
         }
     }
 
@@ -109,15 +78,11 @@ public class SendUserMailModule
             throw new ArgumentException(MailboxError.InvalidInput);
         if (string.IsNullOrWhiteSpace(body) || body.Length > MailboxConstants.MaxBodyLength)
             throw new ArgumentException(MailboxError.InvalidInput);
-        if (attachments != null)
+        if (attachments == null) return;
+        foreach (var att in attachments)
         {
-            foreach (var att in attachments)
-            {
-                if (string.IsNullOrEmpty(att.ItemId) || att.Quantity <= 0 ||
-                    (att.Type != "currency" && att.Type != "item"))
-                    throw new ArgumentException(MailboxError.InvalidInput);
-            }
+            if (string.IsNullOrEmpty(att.ItemId) || att.Quantity <= 0 || (att.Type != "currency" && att.Type != "item"))
+                throw new ArgumentException(MailboxError.InvalidInput);
         }
     }
 }
-

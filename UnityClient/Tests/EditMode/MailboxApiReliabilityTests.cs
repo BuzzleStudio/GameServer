@@ -302,13 +302,20 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             // Cloud Save contains global_mail_index but no global_mail_index_v2).
             var v1Mail = new MailItem
             {
-                mailId          = "v1-legacy-mail-r06",
-                subject         = "R06 Legacy V1 Mail",
-                body            = "R06 v1 compatibility test",
-                sentAt          = MailboxTestHarness.Clock.UtcNow.AddHours(-1).ToString("o"),
-                expiresAt       = MailboxTestHarness.FutureExpiry(),
-                isRead          = false,
-                attachmentClaimed = false
+                MessageId = "v1-legacy-mail-r06",
+                MailInfo = new MailInfo
+                {
+                    Title = "R06 Legacy V1 Mail",
+                    Content = "R06 v1 compatibility test",
+                    StartTime = MailboxTestHarness.Clock.UtcNow.AddHours(-1).ToString("o"),
+                    Period = 3600,
+                    Attachment = null
+                },
+                MailMetaData = new MailMetaData
+                {
+                    IsRead = false,
+                    IsClaimed = false
+                }
             };
 
             MailboxTestHarness.CurrentFake.SeedLegacyV1GlobalIndex(new List<MailItem> { v1Mail });
@@ -466,5 +473,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
     }
 }
+
+
+
+
 
 
