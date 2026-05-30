@@ -228,11 +228,23 @@ jobs:
           call_module() {
             local endpoint="$1"
             local payload="$2"
-            curl -sf -X POST \
+            local url="https://cloud-code.services.api.unity.com/v1/projects/$PROJECT_ID/modules/BackpackAdventuresModule/$endpoint"
+            local resp http_code body
+            # Do NOT use -f here: -f suppresses the error body, which is the
+            # only place the real server error (ScriptError/Unauthorized/422) lives.
+            resp=$(curl -s -w $'\n%{http_code}' -X POST \
               -H "Authorization: Bearer $ACCESS_TOKEN" \
               -H "Content-Type: application/json" \
               -d "$payload" \
-              "https://cloud-code.services.api.unity.com/v1/projects/$PROJECT_ID/modules/BackpackAdventuresModule/$endpoint"
+              "$url") || true
+            http_code=$(printf '%s' "$resp" | tail -n1)
+            body=$(printf '%s' "$resp" | sed '$d')
+            if [ "${http_code:-000}" -lt 200 ] || [ "${http_code:-000}" -ge 300 ]; then
+              echo "ERROR: $endpoint returned HTTP ${http_code:-000}" >&2
+              echo "Response body: $body" >&2
+              return 1
+            fi
+            printf '%s' "$body"
           }
 
           extract_mail_id() {
