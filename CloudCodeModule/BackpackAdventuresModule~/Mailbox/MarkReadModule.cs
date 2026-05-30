@@ -61,6 +61,9 @@ public class MarkReadModule
         {
             var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
             state ??= new PlayerGlobalMailState();
+            state.DeletedIds ??= new List<string>();
+            state.ReadIds ??= new List<string>();
+            if (state.DeletedIds.Contains(mailId)) throw new InvalidOperationException(MailboxError.MailNotFound);
             if (state.ReadIds.Contains(mailId)) return;
             await PruneDeadGlobalStateIdsAsync(state);
             state.ReadIds.Add(mailId);
@@ -130,7 +133,11 @@ public class MarkReadModule
         if (index == null) return;
         var liveIds = new HashSet<string>();
         foreach (var reference in index.Refs) liveIds.Add(reference.MessageId);
+        state.ClaimedIds ??= new List<string>();
+        state.ReadIds ??= new List<string>();
+        state.DeletedIds ??= new List<string>();
         state.ClaimedIds.RemoveAll(id => !liveIds.Contains(id));
         state.ReadIds.RemoveAll(id => !liveIds.Contains(id));
+        state.DeletedIds.RemoveAll(id => !liveIds.Contains(id));
     }
 }

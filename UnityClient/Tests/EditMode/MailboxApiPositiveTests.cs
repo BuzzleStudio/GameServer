@@ -40,6 +40,36 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             await MailboxTestHarness.CleanupAsync();
         }
 
+        [Test]
+        [Description("P13A - DeleteMail hides global mail for current player only.")]
+        public async Task P13A_DeleteMail_GlobalMail_HidesForCurrentPlayerOnly()
+        {
+            var sendResp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                subject: "P13A Global Delete",
+                body: "P13A global mail should be hidden only for current player",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            string mailId = sendResp.globalMailId ?? sendResp.mailId;
+            var beforeDelete = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            Assert.IsTrue(beforeDelete.mails.Any(m => m.mailId == mailId),
+                "P13A: global mail must be visible before delete");
+
+            var deleteResp = await BackpackCloudCodeService.CallDeleteMailAsync(mailId);
+            Assert.IsNotNull(deleteResp, "P13A: DeleteMail response must not be null");
+            Assert.AreEqual(mailId, deleteResp.mailId, "P13A: DeleteMail must return deleted mail id");
+
+            var afterDelete = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            Assert.IsFalse(afterDelete.mails.Any(m => m.mailId == mailId),
+                "P13A: global mail must be hidden for the deleting player");
+
+            MailboxTestHarness.CurrentFake.CurrentPlayerId = "test-player-other";
+            var otherPlayerView = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            Assert.IsTrue(otherPlayerView.mails.Any(m => m.mailId == mailId),
+                "P13A: global mail must remain visible to other players");
+        }
+
         // -----------------------------------------------------------------------
         // P01 — AdminSendGlobalMail success
         // Devlog row: P01 — SendGlobalMail_AdminOnly_Succeeds

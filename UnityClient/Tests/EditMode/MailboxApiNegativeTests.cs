@@ -451,9 +451,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         // Devlog row: N10 (Devlog) — DeleteMail_GlobalMail_Rejected
         // -----------------------------------------------------------------------
 
+        [Ignore("DeleteMail now hides global mail per player; covered by positive tests.")]
         [Test]
-        [Description("N11 — Try to delete a global mail via DeleteMail (player-only for user mails). " +
-                     "Expected: CannotDeleteGlobal or InvalidInput error.")]
+        [Description("N11 legacy behavior: global delete rejection. Superseded by player-scoped global delete.")]
         public async Task N11_DeleteMail_GlobalMail_Rejected()
         {
             await MailboxTestHarness.EnsureAdminAsync();

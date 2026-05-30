@@ -37,6 +37,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         private readonly Dictionary<string, List<FakeUserMail>>   _userMailboxes    = new Dictionary<string, List<FakeUserMail>>();
         private readonly Dictionary<string, HashSet<string>>      _globalClaimedIds = new Dictionary<string, HashSet<string>>();
         private readonly Dictionary<string, HashSet<string>>      _globalReadIds    = new Dictionary<string, HashSet<string>>();
+        private readonly Dictionary<string, HashSet<string>>      _globalDeletedIds = new Dictionary<string, HashSet<string>>();
         private readonly Dictionary<string, List<FakeIdemEntry>>  _idemCaches       = new Dictionary<string, List<FakeIdemEntry>>();
         private readonly Dictionary<string, int>                  _giftsSentToday   = new Dictionary<string, int>();
         private readonly Dictionary<string, Dictionary<string, int>> _wallets        = new Dictionary<string, Dictionary<string, int>>();
@@ -262,6 +263,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             var playerId  = CurrentPlayerId;
             var claimedIds = GetPlayerGlobalClaimedIds(playerId);
             var readIds    = GetPlayerGlobalReadIds(playerId);
+            var deletedIds = GetPlayerGlobalDeletedIds(playerId);
 
             List<MailItem> allMails;
 
@@ -270,6 +272,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             {
                 allMails = _legacyV1Mails
                     .Where(m => !IsExpiredStr(m.expiresAt, now))
+                    .Where(m => !deletedIds.Contains(m.mailId))
                     .Select(m => CreateMailItem(
                         m.mailId,
                         m.subject,
@@ -291,6 +294,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                 foreach (var id in _globalMailIndex)
                 {
                     if (!_globalMails.TryGetValue(id, out var gm)) continue;
+                    if (deletedIds.Contains(id)) continue;
                     if (gm.IsExpired(now)) continue;
                     allMails.Add(gm.ToMailItem(readIds.Contains(id), claimedIds.Contains(id)));
                 }
@@ -335,6 +339,8 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             if (isGlobal)
             {
                 // HashSet.Add is idempotent — already-read is a no-op
+                if (GetPlayerGlobalDeletedIds(playerId).Contains(req.mailId))
+                    throw new InvalidOperationException("MailNotFound");
                 GetPlayerGlobalReadIds(playerId).Add(req.mailId);
             }
             else
@@ -398,6 +404,9 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         private ClaimAttachmentResponse ClaimGlobalAttachment(string playerId, string mailId, string requestId)
         {
             if (!_globalMails.TryGetValue(mailId, out var gm))
+                throw new InvalidOperationException("MailNotFound");
+
+            if (GetPlayerGlobalDeletedIds(playerId).Contains(mailId))
                 throw new InvalidOperationException("MailNotFound");
 
             var claimedIds = GetPlayerGlobalClaimedIds(playerId);
@@ -468,10 +477,20 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             if (string.IsNullOrWhiteSpace(req.mailId))
                 throw new InvalidOperationException("InvalidInput");
 
-            if (req.mailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("CannotDeleteGlobal");
-
             var playerId = CurrentPlayerId;
+
+            if (req.mailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!_globalMails.ContainsKey(req.mailId) && !_legacyV1Mails.Any(m => m.mailId == req.mailId))
+                    throw new InvalidOperationException("MailNotFound");
+
+                var deletedIds = GetPlayerGlobalDeletedIds(playerId);
+                deletedIds.Add(req.mailId);
+                GetPlayerGlobalReadIds(playerId).Remove(req.mailId);
+                GetPlayerGlobalClaimedIds(playerId).Remove(req.mailId);
+                return new DeleteMailResponse { mailId = req.mailId };
+            }
+
             var mailbox  = GetOrCreateUserMailbox(playerId);
             var mail     = mailbox.Find(m => m.MailId == req.mailId);
             if (mail == null) throw new InvalidOperationException("MailNotFound");
@@ -705,6 +724,13 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             return ids;
         }
 
+        private HashSet<string> GetPlayerGlobalDeletedIds(string playerId)
+        {
+            if (!_globalDeletedIds.TryGetValue(playerId, out var ids))
+                _globalDeletedIds[playerId] = ids = new HashSet<string>();
+            return ids;
+        }
+
         private bool IsAlreadyClaimed(string playerId, string mailId, bool isGlobal)
         {
             if (isGlobal) return GetPlayerGlobalClaimedIds(playerId).Contains(mailId);
@@ -766,6 +792,7 @@ namespace BackpackAdventures.CloudCode.Client.Tests
                     Content = content,
                     StartTime = startTime,
                     Period = period,
+                    ExpireTime = expireTime,
                     Attachment = mappedAttachments
                 },
                 MailMetaData = new MailMetaData

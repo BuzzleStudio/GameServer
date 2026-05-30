@@ -90,6 +90,7 @@ public class PlayerGlobalMailState
     public int Version { get; set; } = 3;
     public List<string> ClaimedIds { get; set; } = new();
     public List<string> ReadIds { get; set; } = new();
+    public List<string> DeletedIds { get; set; } = new();
 }
 
 public class PlayerUserMailbox
