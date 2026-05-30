@@ -469,12 +469,60 @@ namespace BackpackAdventures.CloudCode.Client.Tests
         }
 
         // -----------------------------------------------------------------------
-        // P12 — ClaimAttachment with requestId replays correctly
-        // Devlog row: P12 — ClaimAttachment_WithRequestId_Replays
+        // P11A - ClaimAllAttachments claims all visible rewards
+        // Devlog row: P11A - ClaimAllAttachments_UserAndGlobal
         // -----------------------------------------------------------------------
 
         [Test]
-        [Description("P12 — Claim with requestId=X; retry with same requestId=X. " +
+        [Description("P11A - ClaimAllAttachments claims visible broadcast and targeted admin reward mails.")]
+        public async Task P11A_ClaimAllAttachments_ClaimsUserAndGlobalRewards()
+        {
+            string selfId = MailboxTestHarness.CurrentPlayerId;
+
+            var globalResp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                subject: "P11A Global Reward",
+                body: "P11A claim-all global",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(11),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            var userResp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
+                targetPlayerId: selfId,
+                subject: "P11A User Reward",
+                body: "P11A claim-all user",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                attachments: MailboxTestHarness.MakeCurrencyAttachment(22),
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            string globalMailId = globalResp.globalMailId ?? globalResp.mailId;
+            string userMailId = userResp.mailId;
+
+            var claimAll = await BackpackCloudCodeService.CallClaimAllAttachmentsAsync("all", Guid.NewGuid().ToString());
+            Assert.IsNotNull(claimAll, "P11A: ClaimAllAttachments response must not be null");
+            Assert.GreaterOrEqual(claimAll.claimedCount, 2, "P11A: must claim both seeded reward mails");
+
+            var globalMails = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            var globalMail = globalMails.mails.FirstOrDefault(m => m.mailId == globalMailId);
+            Assert.IsNotNull(globalMail, "P11A: global mail must still be visible after claim");
+            Assert.IsTrue(globalMail.attachmentClaimed, "P11A: global mail must be marked claimed");
+
+            var userMails = await BackpackCloudCodeService.CallGetMailboxAsync(page: 0, pageSize: 50);
+            Assert.IsNotNull(userMails, "P11A: GetUserMails response must remain valid after claim all");
+
+            var targetedMail = globalMails.mails.FirstOrDefault(m => m.mailId == userMailId);
+            Assert.IsNotNull(targetedMail, "P11A: targeted admin mail must be visible in global mailbox after claim");
+            Assert.IsTrue(targetedMail.attachmentClaimed, "P11A: targeted admin mail must be marked claimed");
+        }
+
+        // -----------------------------------------------------------------------
+        // P12 - ClaimAttachment with requestId replays correctly
+        // Devlog row: P12 - ClaimAttachment_WithRequestId_Replays
+        // -----------------------------------------------------------------------
+
+        [Test]
+        [Description("P12 - Claim with requestId=X; retry with same requestId=X. " +
                      "Expected: both responses identical; grant called exactly once.")]
         public async Task P12_ClaimAttachment_WithRequestId_Replays()
         {

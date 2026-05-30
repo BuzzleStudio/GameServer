@@ -8,6 +8,14 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
+### Added: ClaimAllAttachments mailbox API
+
+**What changed:** Added Cloud Code function `ClaimAllAttachments` in `ClaimAttachmentModule`. It claims all visible, unexpired reward mails for the current player across `all`, `global`, or `user` scope, reusing the existing single-mail claim logic for reward grants and claim/read state updates.
+
+**Client update:** Added `ClaimAllAttachmentsRequest`, `ClaimAllAttachmentResult`, `ClaimAllAttachmentsResponse`, and `BackpackCloudCodeService.CallClaimAllAttachmentsAsync`. The Mailbox editor window now has a `Claim All` action for the selected scope. The fake EditMode backend supports the endpoint and a positive test covers user + global reward claims.
+
+**Known risk:** The placeholder Cloud Save wallet grant still does not provide true external Economy idempotency. The bulk endpoint derives stable per-mail request IDs, but the underlying grant service is still the same Cloud Save-backed implementation used by `ClaimAttachment`.
+
 ### Changed: mails_all wraps mails under a "Mails" property
 
 **What changed:** The `mails_all` Cloud Save value is now an object `{ "Mails": [ … ] }` whose array elements are bare mail objects (`{ "MessageId": …, "Title": …, … }`). Introduced `GlobalMailCollection` (with `GlobalMailCollectionConverter`) as the stored type; the 8 mailbox modules read/write it and operate on `.Mails`. Inner elements stay bare via `GlobalMailPayloadConverter`.

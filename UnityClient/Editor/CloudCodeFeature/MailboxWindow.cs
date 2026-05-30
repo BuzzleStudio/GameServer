@@ -10,7 +10,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
     /// <summary>
     /// Editor window for browsing a player's mailbox.
     /// MenuItem: CloudCode/Mailbox
-    /// Supports paginated fetch of user/global mails; per-mail Mark Read, Claim Attachment, and Delete actions.
+    /// Supports paginated fetch of user/global mails; per-mail Mark Read, Claim Attachment, Delete, and Claim All actions.
     /// </summary>
     public class MailboxWindow : EditorWindow
     {
@@ -68,7 +68,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             string scopeLabel = _mailboxScope == MailboxScope.Global ? "Global Mails" : "User Mails";
             string endpointLabel = _mailboxScope == MailboxScope.Global ? "GetGlobalMails" : "GetUserMails";
             EditorGUILayout.LabelField($"Mailbox - {scopeLabel}", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField($"Reads {endpointLabel} with pagination. Mark Read / Claim / Delete per mail.",
+            EditorGUILayout.LabelField($"Reads {endpointLabel} with pagination. Mark Read / Claim / Claim All / Delete.",
                 EditorStyles.miniLabel);
             EditorGUILayout.Space(2);
         }
@@ -108,6 +108,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             GUI.enabled = !_isBusy && IsSignedIn();
             if (GUILayout.Button("Fetch Mailbox", GUILayout.Width(110)))
                 RunAsync(FetchMailboxAsync);
+            if (GUILayout.Button("Claim All", GUILayout.Width(85)))
+                RunAsync(ClaimAllAttachmentsAsync);
             GUI.enabled = true;
             EditorGUILayout.EndHorizontal();
 
@@ -260,6 +262,17 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = await BackpackCloudCodeService.CallClaimAttachmentAsync(mailId, mailType, requestId);
             _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
             _statusMessage = $"ClaimAttachment: alreadyClaimed={result.alreadyClaimed}";
+            await FetchMailboxAsync();
+        }
+
+        private async Task ClaimAllAttachmentsAsync()
+        {
+            await EnsureInitializedAsync();
+            string requestId = System.Guid.NewGuid().ToString();
+            var result = await BackpackCloudCodeService.CallClaimAllAttachmentsAsync(GetCurrentMailOwnershipType(), requestId);
+            _rawJson = UnityEngine.JsonUtility.ToJson(result, true);
+            _statusMessage =
+                $"ClaimAllAttachments: claimed={result.claimedCount}, already={result.alreadyClaimedCount}, skipped={result.skippedCount}";
             await FetchMailboxAsync();
         }
 

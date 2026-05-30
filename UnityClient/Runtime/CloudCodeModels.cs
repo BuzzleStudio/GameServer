@@ -248,11 +248,38 @@ namespace BackpackAdventures.CloudCode.Client
     }
 
     [Serializable]
+    public class ClaimAllAttachmentsRequest
+    {
+        public string mailType;
+        public string requestId;
+    }
+
+    [Serializable]
     public class ClaimAttachmentResponse
     {
         public string mailId;
         public bool alreadyClaimed;
         public List<MailAttachment> claimedAttachments;
+        public List<MailAttachment> grantedAttachments;
+    }
+
+    [Serializable]
+    public class ClaimAllAttachmentResult
+    {
+        public string mailId;
+        public string mailType;
+        public bool alreadyClaimed;
+        public string skippedReason;
+        public List<MailAttachment> grantedAttachments;
+    }
+
+    [Serializable]
+    public class ClaimAllAttachmentsResponse
+    {
+        public int claimedCount;
+        public int alreadyClaimedCount;
+        public int skippedCount;
+        public List<ClaimAllAttachmentResult> results;
         public List<MailAttachment> grantedAttachments;
     }
 

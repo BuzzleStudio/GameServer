@@ -145,6 +145,54 @@ New mailbox Cloud Save writes omit `"Version"` fields. Existing stored records w
 
 ---
 
+## ClaimAllAttachments
+
+**Function name:** `ClaimAllAttachments`
+
+Claims every visible, unexpired reward mail for the calling player. By default it
+claims both admin/global mail in `mails_all` and user mail in `mailbox_user_items`.
+
+**Input:**
+```json
+{
+  "mailType": "all",
+  "requestId": "optional-client-generated-id"
+}
+```
+
+`mailType` accepts `all`, `global`, or `user`. Empty/null is treated as `all`.
+When `requestId` is present, the server derives a per-mail request id internally
+so retrying the same bulk action reuses the same per-mail idempotency keys.
+
+**Response:**
+```json
+{
+  "claimedCount": 2,
+  "alreadyClaimedCount": 1,
+  "skippedCount": 0,
+  "results": [
+    {
+      "mailId": "gm_abc123",
+      "mailType": "global",
+      "alreadyClaimed": false,
+      "skippedReason": null,
+      "grantedAttachments": [
+        { "itemId": "coin", "type": "currency", "quantity": 100 }
+      ]
+    }
+  ],
+  "grantedAttachments": [
+    { "itemId": "coin", "type": "currency", "quantity": 100 }
+  ]
+}
+```
+
+The endpoint skips mails that become missing, expired, or attachment-less while
+the bulk operation is running. Reward-grant failures still fail the request with
+`GrantUnavailable`.
+
+---
+
 ## Notes
 
 - All timestamps are UTC ISO 8601 format (`DateTime.UtcNow.ToString("o")`).

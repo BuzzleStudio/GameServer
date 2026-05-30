@@ -776,6 +776,15 @@ public class ClaimAttachmentRequest
     public string? RequestId { get; set; }
 }
 
+public class ClaimAllAttachmentsRequest
+{
+    [JsonPropertyName("mailType")]
+    public string? MailType { get; set; }
+
+    [JsonPropertyName("requestId")]
+    public string? RequestId { get; set; }
+}
+
 public class DeleteMailRequest
 {
     [JsonPropertyName("mailId")]
@@ -862,6 +871,24 @@ public class ClaimAttachmentResponse
     public List<MailAttachment>? GrantedAttachments { get; set; }
 }
 
+public class ClaimAllAttachmentResult
+{
+    public string MailId { get; set; } = string.Empty;
+    public string MailType { get; set; } = string.Empty;
+    public bool AlreadyClaimed { get; set; }
+    public string? SkippedReason { get; set; }
+    public List<MailAttachment>? GrantedAttachments { get; set; }
+}
+
+public class ClaimAllAttachmentsResponse
+{
+    public int ClaimedCount { get; set; }
+    public int AlreadyClaimedCount { get; set; }
+    public int SkippedCount { get; set; }
+    public List<ClaimAllAttachmentResult> Results { get; set; } = new();
+    public List<MailAttachment> GrantedAttachments { get; set; } = new();
+}
+
 public class DeleteMailResponse
 {
     public string MailId { get; set; } = string.Empty;
@@ -911,4 +938,3 @@ public static class MailboxError
     public const string CannotExpireUserMail = "CannotExpireUserMail";
     public const string TargetMailboxFull = "TargetMailboxFull";
 }
-

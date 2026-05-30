@@ -127,6 +127,11 @@ In **CloudCode > Admin Mail > Manage**, admin REST actions do not require Play M
 to now, and `Delete Global` removes the matching `{ Mail }` object from `mails_all`.
 New Cloud Save writes omit mailbox `"Version"` fields.
 
+`ClaimAllAttachments` claims all visible, unexpired reward mails for the selected
+scope (`all`, `global`, or `user`) and returns aggregate granted attachments plus
+per-mail results. The Unity client exposes this through
+`BackpackCloudCodeService.CallClaimAllAttachmentsAsync`.
+
 ### Mailbox API Quick Reference
 
 | Function | Status | Input | Output |
@@ -136,6 +141,7 @@ New Cloud Save writes omit mailbox `"Version"` fields.
 | `GetMailbox` | Implemented, not yet committed | — | `{ success, mails[] }` |
 | `MarkMailRead` | Implemented, not yet committed | `{ mailIds[] }` | `{ success }` |
 | `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` | `{ success, claimedItems[] }` |
+| `ClaimAllAttachments` | Implemented | `{ mailType?, requestId? }` | `{ claimedCount, alreadyClaimedCount, skippedCount, results[], grantedAttachments[] }` |
 
 ### Quick Usage Example
 
