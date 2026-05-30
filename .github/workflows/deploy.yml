@@ -44,10 +44,19 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
             echo "DEPLOY_ENV=${{ secrets.UNITY_ENVIRONMENT_PRODUCTION }}" >> "$GITHUB_ENV"
+            echo "Target: production (UNITY_ENVIRONMENT_PRODUCTION)"
           else
             echo "DEPLOY_ENV=${{ secrets.UNITY_ENVIRONMENT }}" >> "$GITHUB_ENV"
+            echo "Target: staging (UNITY_ENVIRONMENT)"
           fi
           echo "Branch: ${{ github.ref_name }}"
+          # Fail fast if the environment secret is empty
+          if [ -z "$(grep DEPLOY_ENV= "$GITHUB_ENV" | cut -d= -f2-)" ]; then
+            echo "ERROR: DEPLOY_ENV is empty. The environment secret for this branch is not set."
+            echo "For release/* branches: set UNITY_ENVIRONMENT_PRODUCTION in GitHub Secrets."
+            echo "For staging: set UNITY_ENVIRONMENT in GitHub Secrets."
+            exit 1
+          fi
 
       # ------------------------------------------------------------------
       # 1. Checkout repository
