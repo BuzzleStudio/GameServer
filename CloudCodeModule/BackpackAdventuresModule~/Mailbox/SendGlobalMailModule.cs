@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -29,26 +31,21 @@ public class SendGlobalMailModule
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
         ValidateRequest(request.Subject, request.Body, request.Attachments);
 
-        var (index, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailIndexV2>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
-        index ??= new GlobalMailIndexV2();
+        var (mails, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        mails ??= new List<GlobalMailPayload>();
+        GlobalMailStore.RemoveExpired(mails);
 
-        if (!string.IsNullOrEmpty(request.DedupKey))
-        {
-            foreach (var existingRef in index.Refs)
-            {
-                if (existingRef.DedupKey == request.DedupKey)
-                    return new SendGlobalMailResponse { GlobalMailId = existingRef.MessageId, SentAt = existingRef.StartTime };
-            }
-        }
+        var mailId = CreateMailId(request.DedupKey);
+        var existing = GlobalMailStore.FindById(mails, mailId);
+        if (existing?.Mail != null)
+            return new SendGlobalMailResponse { GlobalMailId = existing.Mail.MessageId, SentAt = existing.Mail.StartTime.ToUniversalTime().ToString("o") };
 
-        index.Refs.RemoveAll(r => r.IsExpired());
-        if (index.Refs.Count >= MailboxConstants.MaxGlobalMailRefs)
+        if (mails.Count >= MailboxConstants.MaxGlobalMailsStored)
             throw new InvalidOperationException(MailboxError.MailboxFull);
 
         var startTime = DateTime.UtcNow;
         var endTime = ResolveEndTime(request.ExpiresAt);
         var sentAt = startTime.ToString("o");
-        var mailId = "gm_" + Guid.NewGuid().ToString("N")[..8];
         var targetUserIds = NormalizeTargetUserIds(request.TargetUserIds);
         var mail = MailSchemaHelper.CreateAdminMail(
             mailId,
@@ -59,20 +56,22 @@ public class SendGlobalMailModule
             endTime,
             request.Attachments);
 
-        await CloudSaveHelper.SetCustomDataAsync(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId), new GlobalMailPayload { Mail = mail });
-        index.Refs.Add(MailSchemaHelper.CreateGlobalRef(mail, request.DedupKey));
+        mails.Add(new GlobalMailPayload { Mail = mail });
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2, index, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, mails, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
-            var (freshIndex, freshLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailIndexV2>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
-            freshIndex ??= new GlobalMailIndexV2();
-            freshIndex.Refs.RemoveAll(r => r.IsExpired());
-            freshIndex.Refs.Add(MailSchemaHelper.CreateGlobalRef(mail, request.DedupKey));
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2, freshIndex, freshLock);
+            var (freshMails, freshLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+            freshMails ??= new List<GlobalMailPayload>();
+            GlobalMailStore.RemoveExpired(freshMails);
+            var freshExisting = GlobalMailStore.FindById(freshMails, mailId);
+            if (freshExisting?.Mail != null)
+                return new SendGlobalMailResponse { GlobalMailId = freshExisting.Mail.MessageId, SentAt = freshExisting.Mail.StartTime.ToUniversalTime().ToString("o") };
+            freshMails.Add(new GlobalMailPayload { Mail = mail });
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshMails, freshLock);
         }
 
         return new SendGlobalMailResponse { GlobalMailId = mailId, SentAt = sentAt };
@@ -116,5 +115,15 @@ public class SendGlobalMailModule
         if (!string.IsNullOrEmpty(expiresAt) && DateTime.TryParse(expiresAt, out var parsed))
             return parsed.ToUniversalTime();
         return null;
+    }
+
+    private static string CreateMailId(string? dedupKey)
+    {
+        if (string.IsNullOrWhiteSpace(dedupKey))
+            return "gm_" + Guid.NewGuid().ToString("N")[..8];
+
+        using var sha256 = SHA256.Create();
+        var bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(dedupKey.Trim()));
+        return "gm_" + Convert.ToHexString(bytes).ToLowerInvariant()[..8];
     }
 }

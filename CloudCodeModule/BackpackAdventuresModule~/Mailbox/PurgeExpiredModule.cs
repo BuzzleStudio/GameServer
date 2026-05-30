@@ -24,39 +24,19 @@ public class PurgeExpiredModule
     public async Task<PurgeExpiredResponse> PurgeExpiredAsync(PurgeExpiredRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
-        var (index, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailIndexV2>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
+        var (mails, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        mails ??= new List<GlobalMailPayload>();
 
-        if (index == null || index.Refs.Count == 0)
+        if (mails.Count == 0)
             return new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
 
-        var expiredRefs = new List<GlobalMailRef>();
-        var activeRefs = new List<GlobalMailRef>();
-        foreach (var mailRef in index.Refs)
-        {
-            if (mailRef.IsExpired()) expiredRefs.Add(mailRef);
-            else activeRefs.Add(mailRef);
-        }
-
-        if (expiredRefs.Count == 0)
+        var purgedCount = GlobalMailStore.RemoveExpired(mails);
+        if (purgedCount == 0)
             return new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") };
 
-        index.Refs = activeRefs;
         var purgedAt = DateTime.UtcNow.ToString("o");
-        await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2, index, writeLock);
+        await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, mails, writeLock);
 
-        var deleteTasks = new List<Task>();
-        foreach (var mailRef in expiredRefs)
-            deleteTasks.Add(CloudSaveHelper.DeleteCustomDataAsync(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailRef.MessageId)));
-
-        try
-        {
-            await Task.WhenAll(deleteTasks);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "PurgeExpired payload delete had failures");
-        }
-
-        return new PurgeExpiredResponse { PurgedCount = expiredRefs.Count, PurgedAt = purgedAt };
+        return new PurgeExpiredResponse { PurgedCount = purgedCount, PurgedAt = purgedAt };
     }
 }

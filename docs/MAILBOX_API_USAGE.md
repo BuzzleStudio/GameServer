@@ -38,8 +38,8 @@ await BackpackCloudCodeService.InitializeAsync();
 
 ### 1. `SendGlobalMail`
 
-Creates an admin mail payload in custom data (`mail_global_{mailId}`) and appends
-a lightweight ref to `global_mail_index`. `targetUserIds = null` broadcasts to all
+Creates an admin mail payload in custom data key `mails_all`. The stored value is
+an array of `{ "Mail": { ... } }` objects. `targetUserIds = null` broadcasts to all
 players; a non-empty `targetUserIds` list limits visibility to those players.
 
 **Status:** Implemented and deployed.
@@ -112,9 +112,9 @@ required:
 
 | Function | Purpose |
 |----------|---------|
-| `SetMailEndTime` | Sets `Mail.EndTime` and the matching `global_mail_index` ref `ExpireTime`; null clears expiration |
+| `SetMailEndTime` | Sets `Mail.EndTime` on the matching `{ Mail }` object in `mails_all`; null clears expiration |
 | `ExpireMail` | Soft expires a global mail by setting end time to current UTC |
-| `DeleteGlobalMail` | Hard deletes the global mail ref and `mail_global_{mailId}` payload |
+| `DeleteGlobalMail` | Hard deletes the matching `{ Mail }` object from `mails_all` |
 
 ---
 

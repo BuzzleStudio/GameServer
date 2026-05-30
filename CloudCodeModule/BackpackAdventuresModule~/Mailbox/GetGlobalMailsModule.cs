@@ -32,18 +32,16 @@ public class GetGlobalMailsModule
 
         var pageSize = request.PageSize <= 0 ? MailboxConstants.DefaultPageSize : request.PageSize;
         var stateTask = CloudSaveHelper.GetPlayerDataAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
-        var indexTask = CloudSaveHelper.GetCustomDataAsync<GlobalMailIndexV2>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
-        await Task.WhenAll(stateTask, indexTask);
+        var mailsTask = CloudSaveHelper.GetCustomDataAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        await Task.WhenAll(stateTask, mailsTask);
 
         var state = stateTask.Result ?? new PlayerGlobalMailState();
         MailSchemaHelper.MigrateLegacyMetadata(state);
-        var index = indexTask.Result;
+        var mails = mailsTask.Result ?? new List<GlobalMailPayload>();
 
-        List<MailItemDto> allMails;
-        if (index != null && index.Refs.Count > 0)
-            allMails = await BuildDtosFromV2Async(index, state, playerId);
-        else
-            allMails = await BuildDtosFromV1LegacyAsync(state);
+        var allMails = mails.Count > 0
+            ? BuildDtosFromAllMails(mails, state, playerId)
+            : await BuildDtosFromV1LegacyAsync(state);
 
         allMails.Sort((a, b) => string.Compare(b.MailInfo.StartTime, a.MailInfo.StartTime, StringComparison.Ordinal));
 
@@ -63,31 +61,15 @@ public class GetGlobalMailsModule
         };
     }
 
-    private async Task<List<MailItemDto>> BuildDtosFromV2Async(GlobalMailIndexV2 index, PlayerGlobalMailState state, string playerId)
+    private static List<MailItemDto> BuildDtosFromAllMails(List<GlobalMailPayload> mails, PlayerGlobalMailState state, string playerId)
     {
         var dtos = new List<MailItemDto>();
-        var payloadTasks = new List<Task<GlobalMailPayload?>>();
-        var validRefs = new List<GlobalMailRef>();
-
-        foreach (var reference in index.Refs)
+        foreach (var payload in mails)
         {
-            if (reference.IsExpired()) continue;
-            validRefs.Add(reference);
-            payloadTasks.Add(CloudSaveHelper.GetCustomDataAsync<GlobalMailPayload>(
-                _gameApiClient,
-                _context,
-                string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, reference.MessageId)));
-        }
-
-        await Task.WhenAll(payloadTasks);
-
-        for (var i = 0; i < validRefs.Count; i++)
-        {
-            var payload = payloadTasks[i].Result;
             if (payload?.Mail == null) continue;
             if (!payload.Mail.IsAvailable) continue;
             if (!MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId)) continue;
-            var metadata = MailSchemaHelper.FindMetadata(state, validRefs[i].MessageId);
+            var metadata = MailSchemaHelper.FindMetadata(state, payload.Mail.MessageId);
             if (metadata?.IsDelete == true) continue;
             dtos.Add(MailSchemaHelper.ToMailItemDto(payload.Mail, metadata));
         }

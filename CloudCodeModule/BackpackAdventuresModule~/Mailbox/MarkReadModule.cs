@@ -57,7 +57,8 @@ public class MarkReadModule
 
     private async Task MarkGlobalReadAsync(string playerId, string mailId)
     {
-        var payload = await CloudSaveHelper.GetCustomDataAsync<GlobalMailPayload>(_gameApiClient, _context, string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId));
+        var mails = await CloudSaveHelper.GetCustomDataAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        var payload = GlobalMailStore.FindById(mails, mailId);
         if (payload?.Mail != null && !MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId))
             throw new InvalidOperationException(MailboxError.MailNotFound);
 
@@ -133,10 +134,8 @@ public class MarkReadModule
 
     private async Task PruneDeadGlobalStateIdsAsync(PlayerGlobalMailState state)
     {
-        var index = await CloudSaveHelper.GetCustomDataAsync<GlobalMailIndexV2>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
-        if (index == null) return;
-        var liveIds = new HashSet<string>();
-        foreach (var reference in index.Refs) liveIds.Add(reference.MessageId);
+        var mails = await CloudSaveHelper.GetCustomDataAsync<List<GlobalMailPayload>>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        var liveIds = GlobalMailStore.LiveIds(mails);
         MailSchemaHelper.MigrateLegacyMetadata(state);
         state.Mails.RemoveAll(m => !liveIds.Contains(m.MessageId));
     }

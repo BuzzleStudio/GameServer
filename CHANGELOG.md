@@ -8,11 +8,19 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
+### Changed: Admin mail storage uses mails_all
+
+**What changed:** Admin global and targeted mail no longer writes split custom-data keys (`global_mail_index` + `mail_global_{mailId}`). New sends write all admin mail payloads into the custom-data key `mails_all` as an array of `{ "Mail": { ... } }` objects.
+
+**Behavior update:** `GetGlobalMails`, `ClaimAttachment`, `MarkMailRead`, `DeleteMail`, `ExpireMail`, `SetMailEndTime`, `DeleteGlobalMail`, and `PurgeExpired` now read/update the matching object inside `mails_all`. Per-player state is still stored in `mailbox_global_state`, and user-to-user `GiftMail` still uses `mailbox_user_items`.
+
+**Dedup update:** `DedupKey` remains supported without adding a field to `mails_all`; when a dedup key is provided, the server derives a stable `MessageId` from that key and deduplicates by `MessageId`.
+
 ### Changed: Admin Manage Mail supports EndTime update and hard delete
 
 **What changed:** `AdminMailWindow` Manage Mail now supports project-scoped REST admin actions without Play Mode: `Set EndTime`, `Expire Global`, and `Delete Global`.
 
-**Backend update:** Added `SetMailEndTime` to update `Mail.EndTime` and `global_mail_index.Refs[].ExpireTime` for a global mail ID. Added `DeleteGlobalMail` to remove the global index ref and delete the `mail_global_{mailId}` payload from Cloud Save. `ExpireMail` remains a soft expire operation that sets the end time to now.
+**Backend update:** Added `SetMailEndTime` to update `Mail.EndTime` for a global mail ID. Added `DeleteGlobalMail` to remove the matching `{ Mail }` object from Cloud Save. `ExpireMail` remains a soft expire operation that sets the end time to now.
 
 **Cloud Save JSON update:** Removed mailbox storage `Version` properties from the server models, so new Cloud Save writes no longer include `"Version"` in mailbox payload/index/state JSON.
 
@@ -28,7 +36,7 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 **What changed:** Fixed the Cloud Code module compile error in `ClaimAttachmentModule` by using the `Mail.IsExpired` property correctly after the admin mail payload schema changed from `MailItemDto` to `Mail`.
 
-**Storage contract update:** Admin-authored mail now writes refs to `global_mail_index`, full payloads to `mail_global_{mailId}`, and per-player state to `mailbox_global_state`. `TargetUserIds = null` means broadcast; a non-empty `TargetUserIds` list means targeted admin mail. User-to-user `GiftMail` remains in `mailbox_user_items`.
+**Storage contract update:** Superseded by the later `mails_all` storage change. Admin-authored mail now lives in `mails_all`, while per-player state remains in `mailbox_global_state`. `TargetUserIds = null` means broadcast; a non-empty `TargetUserIds` list means targeted admin mail. User-to-user `GiftMail` remains in `mailbox_user_items`.
 
 **Docs updated:** `README.md` and `docs/API_CONTRACTS.md` now describe the current Cloud Save keys and targeted admin mail behavior.
 

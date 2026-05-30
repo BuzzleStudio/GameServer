@@ -34,13 +34,13 @@ The claim operation uses a read-then-write pattern: read `mailbox_global_state` 
 
 ---
 
-## 4. Cloud Save Size Limits on global_mail_index
+## 4. Cloud Save Size Limits on mails_all
 
-Cloud Save limits individual key values to approximately 5 MB of JSON. The `global_mail_index` key holds the entire broadcast mail list in one blob.
+Cloud Save limits individual key values to approximately 5 MB of JSON. The `mails_all` key holds the entire admin mail list in one blob.
 
 **Consequence:** A large number of global mails (hundreds with attachments) can approach or exceed the limit. `SendGlobalMail` will throw when the limit is hit.
 
-**No cleanup is implemented.** Expired mails are filtered at read time (`GetMailbox`) but are never deleted from Cloud Save. The key only grows.
+**Cleanup is explicit.** Expired mails are filtered at read time and can be removed from `mails_all` through `PurgeExpired` or `DeleteGlobalMail`.
 
 ---
 
@@ -70,7 +70,7 @@ the Admin Mail editor's `Use UTC time` mode or send a valid ISO 8601 UTC string.
 
 ## 8. No Rate Limiting
 
-No per-player or global rate limit exists on any mailbox function. Combined with the lack of admin authorization (#1), this is a denial-of-service vector on the `global_mail_index` Cloud Save key.
+No per-player or global rate limit exists on any mailbox function. Combined with the lack of admin authorization (#1), this is a denial-of-service vector on the `mails_all` Cloud Save key.
 
 ---
 
