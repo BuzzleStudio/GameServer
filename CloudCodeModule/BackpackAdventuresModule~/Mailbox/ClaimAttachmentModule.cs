@@ -64,7 +64,7 @@ public class ClaimAttachmentModule
             throw new InvalidOperationException(MailboxError.MailNotFound);
         if (metadata.IsClaim)
             return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
-        if (payload.Mail.IsExpired())
+        if (payload.Mail.IsExpired)
             throw new InvalidOperationException(MailboxError.MailExpired);
         if (!payload.Mail.IsAvailable || !MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId))
             throw new InvalidOperationException(MailboxError.MailNotFound);

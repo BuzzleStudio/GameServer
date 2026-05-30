@@ -8,6 +8,14 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
+### Fixed: Admin mailbox global storage deploy compile issue
+
+**What changed:** Fixed the Cloud Code module compile error in `ClaimAttachmentModule` by using the `Mail.IsExpired` property correctly after the admin mail payload schema changed from `MailItemDto` to `Mail`.
+
+**Storage contract update:** Admin-authored mail now writes refs to `global_mail_index`, full payloads to `mail_global_{mailId}`, and per-player state to `mailbox_global_state`. `TargetUserIds = null` means broadcast; a non-empty `TargetUserIds` list means targeted admin mail. User-to-user `GiftMail` remains in `mailbox_user_items`.
+
+**Docs updated:** `README.md` and `docs/API_CONTRACTS.md` now describe the current Cloud Save keys and targeted admin mail behavior.
+
 ### Added: Mailbox system — Cloud Save-backed in-game mail
 
 ---
