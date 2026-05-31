@@ -8,6 +8,84 @@ Format: each entry names the exact function, file, or class changed, the busines
 
 ## [Unreleased] — feature/mailbox-cloudsave-system
 
+### Changed: Cloud Code functions return ApiResponse envelopes
+
+**What changed:** Added shared `ApiResponse` and `ApiResponse<T>` contracts. Every public `[CloudCodeFunction]` now returns `{ StatusCode, Message, Data }` with the endpoint-specific payload under `Data`.
+
+**Client impact:** `BackpackCloudCodeService` unwraps `Data` internally, so existing wrapper method return types stay the same. Direct `CloudCodeService.Instance.CallModuleEndpointAsync` callers can request either `ApiResponse` for status-only handling or `ApiResponse<TData>` for typed payload access.
+
+**Test update:** The fake EditMode backend now returns wrapped responses to match the server contract while the service wrapper preserves previous test-facing DTOs.
+
+### Changed: ClaimAttachment accepts raw mail id requests
+
+**What changed:** `ClaimAttachment` now normalizes both object requests (`{ mailId, mailType?, requestId? }`) and raw string requests (`"gm_..."`) into `ClaimAttachmentRequest`.
+
+**Client impact:** Existing `BackpackCloudCodeService.CallClaimAttachmentAsync` calls still use the object request. Direct `CloudCodeService.Instance.CallModuleEndpointAsync` callers may pass `["request"] = messageId` when they only need to send a mail id.
+
+**Test update:** Fake backend dispatch supports the raw string request and `P09A_ClaimAttachment_StringRequest_Global_GrantsReward` covers the compact direct-call form.
+
+### Changed: Global mail player metadata JSON names
+
+**What changed:** Per-player global mail state now writes Cloud Save key `mail_meta_state` as `{ "MailMetadata": [...] }`. Metadata items serialize claim/delete flags as `IsClaimed` and `IsDeleted` instead of the older `IsClaim` and `IsDelete` names.
+
+**Backward compatible:** Existing records using root `Mails`, `IsClaim`, or `IsDelete` still deserialize. The next metadata write normalizes them to `MailMetadata`, `IsClaimed`, and `IsDeleted`.
+
+**Test update:** Mail sent through `CallAdminSendUserMail` is targeted admin mail stored in the global admin-mail store, so tests now assert visibility and claim state through `GetGlobalMails`. The old user-mail reward eviction test is explicit-only because admin targeted mail no longer fills `mailbox_user_items`.
+
+### Added: ClaimAllAttachments mailbox API
+
+**What changed:** Added Cloud Code function `ClaimAllAttachments` in `ClaimAttachmentModule`. It claims all visible, unexpired reward mails for the current player across `all`, `global`, or `user` scope, reusing the existing single-mail claim logic for reward grants and claim/read state updates.
+
+**Client update:** Added `ClaimAllAttachmentsRequest`, `ClaimAllAttachmentResult`, `ClaimAllAttachmentsResponse`, and `BackpackCloudCodeService.CallClaimAllAttachmentsAsync`. The Mailbox editor window now has a `Claim All` action for the selected scope. The fake EditMode backend supports the endpoint and a positive test covers user + global reward claims.
+
+**Known risk:** The placeholder Cloud Save wallet grant still does not provide true external Economy idempotency. The bulk endpoint derives stable per-mail request IDs, but the underlying grant service is still the same Cloud Save-backed implementation used by `ClaimAttachment`.
+
+### Changed: mails_all wraps mails under a "Mails" property
+
+**What changed:** The `mails_all` Cloud Save value is now an object `{ "Mails": [ … ] }` whose array elements are bare mail objects (`{ "MessageId": …, "Title": …, … }`). Introduced `GlobalMailCollection` (with `GlobalMailCollectionConverter`) as the stored type; the 8 mailbox modules read/write it and operate on `.Mails`. Inner elements stay bare via `GlobalMailPayloadConverter`.
+
+**Backward compatible (in-place migration):** The converter reads ALL prior shapes — a legacy raw array `[ … ]` is wrapped under `Mails` in order, the new `{ "Mails": [ … ] }` object reads directly, and per-element `{ "Mail": { … } }` wrappers still deserialize. Mail fields are preserved exactly; nothing is dropped, merged, or mapped to `IsRead`/`IsClaim`/`IsDelete` state. The next write normalizes the key to `{ "Mails": [ … ] }`. A foreign/malformed value reads as empty and self-heals on the next write. Verified by round-trip test (legacy-array → wrapped, multi-mail order preserved, wrapped round-trip, foreign→empty, legacy per-element wrapper).
+
+### Fixed: Malformed Cloud Save value no longer 422s every mailbox endpoint
+
+**What changed:** `CloudSaveHelper.DeserializeValue<T>` now shape-checks the stored JSON before deserializing and returns `default` (instead of throwing `JsonException`) when the value cannot map to `T` — for example an object `{…}` stored under a key the code reads as `List<GlobalMailPayload>` (array `[…]`).
+
+**Why:** A foreign/stale value under the shared, project-wide `mails_all` key caused `JsonException` (`Path: $`, byte 1) on read, which Cloud Code surfaced as **HTTP 422**. Because every admin/mailbox endpoint (`SendGlobalMail`, `SendUserMail`, `GetGlobalMails`, `PurgeExpired`, `ExpireMail`, `DeleteMail`, `ClaimAttachment`, `MarkMailRead`) reads that one key, a single bad value bricked the entire mailbox.
+
+**Behavior update:** A malformed shared-key value is now treated as "no data yet." The next write (with the still-valid `writeLock`) overwrites and self-heals the key with the correct shape. Field-level data on a matching shape is preserved unchanged. No client change required.
+
+### Changed: Admin mail storage uses mails_all
+
+**What changed:** Admin global and targeted mail no longer writes split custom-data keys (`global_mail_index` + `mail_global_{mailId}`). New sends write all admin mail payloads into the custom-data key `mails_all` as an array of `{ "Mail": { ... } }` objects.
+
+**Behavior update:** `GetGlobalMails`, `ClaimAttachment`, `MarkMailRead`, `DeleteMail`, `ExpireMail`, `SetMailEndTime`, `DeleteGlobalMail`, and `PurgeExpired` now read/update the matching object inside `mails_all`. Per-player state is still stored in `mail_meta_state`, and user-to-user `GiftMail` still uses `mailbox_user_items`.
+
+**Dedup update:** `DedupKey` remains supported without adding a field to `mails_all`; when a dedup key is provided, the server derives a stable `MessageId` from that key and deduplicates by `MessageId`.
+
+### Changed: Admin Manage Mail supports EndTime update and hard delete
+
+**What changed:** `AdminMailWindow` Manage Mail now supports project-scoped REST admin actions without Play Mode: `Set EndTime`, `Expire Global`, and `Delete Global`.
+
+**Backend update:** Added `SetMailEndTime` to update `Mail.EndTime` for a global mail ID. Added `DeleteGlobalMail` to remove the matching `{ Mail }` object from Cloud Save. `ExpireMail` remains a soft expire operation that sets the end time to now.
+
+**Cloud Save JSON update:** Removed mailbox storage `Version` properties from the server models, so new Cloud Save writes no longer include `"Version"` in mailbox payload/index/state JSON.
+
+### Changed: Admin mail EndTime can be null
+
+**What changed:** `Mail.EndTime` is now nullable for admin-authored global and targeted mail. `SendGlobalMail` and the compatibility `SendUserMail` wrapper no longer default a blank `expiresAt` to seven days; blank/null `expiresAt` stores `EndTime = null`.
+
+**Editor update:** `AdminMailWindow` now exposes two explicit options for `MailInfo.EndTime`: `Null / no expiration` and `Use UTC time`. When UTC time is selected, the editor provides separate date/time fields plus +1d/+7d/+30d presets and validates the input before sending.
+
+**Docs updated:** `README.md`, `docs/API_CONTRACTS.md`, `docs/MAILBOX_API_USAGE.md`, and `docs/KNOWN_LIMITATIONS.md` now describe nullable `EndTime` behavior.
+
+### Fixed: Admin mailbox global storage deploy compile issue
+
+**What changed:** Fixed the Cloud Code module compile error in `ClaimAttachmentModule` by using the `Mail.IsExpired` property correctly after the admin mail payload schema changed from `MailItemDto` to `Mail`.
+
+**Storage contract update:** Superseded by the later `mails_all` storage change. Admin-authored mail now lives in `mails_all`, while per-player state remains in `mail_meta_state`. `TargetUserIds = null` means broadcast; a non-empty `TargetUserIds` list means targeted admin mail. User-to-user `GiftMail` remains in `mailbox_user_items`.
+
+**Docs updated:** `README.md` and `docs/API_CONTRACTS.md` now describe the current Cloud Save keys and targeted admin mail behavior.
+
 ### Added: Mailbox system — Cloud Save-backed in-game mail
 
 ---

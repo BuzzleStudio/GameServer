@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -7,26 +8,18 @@ using Unity.Services.CloudCode.Core;
 
 namespace BackpackAdventures.CloudCode;
 
-/// <summary>
-/// Grants a mail attachment to the calling player.
-/// Per §5.4:
-///   1. Check idempotency cache.
-///   2. Read state with writeLock.
-///   3. Validate not-already-claimed, not-expired, has-attachments.
-///   4. Call IRewardGrantService BEFORE writing claimed=true.
-///   5. Write claimed=true under writeLock.
-///   6. Store idempotency entry (best-effort).
-/// </summary>
 public class ClaimAttachmentModule
 {
+    private static readonly JsonSerializerOptions RequestJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly IExecutionContext _context;
     private readonly IGameApiClient _gameApiClient;
     private readonly ILogger<ClaimAttachmentModule> _logger;
 
-    public ClaimAttachmentModule(
-        IExecutionContext context,
-        IGameApiClient gameApiClient,
-        ILogger<ClaimAttachmentModule> logger)
+    public ClaimAttachmentModule(IExecutionContext context, IGameApiClient gameApiClient, ILogger<ClaimAttachmentModule> logger)
     {
         _context = context;
         _gameApiClient = gameApiClient;
@@ -34,240 +27,337 @@ public class ClaimAttachmentModule
     }
 
     [CloudCodeFunction("ClaimAttachment")]
-    public async Task<ClaimAttachmentResponse> ClaimAttachmentAsync(ClaimAttachmentRequest request)
+    public async Task<ApiResponse<ClaimAttachmentResponse>> ClaimAttachmentAsync(ClaimAttachmentRequest request)
     {
+        var claimRequest = request ?? new ClaimAttachmentRequest();
         var playerId = _context.PlayerId ?? string.Empty;
-        _logger.LogInformation("ClaimAttachment called for {PlayerId}, mailId={MailId}, type={MailType}",
-            playerId, request.MailId, request.MailType);
-
-        if (string.IsNullOrWhiteSpace(request.MailId))
+        if (string.IsNullOrWhiteSpace(claimRequest.MailId))
             throw new ArgumentException(MailboxError.InvalidInput);
 
-        var requestId = string.IsNullOrEmpty(request.RequestId) ? null : request.RequestId;
-
-        // Step 1: Check idempotency cache
+        var requestId = string.IsNullOrEmpty(claimRequest.RequestId) ? null : claimRequest.RequestId;
         if (requestId != null)
         {
-            var cached = await IdempotencyService.TryGetCachedResponseAsync(
-                _gameApiClient, _context, playerId, requestId, "ClaimAttachment", request.MailId);
+            var cached = await IdempotencyService.TryGetCachedResponseAsync(_gameApiClient, _context, playerId, requestId, "ClaimAttachment", claimRequest.MailId);
             if (cached != null)
-            {
-                _logger.LogInformation("ClaimAttachment: idempotent replay for requestId={RequestId}", requestId);
-                return new ClaimAttachmentResponse
-                {
-                    Success        = true,
-                    MailId         = request.MailId,
-                    AlreadyClaimed = false
-                };
-            }
+                return ApiResponse<ClaimAttachmentResponse>.Ok(new ClaimAttachmentResponse { MailId = claimRequest.MailId, AlreadyClaimed = false });
         }
 
-        var isGlobal = string.Equals(request.MailType, "global", StringComparison.OrdinalIgnoreCase);
+        ClaimAttachmentResponse result = IsGlobalMail(claimRequest.MailId, claimRequest.MailType)
+            ? await ClaimGlobalAttachmentAsync(playerId, claimRequest.MailId, requestId)
+            : await ClaimUserAttachmentAsync(playerId, claimRequest.MailId, requestId);
 
-        ClaimAttachmentResponse result;
-        if (isGlobal)
-            result = await ClaimGlobalAttachmentAsync(playerId, request.MailId, requestId);
-        else
-            result = await ClaimUserAttachmentAsync(playerId, request.MailId, requestId);
-
-        // Step 6: Store idempotency entry (best-effort)
         if (requestId != null && !result.AlreadyClaimed)
-        {
-            try
-            {
-                await IdempotencyService.StoreResponseAsync(
-                    _gameApiClient, _context, playerId, requestId, "ClaimAttachment", request.MailId,
-                    new { success = true, alreadyClaimed = false });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "ClaimAttachment: failed to store idempotency entry (non-fatal)");
-            }
-        }
+            await IdempotencyService.StoreResponseAsync(_gameApiClient, _context, playerId, requestId, "ClaimAttachment", claimRequest.MailId, new { alreadyClaimed = false });
 
-        return result;
+        return ApiResponse<ClaimAttachmentResponse>.Ok(result);
     }
 
-    // ── Private helpers ──────────────────────────────────────────────────────
-
-    private async Task<ClaimAttachmentResponse> ClaimGlobalAttachmentAsync(
-        string playerId, string mailId, string? requestId)
+    [CloudCodeFunction("ClaimAllAttachments")]
+    public async Task<ApiResponse<ClaimAllAttachmentsResponse>> ClaimAllAttachmentsAsync(ClaimAllAttachmentsRequest request)
     {
-        // Load the payload from v2 key
-        var payload = await CloudSaveHelper.GetCustomDataAsync<GlobalMailPayload>(
-            _gameApiClient, _context,
-            string.Format(MailboxConstants.KeyGlobalMailPayloadFmt, mailId));
+        var playerId = _context.PlayerId ?? string.Empty;
+        var scope = NormalizeClaimAllScope(request?.MailType);
+        var response = new ClaimAllAttachmentsResponse();
 
-        if (payload == null)
+        if (scope == "global" || scope == "all")
+            await ClaimAllGlobalAttachmentsAsync(playerId, request?.RequestId, response);
+
+        if (scope == "user" || scope == "all")
+            await ClaimAllUserAttachmentsAsync(playerId, request?.RequestId, response);
+
+        return ApiResponse<ClaimAllAttachmentsResponse>.Ok(response);
+    }
+
+    private static ClaimAttachmentRequest NormalizeClaimAttachmentRequest(object? request)
+    {
+        if (request == null)
+            return new ClaimAttachmentRequest();
+
+        if (request is ClaimAttachmentRequest typedRequest)
+            return typedRequest;
+
+        if (request is string mailId)
+            return new ClaimAttachmentRequest { MailId = mailId };
+
+        if (request is JsonElement json)
+            return NormalizeClaimAttachmentRequest(json);
+
+        try
         {
-            // Fallback: check v1 legacy index for back-compat
-            var v1Index = await CloudSaveHelper.GetCustomDataAsync<GlobalMailIndex>(
-                _gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex);
+            var serialized = JsonSerializer.Serialize(request, RequestJsonOptions);
+            var parsed = JsonSerializer.Deserialize<ClaimAttachmentRequest>(serialized, RequestJsonOptions);
+            if (parsed != null)
+                return parsed;
+        }
+        catch (JsonException)
+        {
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        throw new ArgumentException(MailboxError.InvalidInput);
+    }
+
+    private static ClaimAttachmentRequest NormalizeClaimAttachmentRequest(JsonElement request)
+    {
+        if (request.ValueKind == JsonValueKind.String)
+            return new ClaimAttachmentRequest { MailId = request.GetString() ?? string.Empty };
+
+        if (request.ValueKind == JsonValueKind.Object)
+        {
+            var parsed = request.Deserialize<ClaimAttachmentRequest>(RequestJsonOptions);
+            return parsed ?? new ClaimAttachmentRequest();
+        }
+
+        throw new ArgumentException(MailboxError.InvalidInput);
+    }
+
+    private async Task ClaimAllGlobalAttachmentsAsync(string playerId, string? requestId, ClaimAllAttachmentsResponse response)
+    {
+        var collection = await CloudSaveHelper.GetCustomDataAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        if (collection?.Mails == null) return;
+
+        var candidateIds = new List<string>();
+        foreach (var payload in collection.Mails)
+        {
+            var mail = payload?.Mail;
+            if (mail == null) continue;
+            if (string.IsNullOrEmpty(mail.MessageId)) continue;
+            if (!mail.IsAvailable) continue;
+            if (!MailSchemaHelper.IsVisibleToPlayer(mail, playerId)) continue;
+            if (!MailSchemaHelper.HasAttachments(mail)) continue;
+            candidateIds.Add(mail.MessageId);
+        }
+
+        foreach (var mailId in candidateIds)
+            await ClaimOneForClaimAllAsync(playerId, mailId, "global", BuildPerMailRequestId(requestId, mailId), response);
+    }
+
+    private async Task ClaimAllUserAttachmentsAsync(string playerId, string? requestId, ClaimAllAttachmentsResponse response)
+    {
+        var mailbox = await CloudSaveHelper.GetPlayerDataAsync<PlayerUserMailbox>(
+            _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
+        if (mailbox?.Mails == null) return;
+
+        var candidateIds = new List<string>();
+        foreach (var mail in mailbox.Mails)
+        {
+            if (mail == null) continue;
+            if (string.IsNullOrEmpty(mail.MessageId)) continue;
+            if (mail.IsExpired()) continue;
+            if (!MailSchemaHelper.HasAttachments(mail)) continue;
+            candidateIds.Add(mail.MessageId);
+        }
+
+        foreach (var mailId in candidateIds)
+            await ClaimOneForClaimAllAsync(playerId, mailId, "user", BuildPerMailRequestId(requestId, mailId), response);
+    }
+
+    private async Task ClaimOneForClaimAllAsync(
+        string playerId,
+        string mailId,
+        string mailType,
+        string? requestId,
+        ClaimAllAttachmentsResponse response)
+    {
+        try
+        {
+            var result = mailType == "global"
+                ? await ClaimGlobalAttachmentAsync(playerId, mailId, requestId)
+                : await ClaimUserAttachmentAsync(playerId, mailId, requestId);
+            AddClaimAllResult(response, mailType, result);
+        }
+        catch (InvalidOperationException ex) when (IsClaimAllSkippable(ex))
+        {
+            response.SkippedCount++;
+            response.Results.Add(new ClaimAllAttachmentResult
+            {
+                MailId = mailId,
+                MailType = mailType,
+                SkippedReason = ResolveMailboxError(ex.Message)
+            });
+        }
+    }
+
+    private async Task<ClaimAttachmentResponse> ClaimGlobalAttachmentAsync(string playerId, string mailId, string? requestId)
+    {
+        var collection = await CloudSaveHelper.GetCustomDataAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        var payload = GlobalMailStore.FindById(collection?.Mails, mailId);
+        if (payload?.Mail == null)
+        {
+            var v1Index = await CloudSaveHelper.GetCustomDataAsync<GlobalMailIndex>(_gameApiClient, _context, MailboxConstants.KeyGlobalMailIndex);
             var v1Mail = v1Index?.Mails.Find(m => m.GlobalMailId == mailId);
             if (v1Mail == null) throw new InvalidOperationException(MailboxError.MailNotFound);
-            return await ClaimGlobalAttachmentFromV1Async(playerId, v1Mail, requestId);
+            return await ClaimLegacyGlobalAttachmentAsync(playerId, v1Mail, requestId);
         }
 
-        // Step 2: Read player global state with writeLock
-        var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(
-            _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
+        var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
         state ??= new PlayerGlobalMailState();
-
-        // Already claimed — return immediately without Economy call
-        if (state.ClaimedIds.Contains(mailId))
-            return new ClaimAttachmentResponse { Success = true, MailId = mailId, AlreadyClaimed = true };
-
-        // Step 3: Validate
-        if (payload.IsExpired())
+        MailSchemaHelper.MigrateLegacyMetadata(state);
+        var metadata = MailSchemaHelper.GetOrCreateMetadata(state, mailId);
+        if (metadata.IsDelete)
+            throw new InvalidOperationException(MailboxError.MailNotFound);
+        if (metadata.IsClaim)
+            return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
+        if (payload.Mail.IsExpired)
             throw new InvalidOperationException(MailboxError.MailExpired);
-
-        if (payload.Attachments == null || payload.Attachments.Count == 0)
+        if (!payload.Mail.IsAvailable || !MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId))
+            throw new InvalidOperationException(MailboxError.MailNotFound);
+        if (!MailSchemaHelper.HasAttachments(payload.Mail))
             throw new InvalidOperationException(MailboxError.NoAttachment);
 
-        // Step 4: Grant BEFORE writing claimed=true
-        await GrantRewardsAsync(playerId, mailId, payload.Attachments, requestId);
-
-        // Step 5: Write claimed=true under writeLock
-        state.ClaimedIds.Add(mailId);
-        if (!state.ReadIds.Contains(mailId)) state.ReadIds.Add(mailId);
+        var attachments = MailSchemaHelper.ToAttachments(payload.Mail.Attachments);
+        await GrantRewardsAsync(playerId, mailId, attachments ?? new List<MailAttachment>(), requestId);
+        metadata.IsClaim = true;
+        metadata.IsRead = true;
 
         try
         {
-            await CloudSaveHelper.SetPlayerDataAsync(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
+            await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
-            // §5.4 step 9: grant issued but state write failed — at-most-once tradeoff
-            _logger.LogWarning(
-                "ClaimAttachment (global): write conflict after grant for mailId={MailId} — returning AlreadyClaimed (at-most-once tradeoff)",
-                mailId);
-            return new ClaimAttachmentResponse { Success = true, MailId = mailId, AlreadyClaimed = true };
+            return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
         }
 
-        _logger.LogInformation("Global attachment claimed for mailId={MailId} by {PlayerId}", mailId, playerId);
-        return new ClaimAttachmentResponse
-        {
-            Success            = true,
-            MailId             = mailId,
-            AlreadyClaimed     = false,
-            GrantedAttachments = payload.Attachments
-        };
+        return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = false, GrantedAttachments = attachments };
     }
 
-    private async Task<ClaimAttachmentResponse> ClaimGlobalAttachmentFromV1Async(
-        string playerId, GlobalMailItem v1Mail, string? requestId)
+    private async Task<ClaimAttachmentResponse> ClaimLegacyGlobalAttachmentAsync(string playerId, GlobalMailItem mail, string? requestId)
     {
-        var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(
-            _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
+        var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
         state ??= new PlayerGlobalMailState();
-
-        if (state.ClaimedIds.Contains(v1Mail.GlobalMailId))
-            return new ClaimAttachmentResponse { Success = true, MailId = v1Mail.GlobalMailId, AlreadyClaimed = true };
-
-        if (v1Mail.IsExpired())
-            throw new InvalidOperationException(MailboxError.MailExpired);
-
-        if (v1Mail.Attachments == null || v1Mail.Attachments.Count == 0)
-            throw new InvalidOperationException(MailboxError.NoAttachment);
-
-        await GrantRewardsAsync(playerId, v1Mail.GlobalMailId, v1Mail.Attachments, requestId);
-
-        state.ClaimedIds.Add(v1Mail.GlobalMailId);
-        if (!state.ReadIds.Contains(v1Mail.GlobalMailId)) state.ReadIds.Add(v1Mail.GlobalMailId);
-
-        try
-        {
-            await CloudSaveHelper.SetPlayerDataAsync(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
-        }
-        catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
-        {
-            _logger.LogWarning("ClaimAttachment (v1 global): write conflict after grant — returning AlreadyClaimed");
-            return new ClaimAttachmentResponse { Success = true, MailId = v1Mail.GlobalMailId, AlreadyClaimed = true };
-        }
-
-        return new ClaimAttachmentResponse
-        {
-            Success            = true,
-            MailId             = v1Mail.GlobalMailId,
-            AlreadyClaimed     = false,
-            GrantedAttachments = v1Mail.Attachments
-        };
-    }
-
-    private async Task<ClaimAttachmentResponse> ClaimUserAttachmentAsync(
-        string playerId, string mailId, string? requestId)
-    {
-        // Step 2: Read user mailbox with writeLock
-        var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(
-            _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
-        mailbox ??= new PlayerUserMailbox();
-
-        var mail = mailbox.Mails.Find(m => m.MailId == mailId);
-        if (mail == null) throw new InvalidOperationException(MailboxError.MailNotFound);
-
-        // Already claimed — return immediately without Economy call
-        if (mail.AttachmentClaimed)
-            return new ClaimAttachmentResponse { Success = true, MailId = mailId, AlreadyClaimed = true };
-
-        // Step 3: Validate
+        MailSchemaHelper.MigrateLegacyMetadata(state);
+        var metadata = MailSchemaHelper.GetOrCreateMetadata(state, mail.GlobalMailId);
+        if (metadata.IsDelete)
+            throw new InvalidOperationException(MailboxError.MailNotFound);
+        if (metadata.IsClaim)
+            return new ClaimAttachmentResponse { MailId = mail.GlobalMailId, AlreadyClaimed = true };
         if (mail.IsExpired())
             throw new InvalidOperationException(MailboxError.MailExpired);
-
         if (mail.Attachments == null || mail.Attachments.Count == 0)
             throw new InvalidOperationException(MailboxError.NoAttachment);
 
-        var attachments = new List<MailAttachment>(mail.Attachments);
+        await GrantRewardsAsync(playerId, mail.GlobalMailId, mail.Attachments, requestId);
+        metadata.IsClaim = true;
+        metadata.IsRead = true;
+        await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
+        return new ClaimAttachmentResponse { MailId = mail.GlobalMailId, AlreadyClaimed = false, GrantedAttachments = mail.Attachments };
+    }
 
-        // Step 4: Grant BEFORE writing claimed=true
-        await GrantRewardsAsync(playerId, mailId, attachments, requestId);
+    private async Task<ClaimAttachmentResponse> ClaimUserAttachmentAsync(string playerId, string mailId, string? requestId)
+    {
+        var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(_gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
+        mailbox ??= new PlayerUserMailbox();
+        var mail = mailbox.Mails.Find(m => m.MessageId == mailId);
+        if (mail == null) throw new InvalidOperationException(MailboxError.MailNotFound);
+        if (mail.MailMetaData.IsClaimed)
+            return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
+        if (mail.IsExpired())
+            throw new InvalidOperationException(MailboxError.MailExpired);
+        if (!MailSchemaHelper.HasAttachments(mail))
+            throw new InvalidOperationException(MailboxError.NoAttachment);
 
-        // Step 5: Write claimed=true under writeLock
-        mail.AttachmentClaimed = true;
-        mail.IsRead = true;
+        var attachments = MailSchemaHelper.ToAttachments(mail.MailInfo.Attachment);
+        await GrantRewardsAsync(playerId, mailId, attachments ?? new List<MailAttachment>(), requestId);
+        mail.MailMetaData.IsClaimed = true;
+        mail.MailMetaData.IsRead = true;
 
         try
         {
-            await CloudSaveHelper.SetPlayerDataAsync(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
+            await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
-            // §5.4 step 9: at-most-once tradeoff
-            _logger.LogWarning(
-                "ClaimAttachment (user): write conflict after grant for mailId={MailId} — returning AlreadyClaimed",
-                mailId);
-            return new ClaimAttachmentResponse { Success = true, MailId = mailId, AlreadyClaimed = true };
+            return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = true };
         }
 
-        _logger.LogInformation("User attachment claimed for mailId={MailId} by {PlayerId}", mailId, playerId);
-        return new ClaimAttachmentResponse
-        {
-            Success            = true,
-            MailId             = mailId,
-            AlreadyClaimed     = false,
-            GrantedAttachments = attachments
-        };
+        return new ClaimAttachmentResponse { MailId = mailId, AlreadyClaimed = false, GrantedAttachments = attachments };
     }
 
-    private async Task GrantRewardsAsync(
-        string playerId, string mailId,
-        IReadOnlyList<MailAttachment> attachments,
-        string? requestId)
+    private async Task GrantRewardsAsync(string playerId, string mailId, IReadOnlyList<MailAttachment> attachments, string? requestId)
     {
-        var idempotencyKey = string.IsNullOrEmpty(requestId)
-            ? $"claim-{playerId}-{mailId}"
-            : $"claim-{requestId}";
-
+        var idempotencyKey = string.IsNullOrEmpty(requestId) ? $"claim-{playerId}-{mailId}" : $"claim-{requestId}";
         try
         {
             await RewardGrant.GrantRewardsAsync(_gameApiClient, _context, playerId, attachments, idempotencyKey, _logger);
         }
-        catch (RetryableGrantException ex)
+        catch (RetryableGrantException)
         {
-            _logger.LogWarning(ex, "ClaimAttachment: transient grant failure for mailId={MailId} — returning GrantUnavailable", mailId);
             throw new InvalidOperationException(MailboxError.GrantUnavailable);
         }
+    }
+
+    private static bool IsGlobalMail(string mailId, string mailType)
+    {
+        return string.Equals(mailType, "global", StringComparison.OrdinalIgnoreCase)
+               || (!string.IsNullOrEmpty(mailId) && mailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeClaimAllScope(string? mailType)
+    {
+        if (string.IsNullOrWhiteSpace(mailType)) return "all";
+        var value = mailType.Trim().ToLowerInvariant();
+        if (value == "all" || value == "global" || value == "user") return value;
+        throw new ArgumentException(MailboxError.InvalidInput);
+    }
+
+    private static string? BuildPerMailRequestId(string? requestId, string mailId)
+    {
+        return string.IsNullOrEmpty(requestId) ? null : $"{requestId}:{mailId}";
+    }
+
+    private static void AddClaimAllResult(
+        ClaimAllAttachmentsResponse response,
+        string mailType,
+        ClaimAttachmentResponse result)
+    {
+        var attachments = result.GrantedAttachments ?? new List<MailAttachment>();
+        response.Results.Add(new ClaimAllAttachmentResult
+        {
+            MailId = result.MailId,
+            MailType = mailType,
+            AlreadyClaimed = result.AlreadyClaimed,
+            GrantedAttachments = attachments.Count == 0 ? null : attachments
+        });
+
+        if (result.AlreadyClaimed)
+        {
+            response.AlreadyClaimedCount++;
+            return;
+        }
+
+        response.ClaimedCount++;
+        response.GrantedAttachments.AddRange(attachments);
+    }
+
+    private static bool IsClaimAllSkippable(Exception ex)
+    {
+        var error = ResolveMailboxError(ex.Message);
+        return error == MailboxError.MailNotFound ||
+               error == MailboxError.MailExpired ||
+               error == MailboxError.NoAttachment;
+    }
+
+    private static string ResolveMailboxError(string message)
+    {
+        string[] knownCodes =
+        {
+            MailboxError.InvalidInput,
+            MailboxError.MailNotFound,
+            MailboxError.MailExpired,
+            MailboxError.AlreadyClaimed,
+            MailboxError.NoAttachment,
+            MailboxError.GrantUnavailable
+        };
+
+        foreach (var code in knownCodes)
+        {
+            if (message.IndexOf(code, StringComparison.OrdinalIgnoreCase) >= 0)
+                return code;
+        }
+
+        return message;
     }
 }

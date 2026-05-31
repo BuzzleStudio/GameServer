@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -6,10 +9,6 @@ using Unity.Services.CloudCode.Core;
 
 namespace BackpackAdventures.CloudCode;
 
-/// <summary>
-/// Admin-only endpoint: sends a direct mail to a specific player.
-/// Writes to the target player's mailbox_user_items with writeLock (retry-once on conflict).
-/// </summary>
 public class SendUserMailModule
 {
     private readonly IExecutionContext _context;
@@ -27,80 +26,60 @@ public class SendUserMailModule
     }
 
     [CloudCodeFunction("SendUserMail")]
-    public async Task<SendUserMailResponse> SendUserMailAsync(SendUserMailRequest request)
+    public async Task<ApiResponse<SendUserMailResponse>> SendUserMailAsync(SendUserMailRequest request)
     {
-        _logger.LogInformation("SendUserMail called by operatorId={OperatorId} for target {TargetPlayerId}", request.OperatorId, request.TargetPlayerId);
-
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
-
-        if (string.IsNullOrWhiteSpace(request.TargetPlayerId))
+        var targetUserIds = ResolveTargetUserIds(request);
+        if (targetUserIds.Count == 0)
             throw new ArgumentException(MailboxError.InvalidInput);
 
         ValidateRequest(request.Subject, request.Body, request.Attachments);
 
-        var sentAt = DateTime.UtcNow.ToString("o");
-        var mailId = "um_" + Guid.NewGuid().ToString("N")[..8];
+        var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        collection ??= new GlobalMailCollection();
+        var mails = collection.Mails;
+        GlobalMailStore.RemoveExpired(mails);
 
-        var mailType = (request.Attachments != null && request.Attachments.Count > 0)
-            ? MailType.Attachment
-            : MailType.Notification;
+        var mailId = CreateMailId(request.DedupKey);
+        var existing = GlobalMailStore.FindById(mails, mailId);
+        if (existing?.Mail != null)
+            return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = existing.Mail.MessageId, SentAt = existing.Mail.StartTime.ToUniversalTime().ToString("o") });
 
-        var newMail = new UserMailItem
-        {
-            MailId       = mailId,
-            Subject      = request.Subject,
-            Body         = request.Body,
-            SentAt       = sentAt,
-            ExpiresAt    = request.ExpiresAt,
-            MailType     = mailType,
-            MailCategory = request.MailCategory,
-            SenderType   = SenderType.Admin,
-            Sender       = request.SenderName,
-            DedupKey     = request.DedupKey,
-            Attachments  = request.Attachments
-        };
+        if (mails.Count >= MailboxConstants.MaxGlobalMailsStored)
+            throw new InvalidOperationException(MailboxError.MailboxFull);
 
-        await InsertMailWithRetryAsync(request.TargetPlayerId, newMail);
+        var startTime = DateTime.UtcNow;
+        var endTime = ResolveEndTime(request.ExpiresAt);
+        var sentAt = startTime.ToString("o");
+        var newMail = MailSchemaHelper.CreateAdminMail(
+            mailId,
+            targetUserIds,
+            request.Subject,
+            request.Body,
+            startTime,
+            endTime,
+            request.Attachments);
 
-        _logger.LogInformation("Admin user mail {MailId} sent to {TargetPlayerId} by {OperatorId}", mailId, request.TargetPlayerId, request.OperatorId);
-        return new SendUserMailResponse { Success = true, MailId = mailId, SentAt = sentAt };
-    }
-
-    private async Task InsertMailWithRetryAsync(string targetPlayerId, UserMailItem newMail)
-    {
-        var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(
-            _gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems);
-        mailbox ??= new PlayerUserMailbox();
-
-        MailboxEviction.Evict(mailbox, targetPlayerId, _logger);
-        mailbox.Mails.Add(newMail);
+        mails.Add(new GlobalMailPayload { Mail = newMail });
 
         try
         {
-            await CloudSaveHelper.SetPlayerDataAsync(
-                _gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
-            _logger.LogWarning("SendUserMail: write conflict — retrying once for {TargetPlayerId}", targetPlayerId);
-            var (freshMailbox, freshLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(
-                _gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems);
-            freshMailbox ??= new PlayerUserMailbox();
-
-            MailboxEviction.Evict(freshMailbox, targetPlayerId, _logger);
-            freshMailbox.Mails.Add(newMail);
-
-            try
-            {
-                await CloudSaveHelper.SetPlayerDataAsync(
-                    _gameApiClient, _context, targetPlayerId, MailboxConstants.KeyUserItems, freshMailbox, freshLock);
-            }
-            catch (Exception retryEx) when (CloudSaveHelper.IsWriteLockConflict(retryEx))
-            {
-                _logger.LogError("SendUserMail: write conflict on retry for {TargetPlayerId}", targetPlayerId);
-                throw new InvalidOperationException(MailboxError.Conflict);
-            }
+            var (freshCollection, freshLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+            freshCollection ??= new GlobalMailCollection();
+            var freshMails = freshCollection.Mails;
+            GlobalMailStore.RemoveExpired(freshMails);
+            var freshExisting = GlobalMailStore.FindById(freshMails, mailId);
+            if (freshExisting?.Mail != null)
+                return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = freshExisting.Mail.MessageId, SentAt = freshExisting.Mail.StartTime.ToUniversalTime().ToString("o") });
+            freshMails.Add(new GlobalMailPayload { Mail = newMail });
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshCollection, freshLock);
         }
+
+        return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = mailId, SentAt = sentAt });
     }
 
     private static void ValidateRequest(string subject, string body, System.Collections.Generic.List<MailAttachment>? attachments)
@@ -109,14 +88,52 @@ public class SendUserMailModule
             throw new ArgumentException(MailboxError.InvalidInput);
         if (string.IsNullOrWhiteSpace(body) || body.Length > MailboxConstants.MaxBodyLength)
             throw new ArgumentException(MailboxError.InvalidInput);
-        if (attachments != null)
+        if (attachments == null) return;
+        foreach (var att in attachments)
         {
-            foreach (var att in attachments)
-            {
-                if (string.IsNullOrEmpty(att.ItemId) || att.Quantity <= 0 ||
-                    (att.Type != "currency" && att.Type != "item"))
-                    throw new ArgumentException(MailboxError.InvalidInput);
-            }
+            if (string.IsNullOrEmpty(att.ItemId) || att.Quantity <= 0 || (att.Type != "currency" && att.Type != "item"))
+                throw new ArgumentException(MailboxError.InvalidInput);
         }
+    }
+
+    private static List<string> ResolveTargetUserIds(SendUserMailRequest request)
+    {
+        var result = new List<string>();
+        AddTargetUserIds(result, request.TargetUserIds);
+        AddTargetUserId(result, request.TargetPlayerId);
+        AddTargetUserId(result, request.UserId);
+        return result;
+    }
+
+    private static void AddTargetUserIds(List<string> result, List<string>? targetUserIds)
+    {
+        if (targetUserIds == null) return;
+        foreach (var targetUserId in targetUserIds)
+            AddTargetUserId(result, targetUserId);
+    }
+
+    private static void AddTargetUserId(List<string> result, string? targetUserId)
+    {
+        if (string.IsNullOrWhiteSpace(targetUserId)) return;
+        var normalized = targetUserId.Trim();
+        if (!result.Contains(normalized))
+            result.Add(normalized);
+    }
+
+    private static DateTime? ResolveEndTime(string? expiresAt)
+    {
+        if (!string.IsNullOrEmpty(expiresAt) && DateTime.TryParse(expiresAt, out var parsed))
+            return parsed.ToUniversalTime();
+        return null;
+    }
+
+    private static string CreateMailId(string? dedupKey)
+    {
+        if (string.IsNullOrWhiteSpace(dedupKey))
+            return "gm_" + Guid.NewGuid().ToString("N")[..8];
+
+        using var sha256 = SHA256.Create();
+        var bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(dedupKey.Trim()));
+        return "gm_" + Convert.ToHexString(bytes).ToLowerInvariant()[..8];
     }
 }

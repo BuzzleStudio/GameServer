@@ -45,16 +45,17 @@ docs/
 
 ### 1. Configure GitHub Secrets
 
-Go to **Settings → Secrets and variables → Actions** in the repository and add:
+Configure these as GitHub repository secrets or GitHub Environment secrets for whichever environment runs the workflow:
 
 | Secret | Where to find it |
 |--------|-----------------|
 | `UNITY_PROJECT_ID` | Unity Dashboard → your project → Settings → General → **Project ID** |
 | `UNITY_ENVIRONMENT` | Unity Dashboard → your project → LiveOps → Environments → environment name |
-| `UNITY_SERVICE_ACCOUNT_KEY` | Unity Dashboard → Organization → Settings → Service Accounts → your account → **Key ID** |
-| `UNITY_SERVICE_ACCOUNT_SECRET` | Same page — **Secret Key** (shown only once at key creation, store immediately) |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | Unity Dashboard > Organization > Settings > Service Accounts > project-scoped account > **Key ID** |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | Same page - **Secret Key** (shown only once at key creation, store immediately) |
+`SendUserMail` smoke test uses the optional `workflow_dispatch` input `admin_test_player_id`; no extra secret is required.
 
-**To create a service account:** Unity Dashboard → Organization → Settings → Service Accounts → Create service account → assign role **Cloud Code Editor** → Add key.
+**To create a service account:** Unity Dashboard > Organization > Settings > Service Accounts > Create service account > assign **Cloud Code Editor** only on this project > Add key.
 
 ### 2. Deploy
 
@@ -63,7 +64,7 @@ Push to `staging` — the pipeline runs automatically.
 For manual local deploy:
 ```bash
 npm install -g ugs
-ugs login --service-key-id <UNITY_SERVICE_ACCOUNT_KEY> --secret-key-stdin <<< "<UNITY_SERVICE_ACCOUNT_SECRET>"
+ugs login --service-key-id <UNITY_PROJECT_SERVICE_ACCOUNT_KEY> --secret-key-stdin <<< "<UNITY_PROJECT_SERVICE_ACCOUNT_SECRET>"
 ugs config set project-id <UNITY_PROJECT_ID>
 ugs config set environment-name <UNITY_ENVIRONMENT>
 ugs deploy CloudCodeModule/BackpackAdventures.ccmr
@@ -83,11 +84,26 @@ Add `CloudCodeIntegrationTest` MonoBehaviour to any GameObject to run all 3 APIs
 
 ## API Contracts
 
+All Cloud Code functions now return the same top-level envelope:
+
+```json
+{
+  "StatusCode": 200,
+  "Message": "OK",
+  "Data": {}
+}
+```
+
+`BackpackCloudCodeService` unwraps `Data` and keeps its existing method return
+types for backward compatibility. Direct `CloudCodeService` callers can request
+either `ApiResponse` for status-only handling or `ApiResponse<TData>` when they
+need the typed data payload.
+
 | Function | Input | Output |
 |----------|-------|--------|
-| `HealthCheck` | — | `{ success, message, timestamp }` |
-| `PlayerEcho` | `playerId: string` | `{ success, playerId, serverTime }` |
-| `ServerConfig` | — | `{ environment, version, deploymentTime }` |
+| `HealthCheck` | — | `ApiResponse<HealthCheckData>` |
+| `PlayerEcho` | `playerId: string` | `ApiResponse<PlayerEchoData>` |
+| `ServerConfig` | — | `ApiResponse<ServerConfigData>` |
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full documentation.
 
@@ -102,27 +118,47 @@ Cloud Save-backed in-game mail with global broadcast and targeted player deliver
 ```
 Unity Client
   └─► Cloud Code C# Module (BackpackAdventuresModule)
-        ├─► SendGlobalMail  — broadcast to all players via Cloud Save custom key
-        ├─► SendUserMail    — targeted mail to a specific player
+        ├─► SendGlobalMail  — admin broadcast or targeted mail via global_mail custom data
+        ├─► SendUserMail    — backward-compatible admin targeted wrapper
         ├─► GetMailbox      — fetch merged mailbox with read/claim status [not yet deployed]
         ├─► MarkMailRead    — mark a mail as read [not yet deployed]
         └─► ClaimAttachment — claim attachment with idempotency guard [not yet deployed]
 
 Cloud Save Keys:
-  global_mails   (custom, project-wide)  — broadcast mail list
-  user_mails     (player)                — targeted mail list per player
-  mailbox_state  (player)                — ReadIds[], ClaimedIds[] per player
+  mails_all                (custom, project-wide) — all admin mail payloads as [{ Mail }]
+  mail_meta_state          (player)               — per-player read/claim/delete metadata
+  mailbox_user_items       (player)               — user-to-user GiftMail payloads
 ```
+
+Admin mail payloads use `TargetUserIds = null` for broadcast. When `TargetUserIds`
+contains player IDs, the same global payload is visible only to those players.
+`EndTime = null` means the admin mail does not expire. In the Admin Mail editor,
+choose `Null / no expiration` to send a null end time, or `Use UTC time` to send an
+ISO 8601 expiration timestamp. Player data stores only `MailMetadata` for admin
+mail state.
+The player metadata JSON is written as `{ "MailMetadata": [...] }`; each item uses
+`IsClaimed`, `IsRead`, and `IsDeleted`.
+
+In **CloudCode > Admin Mail > Manage**, admin REST actions do not require Play Mode:
+`Set EndTime` updates an existing global mail's end time, `Expire Global` sets it
+to now, and `Delete Global` removes the matching `{ Mail }` object from `mails_all`.
+New Cloud Save writes omit mailbox `"Version"` fields.
+
+`ClaimAllAttachments` claims all visible, unexpired reward mails for the selected
+scope (`all`, `global`, or `user`) and returns aggregate granted attachments plus
+per-mail results. The Unity client exposes this through
+`BackpackCloudCodeService.CallClaimAllAttachmentsAsync`.
 
 ### Mailbox API Quick Reference
 
 | Function | Status | Input | Output |
 |----------|--------|-------|--------|
-| `SendGlobalMail` | Implemented, not yet committed | `{ subject, body, expiresAt?, attachments? }` | `{ success, mailId }` |
-| `SendUserMail` | Implemented, not yet committed | `{ userId, subject, body, expiresAt?, attachments? }` | `{ success, mailId }` |
+| `SendGlobalMail` | Implemented | `{ targetUserIds?, subject, body, expiresAt?, attachments? }` | `{ globalMailId, sentAt }` |
+| `SendUserMail` | Compatibility wrapper | `{ targetPlayerId/userId/targetUserIds, subject, body, expiresAt?, attachments? }` | `{ mailId, sentAt }` |
 | `GetMailbox` | Implemented, not yet committed | — | `{ success, mails[] }` |
 | `MarkMailRead` | Implemented, not yet committed | `{ mailIds[] }` | `{ success }` |
-| `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` | `{ success, claimedItems[] }` |
+| `ClaimAttachment` | Implemented, not yet committed | `{ mailId }` or raw `"mailId"` in `request` | `ApiResponse<ClaimAttachmentData>` |
+| `ClaimAllAttachments` | Implemented | `{ mailType?, requestId? }` | `ApiResponse<ClaimAllAttachmentsData>` |
 
 ### Quick Usage Example
 
@@ -134,7 +170,7 @@ await BackpackCloudCodeService.InitializeAsync();
 var response = await BackpackCloudCodeService.SendGlobalMailAsync(
     subject: "Maintenance Reward",
     body: "Thanks for your patience!",
-    expiresAt: "2026-06-30T00:00:00Z",
+    expiresAt: null, // no expiration; pass an ISO 8601 UTC string to expire it
     attachments: new List<MailAttachment>
     {
         new MailAttachment { type = "currency", id = "gem", amount = 50 }

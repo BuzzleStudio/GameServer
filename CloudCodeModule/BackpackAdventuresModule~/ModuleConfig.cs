@@ -6,14 +6,33 @@ public class ModuleConfig : ICloudCodeSetup
 {
     public void Setup(ICloudCodeConfig config)
     {
-        // No custom DI registrations. The Cloud Code runtime auto-provides
-        // IExecutionContext, IGameApiClient, and ILogger<TModule> to module
-        // classes (those with [CloudCodeFunction]) directly. It does NOT
-        // resolve those scoped services for custom registered classes — that
-        // was the root cause of the "Constructor error: type could not be
-        // instantiated" 422 we hit on every admin endpoint.
-        //
-        // AdminAuth and RewardGrant are static helpers that take the
-        // scoped services as method parameters from the module call sites.
+        // Keep DI empty. The Cloud Code runtime injects IExecutionContext,
+        // IGameApiClient, and ILogger<TModule> into module classes directly.
+        // Registering GameApiClient here previously caused module construction
+        // failures in this project.
+    }
+}
+
+public class ApiResponse
+{
+    public int StatusCode { get; set; } = 200;
+    public string Message { get; set; } = string.Empty;
+    public object? Data { get; set; }
+}
+
+public class ApiResponse<T>
+{
+    public int StatusCode { get; set; } = 200;
+    public string Message { get; set; } = string.Empty;
+    public T? Data { get; set; }
+
+    public static ApiResponse<T> Ok(T data, string message = "OK")
+    {
+        return new ApiResponse<T>
+        {
+            StatusCode = 200,
+            Message = message,
+            Data = data
+        };
     }
 }

@@ -14,17 +14,16 @@ public class PlayerEchoModule
     }
 
     [CloudCodeFunction("PlayerEcho")]
-    public PlayerEchoResponse Echo(PlayerEchoRequest request)
+    public ApiResponse<PlayerEchoResponse> Echo(PlayerEchoRequest request)
     {
         _logger.LogInformation("PlayerEcho called for playerId: {PlayerId}", request.PlayerId);
         try
         {
-            return new PlayerEchoResponse
+            return ApiResponse<PlayerEchoResponse>.Ok(new PlayerEchoResponse
             {
-                Success = true,
                 PlayerId = request.PlayerId,
                 ServerTime = DateTime.UtcNow.ToString("o")
-            };
+            });
         }
         catch (Exception ex)
         {
@@ -41,7 +40,6 @@ public class PlayerEchoRequest
 
 public class PlayerEchoResponse
 {
-    public bool Success { get; set; }
     public string PlayerId { get; set; } = string.Empty;
     public string ServerTime { get; set; } = string.Empty;
 }

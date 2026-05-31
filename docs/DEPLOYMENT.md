@@ -23,8 +23,8 @@ This guide covers everything needed to deploy the BackpackAdventures Cloud Code 
 
 - A Unity account with **Cloud Code** enabled for the project.
 - The Unity project linked to Unity Gaming Services (UGS) in the Unity Dashboard.
-- A **service account** created in the UGS Dashboard with the **Cloud Code Editor** role assigned.
-  - Navigate to: UGS Dashboard > Service Accounts > Create Service Account > assign role "Cloud Code Editor".
+- A **project-scoped service account** created in the UGS Dashboard with the **Cloud Code Editor** role assigned only on this project.
+  - Navigate to: UGS Dashboard > Service Accounts > Create Service Account > assign project role "Cloud Code Editor".
 
 ### Local Tooling
 
@@ -52,29 +52,32 @@ ugs --version      # Should show a version number
 ## 2. Required GitHub Secrets
 
 Configure these secrets in the repository at:
-**GitHub → Repository Settings → Secrets and variables → Actions → New repository secret**
+**GitHub > Repository Settings > Secrets and variables > Actions, or the GitHub Environment that runs this workflow**
 
 | Secret Name | Where to Find | Description |
 |---|---|---|
 | `UNITY_PROJECT_ID` | Unity Dashboard → your project → Settings → General → **Project ID** | UUID identifying the project in UGS |
 | `UNITY_ENVIRONMENT` | Unity Dashboard → your project → LiveOps → **Environments** → environment name | Target environment (e.g. `production`, `staging`) |
-| `UNITY_SERVICE_ACCOUNT_KEY` | Unity Dashboard → Organization → Settings → **Service Accounts** → your account → Keys → **Key ID** | Key ID half of the service account credential pair |
-| `UNITY_SERVICE_ACCOUNT_SECRET` | Same page — **Secret Key**, shown once at creation time | Secret half of the credential pair; store immediately |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | Unity Dashboard > Organization > Settings > **Service Accounts** > project-scoped account > Keys > **Key ID** | Key ID half of the project-scoped service account credential pair |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | Same page - **Secret Key**, shown once at creation time | Secret half of the credential pair; store immediately |
+`SendUserMail` smoke test uses the optional `workflow_dispatch` input `admin_test_player_id`; no extra secret is required.
+
+`UNITY_PROJECT_SERVICE_ACCOUNT_KEY` and `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` must be the key pair from a Unity service account scoped to this project. They are not arbitrary Unity Secret Manager project secrets.
 
 ### How to create a service account and generate a key
 
 1. Go to [cloud.unity.com](https://cloud.unity.com) and select your **Organization**.
 2. Navigate to **Settings → Service Accounts → Create service account**.
 3. Give it a name (e.g. `github-actions-deploy`).
-4. Under **Roles**, select your project and assign the **Cloud Code Editor** role.
+4. Under **Roles**, select only this project and assign the **Cloud Code Editor** role.
 5. Click **Create**.
 6. Open the new service account and click **Add key**.
 7. Copy both values immediately:
-   - **Key ID** → `UNITY_SERVICE_ACCOUNT_KEY`
-   - **Secret Key** → `UNITY_SERVICE_ACCOUNT_SECRET` *(not shown again after closing)*
-8. Add them to GitHub Secrets.
+   - **Key ID** -> `UNITY_PROJECT_SERVICE_ACCOUNT_KEY`
+   - **Secret Key** -> `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` *(not shown again after closing)*
+8. Add them as GitHub repository secrets, or as GitHub Environment secrets for the environment that runs this workflow.
 
-> If the secret key was not saved at creation time, delete the key in the UGS Dashboard, generate a new pair, and update both GitHub secrets.
+> If the secret key was not saved at creation time, delete the key in the UGS Dashboard, generate a new pair, and update both GitHub environment secrets.
 
 ---
 
@@ -90,7 +93,7 @@ ugs login \
   --secret-key-stdin <<< "<SECRET_KEY>"
 ```
 
-Replace `<KEY_ID>` and `<SECRET_KEY>` with your personal service account credentials from the UGS Dashboard.
+Replace `<KEY_ID>` and `<SECRET_KEY>` with project-scoped service account credentials from the UGS Dashboard.
 
 ### Step 2 — Configure project and environment
 
@@ -148,7 +151,7 @@ The `BackpackAdventures` module should appear in the list with an updated versio
    - Sets up .NET 7 and Node.js 18.
    - Installs and verifies the UGS CLI.
    - Configures the UGS project and environment from repository secrets.
-   - Authenticates using the service account credentials stored as secrets.
+   - Authenticates using the project-scoped service account credentials stored as secrets.
    - Validates the .NET build in Release configuration.
    - Deploys `CloudCodeModule/BackpackAdventures.ccmr` to the configured UGS environment.
    - Lists deployed modules to confirm the deployment succeeded.
@@ -303,7 +306,7 @@ Confirm the module version matches the expected rollback state. Run the HealthCh
 **Symptom:** `ugs login` returns `401 Unauthorized` or `Invalid credentials`.
 
 **Fixes:**
-- Confirm `UNITY_SERVICE_ACCOUNT_KEY` and `UNITY_SERVICE_ACCOUNT_SECRET` match the same key pair in the UGS Dashboard.
+- Confirm `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` and `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` match the same key pair in the UGS Dashboard.
 - Check that the service account is not disabled or deleted.
 - Verify the service account has the **Cloud Code Editor** role on the correct project.
 - If the secret key was never saved, delete the key in UGS Dashboard, create a new pair, and update the GitHub secrets.
@@ -358,7 +361,7 @@ After every staging deployment, the pipeline runs a mandatory smoke test step ("
 
 **Step behavior:**
 - `continue-on-error: false` — a test failure fails the entire workflow run.
-- No new GitHub Secrets are required. The same `UNITY_PROJECT_ID`, `UNITY_ENVIRONMENT`, `UNITY_SERVICE_ACCOUNT_KEY`, and `UNITY_SERVICE_ACCOUNT_SECRET` used by the deploy step are reused.
+- No extra service account secrets are required. The same `UNITY_PROJECT_ID`, `UNITY_ENVIRONMENT`, `UNITY_PROJECT_SERVICE_ACCOUNT_KEY`, and `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` used by the deploy step are reused.
 
 ### Smoke Test Probes
 

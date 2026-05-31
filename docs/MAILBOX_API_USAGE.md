@@ -38,7 +38,9 @@ await BackpackCloudCodeService.InitializeAsync();
 
 ### 1. `SendGlobalMail`
 
-Broadcasts a mail item to all players by appending it to the shared `global_mails` Cloud Save key.
+Creates an admin mail payload in custom data key `mails_all`. The stored value is
+an array of `{ "Mail": { ... } }` objects. `targetUserIds = null` broadcasts to all
+players; a non-empty `targetUserIds` list limits visibility to those players.
 
 **Status:** Implemented and deployed.
 
@@ -48,7 +50,7 @@ Broadcasts a mail item to all players by appending it to the shared `global_mail
 |-------|------|----------|------------|
 | `subject` | `string` | Yes | Non-null, non-whitespace |
 | `body` | `string` | Yes | Non-null, non-whitespace |
-| `expiresAt` | `string` (ISO 8601 UTC) | No | Nullable; if provided, clients should filter expired items |
+| `expiresAt` | `string` (ISO 8601 UTC) | No | Nullable; null stores `Mail.EndTime = null` and means no expiration |
 | `attachments` | `MailAttachment[]` | No | Nullable list |
 
 **`MailAttachment` object:**
@@ -92,7 +94,7 @@ var attachments = new List<MailAttachment>
 var response = await BackpackCloudCodeService.SendGlobalMailAsync(
     subject: "Maintenance Reward",
     body: "Thank you for your patience during scheduled maintenance.",
-    expiresAt: "2026-06-30T00:00:00Z",
+    expiresAt: null,
     attachments: attachments
 );
 
@@ -100,6 +102,19 @@ Debug.Log($"Global mail sent: {response.mailId}");
 ```
 
 **Note:** The server-side `MailAttachment` model uses `ItemId` and `Quantity` while the client model uses `id` and `amount`. This field name mismatch must be resolved before attachment data round-trips correctly through `GetMailbox` or `ClaimAttachment`. See `docs/KNOWN_LIMITATIONS.md`.
+
+---
+
+### Admin manage endpoints
+
+The Admin Mail editor calls these through project-scoped REST, so Play Mode is not
+required:
+
+| Function | Purpose |
+|----------|---------|
+| `SetMailEndTime` | Sets `Mail.EndTime` on the matching `{ Mail }` object in `mails_all`; null clears expiration |
+| `ExpireMail` | Soft expires a global mail by setting end time to current UTC |
+| `DeleteGlobalMail` | Hard deletes the matching `{ Mail }` object from `mails_all` |
 
 ---
 
@@ -261,6 +276,54 @@ Claims the attachment for a specific mail for the calling player. Checks `mailbo
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `mailId` | `string` | Yes | The mail ID whose attachment to claim |
+| `mailType` | `string` | No | `global` or `user`; omitted/empty infers global for `gm_` IDs |
+| `requestId` | `string` | No | Client-generated idempotency key |
+
+Direct Cloud Code calls can pass either the normal object request:
+
+```csharp
+var args = new Dictionary<string, object>
+{
+    ["request"] = new { mailId = messageId, mailType = "global" }
+};
+```
+
+or a compact string request when only the mail id is needed:
+
+```csharp
+var args = new Dictionary<string, object>
+{
+    ["request"] = messageId
+};
+```
+
+The compact string form is equivalent to `{ mailId = messageId }`.
+
+All mailbox endpoints return `ApiResponse<TData>` when called directly through
+Unity's official Cloud Code API. For example:
+
+```csharp
+var response = await CloudCodeService.Instance
+    .CallModuleEndpointAsync<ApiResponse<ClaimAttachmentData>>(
+        "BackpackAdventuresModule",
+        "ClaimAttachment",
+        args);
+
+if (response.StatusCode == 200)
+{
+    var data = response.Data;
+}
+```
+
+If the caller only needs status and message:
+
+```csharp
+var response = await CloudCodeService.Instance
+    .CallModuleEndpointAsync<ApiResponse>(
+        "BackpackAdventuresModule",
+        "ClaimAttachment",
+        args);
+```
 
 **Response shape (success path only):**
 
@@ -377,6 +440,26 @@ catch (CloudCodeException e)
 ```
 
 3. Do not grant rewards locally before receiving a server confirmation. Always treat the server response as the source of truth.
+
+---
+
+### How to claim all available attachments
+
+Use `ClaimAllAttachments` when the player taps a "Claim All" button. The endpoint
+claims all visible, unexpired reward mails for the selected scope and marks each
+claimed mail as read.
+
+```csharp
+var result = await BackpackCloudCodeService.CallClaimAllAttachmentsAsync(
+    mailType: "all",
+    requestId: Guid.NewGuid().ToString());
+
+Debug.Log($"Claimed={result.claimedCount}, already={result.alreadyClaimedCount}, skipped={result.skippedCount}");
+ShowRewardPopup(result.grantedAttachments);
+```
+
+`mailType` can be `all`, `global`, or `user`. Empty/null behaves as `all`. A retry
+with the same `requestId` derives the same per-mail idempotency keys.
 
 ---
 

@@ -24,6 +24,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Unity.Services.CloudCode.Apis;
 using Unity.Services.CloudCode.Core;
@@ -32,8 +33,9 @@ namespace BackpackAdventures.CloudCode;
 
 internal static class CloudSaveHelper
 {
-    // Must match the Cloud Save custom data access-class name configured in the UGS dashboard.
-    internal const string GlobalCustomId = "default";
+    // Must match the Cloud Save custom data ID configured in the UGS dashboard.
+    // Stores mailbox project-wide custom data such as mails_all.
+    internal const string GlobalCustomId = "global_mail";
 
     // Cloud Save uses a dedicated subdomain (matches the SDK's
     // Configuration default: "https://cloud-save.services.api.unity.com").
@@ -210,8 +212,66 @@ internal static class CloudSaveHelper
         if (val.ValueKind == JsonValueKind.String)
         {
             var s = val.GetString();
-            return string.IsNullOrEmpty(s) ? default : JsonSerializer.Deserialize<T>(s);
+            if (string.IsNullOrEmpty(s)) return default;
+            // Stored as an escaped JSON string — parse once, then shape-check the inner value.
+            try
+            {
+                using var inner = JsonDocument.Parse(s);
+                return DeserializeChecked<T>(inner.RootElement);
+            }
+            catch (JsonException)
+            {
+                return default;
+            }
         }
-        return JsonSerializer.Deserialize<T>(val.GetRawText());
+        return DeserializeChecked<T>(val);
+    }
+
+    // Deserializes `element` into T, but returns default (instead of throwing) when the
+    // stored JSON's shape cannot map to T — e.g. an object {…} stored where a List<>
+    // (array […]) is expected. A single malformed value on a shared, project-wide key
+    // such as `mails_all` would otherwise throw a JsonException that Cloud Code reports
+    // as HTTP 422, bricking every mailbox endpoint that reads the key. Returning default
+    // lets callers treat it as "no data yet"; the next write overwrites (self-heals) the
+    // key with the correct shape. Field-level data is preserved on a matching shape.
+    private static T? DeserializeChecked<T>(JsonElement element)
+    {
+        var type = typeof(T);
+        // Types with a custom JsonConverter (e.g. GlobalMailCollection) accept multiple
+        // root shapes by design — array vs object — so the generic shape guard below
+        // must not pre-reject them. Defer entirely to the converter, which still
+        // returns a safe default for foreign/malformed values.
+        if (!HasCustomConverter(type))
+        {
+            if (ExpectsJsonArray(type) && element.ValueKind != JsonValueKind.Array)
+                return default;
+            if (ExpectsJsonObject(type) && element.ValueKind != JsonValueKind.Object)
+                return default;
+        }
+        try
+        {
+            return JsonSerializer.Deserialize<T>(element.GetRawText());
+        }
+        catch (JsonException)
+        {
+            return default;
+        }
+    }
+
+    private static bool HasCustomConverter(Type type) =>
+        Attribute.IsDefined(type, typeof(JsonConverterAttribute));
+
+    private static bool ExpectsJsonArray(Type type)
+    {
+        if (type == typeof(string)) return false;
+        if (type.IsArray) return true;
+        return typeof(System.Collections.IEnumerable).IsAssignableFrom(type);
+    }
+
+    private static bool ExpectsJsonObject(Type type)
+    {
+        if (type == typeof(string)) return false;
+        if (ExpectsJsonArray(type)) return false;
+        return type.IsClass;
     }
 }

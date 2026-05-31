@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -6,21 +7,13 @@ using Unity.Services.CloudCode.Core;
 
 namespace BackpackAdventures.CloudCode;
 
-/// <summary>
-/// Mark a single mail as read (with writeLock + idempotency) or mark all mails as read.
-/// MarkMailRead: writeLock on mailbox_global_state or mailbox_user_items; retry once on 409.
-/// MarkAllRead: writeLock on mailbox_meta; retry once on 409.
-/// </summary>
 public class MarkReadModule
 {
     private readonly IExecutionContext _context;
     private readonly IGameApiClient _gameApiClient;
     private readonly ILogger<MarkReadModule> _logger;
 
-    public MarkReadModule(
-        IExecutionContext context,
-        IGameApiClient gameApiClient,
-        ILogger<MarkReadModule> logger)
+    public MarkReadModule(IExecutionContext context, IGameApiClient gameApiClient, ILogger<MarkReadModule> logger)
     {
         _context = context;
         _gameApiClient = gameApiClient;
@@ -28,191 +21,128 @@ public class MarkReadModule
     }
 
     [CloudCodeFunction("MarkMailRead")]
-    public async Task<MarkMailReadResponse> MarkMailReadAsync(MarkMailReadRequest request)
+    public async Task<ApiResponse<MarkMailReadResponse>> MarkMailReadAsync(MarkMailReadRequest request)
     {
         var playerId = _context.PlayerId ?? string.Empty;
-        _logger.LogInformation("MarkMailRead called for {PlayerId}, mailId={MailId}, type={MailType}",
-            playerId, request.MailId, request.MailType);
-
         if (string.IsNullOrWhiteSpace(request.MailId))
             throw new ArgumentException(MailboxError.InvalidInput);
 
-        // Idempotency check
         if (!string.IsNullOrEmpty(request.RequestId))
         {
-            var cached = await IdempotencyService.TryGetCachedResponseAsync(
-                _gameApiClient, _context, playerId, request.RequestId, "MarkMailRead", request.MailId);
+            var cached = await IdempotencyService.TryGetCachedResponseAsync(_gameApiClient, _context, playerId, request.RequestId, "MarkMailRead", request.MailId);
             if (cached != null)
-            {
-                _logger.LogInformation("MarkMailRead: idempotent replay for requestId={RequestId}", request.RequestId);
-                return new MarkMailReadResponse { Success = true, MailId = request.MailId, IsRead = true };
-            }
+                return ApiResponse<MarkMailReadResponse>.Ok(new MarkMailReadResponse { MailId = request.MailId, IsRead = true });
         }
 
-        var isGlobal = string.Equals(request.MailType, "global", StringComparison.OrdinalIgnoreCase);
-
-        if (isGlobal)
+        if (IsGlobalMail(request.MailId, request.MailType))
             await MarkGlobalReadAsync(playerId, request.MailId);
         else
             await MarkUserReadAsync(playerId, request.MailId);
 
-        // Store idempotency entry (best-effort)
         if (!string.IsNullOrEmpty(request.RequestId))
-        {
-            try
-            {
-                await IdempotencyService.StoreResponseAsync(
-                    _gameApiClient, _context, playerId, request.RequestId, "MarkMailRead", request.MailId,
-                    new { success = true, isRead = true });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "MarkMailRead: failed to store idempotency entry (non-fatal)");
-            }
-        }
+            await IdempotencyService.StoreResponseAsync(_gameApiClient, _context, playerId, request.RequestId, "MarkMailRead", request.MailId, new { isRead = true });
 
-        _logger.LogInformation("MarkMailRead success for mailId={MailId}", request.MailId);
-        return new MarkMailReadResponse { Success = true, MailId = request.MailId, IsRead = true };
+        return ApiResponse<MarkMailReadResponse>.Ok(new MarkMailReadResponse { MailId = request.MailId, IsRead = true });
     }
 
     [CloudCodeFunction("MarkAllRead")]
-    public async Task<MarkAllReadResponse> MarkAllReadAsync()
+    public async Task<ApiResponse<MarkAllReadResponse>> MarkAllReadAsync()
     {
         var playerId = _context.PlayerId ?? string.Empty;
-        _logger.LogInformation("MarkAllRead called for {PlayerId}", playerId);
-
         var now = DateTime.UtcNow.ToString("o");
-
-        // Mark all user mails read (writeLock, retry once)
         await MarkAllUserMailsReadWithRetryAsync(playerId);
-
-        // Update meta.lastReadAt (writeLock on meta, retry once)
         await UpdateMetaLastReadAtWithRetryAsync(playerId, now);
-
-        _logger.LogInformation("MarkAllRead complete for {PlayerId}", playerId);
-        return new MarkAllReadResponse { Success = true, LastReadAt = now };
+        return ApiResponse<MarkAllReadResponse>.Ok(new MarkAllReadResponse { LastReadAt = now });
     }
-
-    // ── Private helpers ──────────────────────────────────────────────────────
 
     private async Task MarkGlobalReadAsync(string playerId, string mailId)
     {
+        var collection = await CloudSaveHelper.GetCustomDataAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        var payload = GlobalMailStore.FindById(collection?.Mails, mailId);
+        if (payload?.Mail != null && !MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId))
+            throw new InvalidOperationException(MailboxError.MailNotFound);
+
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
+            var (state, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
             state ??= new PlayerGlobalMailState();
-
-            if (state.ReadIds.Contains(mailId)) return; // already read, idempotent
-
-            // Prune dead IDs: remove any ID not present in current global index refs
+            MailSchemaHelper.MigrateLegacyMetadata(state);
+            var metadata = MailSchemaHelper.GetOrCreateMetadata(state, mailId);
+            if (metadata.IsDelete) throw new InvalidOperationException(MailboxError.MailNotFound);
+            if (metadata.IsRead) return;
             await PruneDeadGlobalStateIdsAsync(state);
-
-            state.ReadIds.Add(mailId);
-
+            metadata.IsRead = true;
             try
             {
-                await CloudSaveHelper.SetPlayerDataAsync(
-                    _gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
+                await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState, state, writeLock);
                 return;
             }
-            catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0)
-            {
-                _logger.LogWarning("MarkMailRead (global): write conflict — retrying");
-                // loop
-            }
+            catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0) { }
         }
-        // Second conflict: read is idempotent, succeed silently
-        _logger.LogWarning("MarkMailRead (global): second write conflict — succeeding silently (read is idempotent)");
     }
 
     private async Task MarkUserReadAsync(string playerId, string mailId)
     {
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
+            var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(_gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
             mailbox ??= new PlayerUserMailbox();
-
-            var mail = mailbox.Mails.Find(m => m.MailId == mailId);
+            var mail = mailbox.Mails.Find(m => m.MessageId == mailId);
             if (mail == null) throw new InvalidOperationException(MailboxError.MailNotFound);
-            if (mail.IsRead) return; // already read
-
-            mail.IsRead = true;
-
+            if (mail.MailMetaData.IsRead) return;
+            mail.MailMetaData.IsRead = true;
             try
             {
-                await CloudSaveHelper.SetPlayerDataAsync(
-                    _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
+                await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
                 return;
             }
-            catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0)
-            {
-                _logger.LogWarning("MarkMailRead (user): write conflict — retrying");
-                // loop
-            }
+            catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0) { }
         }
-        _logger.LogWarning("MarkMailRead (user): second write conflict — succeeding silently");
     }
 
     private async Task MarkAllUserMailsReadWithRetryAsync(string playerId)
     {
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
+            var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(_gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
             if (mailbox == null) return;
-
-            foreach (var m in mailbox.Mails) m.IsRead = true;
-
+            foreach (var mail in mailbox.Mails) mail.MailMetaData.IsRead = true;
             try
             {
-                await CloudSaveHelper.SetPlayerDataAsync(
-                    _gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
+                await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyUserItems, mailbox, writeLock);
                 return;
             }
-            catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0)
-            {
-                _logger.LogWarning("MarkAllRead (user mails): write conflict — retrying");
-            }
+            catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0) { }
         }
-        _logger.LogWarning("MarkAllRead (user mails): second write conflict — succeeding silently");
     }
 
     private async Task UpdateMetaLastReadAtWithRetryAsync(string playerId, string lastReadAt)
     {
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var (meta, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerMailboxMeta>(
-                _gameApiClient, _context, playerId, MailboxConstants.KeyMeta);
+            var (meta, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerMailboxMeta>(_gameApiClient, _context, playerId, MailboxConstants.KeyMeta);
             meta ??= new PlayerMailboxMeta();
             meta.LastReadAt = lastReadAt;
-
             try
             {
-                await CloudSaveHelper.SetPlayerDataAsync(
-                    _gameApiClient, _context, playerId, MailboxConstants.KeyMeta, meta, writeLock);
+                await CloudSaveHelper.SetPlayerDataAsync(_gameApiClient, _context, playerId, MailboxConstants.KeyMeta, meta, writeLock);
                 return;
             }
-            catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0)
-            {
-                _logger.LogWarning("MarkAllRead (meta): write conflict — retrying");
-            }
+            catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0) { }
         }
-        _logger.LogWarning("MarkAllRead (meta): second write conflict — succeeding silently");
     }
 
     private async Task PruneDeadGlobalStateIdsAsync(PlayerGlobalMailState state)
     {
-        // Remove any claimed/read IDs not present in the current v2 index (dead pruning per §5.1)
-        var v2Index = await CloudSaveHelper.GetCustomDataAsync<GlobalMailIndexV2>(
-            _gameApiClient, _context, MailboxConstants.KeyGlobalMailIndexV2);
-        if (v2Index == null) return;
+        var collection = await CloudSaveHelper.GetCustomDataAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        var liveIds = GlobalMailStore.LiveIds(collection?.Mails);
+        MailSchemaHelper.MigrateLegacyMetadata(state);
+        state.Mails.RemoveAll(m => !liveIds.Contains(m.MessageId));
+    }
 
-        var liveIds = new System.Collections.Generic.HashSet<string>();
-        foreach (var r in v2Index.Refs) liveIds.Add(r.MailId);
-
-        state.ClaimedIds.RemoveAll(id => !liveIds.Contains(id));
-        state.ReadIds.RemoveAll(id => !liveIds.Contains(id));
+    private static bool IsGlobalMail(string mailId, string mailType)
+    {
+        return string.Equals(mailType, "global", StringComparison.OrdinalIgnoreCase)
+               || (!string.IsNullOrEmpty(mailId) && mailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase));
     }
 }

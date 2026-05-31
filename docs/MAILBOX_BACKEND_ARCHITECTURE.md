@@ -26,7 +26,7 @@ Read state is tracked per-player. A mail is considered read once the client call
 
 ### 2.4 Attachment Claim Tracking
 
-Attachments on global mails: claimed status is stored in the player's `mailbox_global_state` key as a set of claimed global mail IDs. Granting happens inside the same Cloud Code function as claiming, ensuring atomicity via a read-modify-write on Cloud Save (last-write-wins; idempotent if the reward grant is also idempotent on the economy service side).
+Attachments on global mails: claimed status is stored in the player's `mail_meta_state` key as `MailMetadata` entries. Granting happens inside the same Cloud Code function as claiming, ensuring atomicity via a read-modify-write on Cloud Save (last-write-wins; idempotent if the reward grant is also idempotent on the economy service side).
 
 Attachments on user mails: the mail record itself carries a `claimed` boolean. Claiming writes `claimed: true` back to the player's `mailbox_user_items` key before issuing the reward. Idempotency is enforced by checking `claimed` before granting.
 
@@ -38,7 +38,7 @@ Expiration is **lazy**: no background sweep job. Each read or list call filters 
 
 - Global mails use a server-assigned `globalMailId` (GUID). Clients cannot inject duplicates.
 - User mails use a `dedupKey` field (optional, caller-supplied). Before inserting a user mail, the write function checks for an existing mail with the same `dedupKey` and skips insertion if found. If no `dedupKey` is provided, a GUID is generated and dedup is skipped.
-- Admin sends of global mails include a `dedupKey` checked against the `global_mail_index` before inserting.
+- Admin sends of global mails include a `dedupKey`; Cloud Code derives a stable `MessageId` from it before inserting into `mails_all`.
 
 ### 2.7 Pagination
 
@@ -47,7 +47,7 @@ Expiration is **lazy**: no background sweep job. Each read or list call filters 
 ### 2.8 Security
 
 - `IExecutionContext.PlayerId` is the authoritative caller identity — never trusted from client payload.
-- Admin functions (`MailboxSendGlobal`, `MailboxSendUser`) validate the caller against a server-configured admin player ID list stored in `global_mail_index` access-controlled key. In production, replace with a service-account token check.
+- Admin functions (`MailboxSendGlobal`, `MailboxSendUser`) validate the caller against server-configured admin auth. In production, replace with a service-account token check.
 - Attachment grants call economy/inventory services server-side; the client receives confirmation only, never the reward directly.
 - Input length limits enforced on all string fields (title ≤ 128, body ≤ 1024).
 
@@ -57,40 +57,43 @@ Expiration is **lazy**: no background sweep job. Each read or list call filters 
 
 All keys are in the **Default** Cloud Save collection unless noted.
 
-### 3.1 Global Mail Index (Public Access)
+### 3.1 Admin Mail List (Custom Data)
 
-**Key:** `global_mail_index`  
-**Access:** Public (read by all players, write by Cloud Code only)
+**Key:** `mails_all`
+**Access:** Custom data ID `global_mail`; read/write through Cloud Code only
 
 ```json
-{
-  "version": 1,
-  "mails": [
-    {
-      "globalMailId": "gm_a1b2c3d4",
-      "title": "Server Maintenance Reward",
-      "body": "Thank you for your patience.",
-      "sentAt": "2026-05-27T10:00:00Z",
-      "expiresAt": "2026-06-27T10:00:00Z",
-      "attachment": {
-        "type": "currency",
-        "itemId": "gold",
-        "quantity": 100
-      },
-      "dedupKey": "maintenance-2026-05-27"
+[
+  {
+    "Mail": {
+      "MessageId": "gm_a1b2c3d4",
+      "TargetUserIds": null,
+      "Title": "Server Maintenance Reward",
+      "Content": "Thank you for your patience.",
+      "StartTime": "2026-05-27T10:00:00Z",
+      "EndTime": "2026-06-27T10:00:00Z",
+      "Attachments": [
+        {
+          "PayoutAssetId": "gold",
+          "Chance": 1,
+          "AssetType": "Currency",
+          "PayoutAmount": 100
+        }
+      ]
     }
-  ]
-}
+  }
+]
 ```
 
 Field notes:
-- `attachment` is nullable; omit for mails with no reward.
-- `type` values: `"currency"`, `"item"`, `"none"`.
-- `expiresAt` is nullable; null means no expiry.
+- `TargetUserIds = null` means broadcast; non-empty means targeted admin mail.
+- `Attachments` may be empty.
+- `EndTime` is nullable; null means no expiry.
+- `DedupKey` is not stored in `mails_all`; when provided, Cloud Code derives a stable `MessageId` from it.
 
 ### 3.2 Player Global Mail State (Private per player)
 
-**Key:** `mailbox_global_state`  
+**Key:** `mail_meta_state`
 **Access:** Player-private
 
 ```json
@@ -154,25 +157,25 @@ GLOBAL MAIL:
   Admin calls MailboxSendGlobal
        |
        v
-  Dedup check on global_mail_index.dedupKey
+  Dedup check by deterministic MessageId when dedupKey is provided
        |-- duplicate --> return existing mailId, no-op
        |
        v
-  Append to global_mail_index (Public key)
+  Append { Mail } to mails_all
        |
        v
   Player calls MailboxGetGlobalMails
        |
        v
-  Cloud Code reads global_mail_index, filters expired,
-  reads player mailbox_global_state,
+  Cloud Code reads mails_all, filters expired/targeted/deleted,
+  reads player mail_meta_state,
   annotates each mail with read/claimed flags
        |
        v
   Player calls MailboxMarkRead(mailId)
        |
        v
-  Append mailId to mailbox_global_state.readIds
+  Upsert mailId in mail_meta_state.MailMetadata with IsRead=true
        |
        v
   Player calls MailboxClaimAttachment(mailId, "global")
@@ -184,7 +187,7 @@ GLOBAL MAIL:
   Call economy service server-side to grant reward
        |
        v
-  Append mailId to mailbox_global_state.claimedIds
+  Upsert mailId in mail_meta_state.MailMetadata with IsClaimed=true
        |
        v
   Return ClaimResult to client
@@ -423,7 +426,7 @@ Supported `type` values:
 - Prune expired user mails in-band during list to avoid unbounded key growth.
 - Do not store attachment binary data in Cloud Save. Store only descriptors.
 - Page size capped at 50 to limit serialization cost.
-- `global_mail_index` should be pruned of expired entries by `MailboxSendGlobal` on each write (cheap, amortized cleanup).
+- `mails_all` should be pruned of expired entries by send/admin cleanup paths to avoid unbounded growth.
 
 ---
 
@@ -435,7 +438,7 @@ Supported `type` values:
 4. `pageSize` capped at 50; `page` must be >= 0.
 5. Economy grants happen server-side only; never pass grant tokens to client.
 6. `mailbox_user_items` is player-private in Cloud Save — one player cannot read another's mails.
-7. `global_mail_index` is Public-readable but Cloud Code write-only; no client write path exists.
+7. `mails_all` is accessed through Cloud Code admin/player endpoints only; no direct client write path exists.
 
 ---
 
@@ -444,7 +447,7 @@ Supported `type` values:
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | `mailbox_user_items` key exceeds 1 MB (many mails) | Low-Medium | Prune expired mails on list; cap stored mails at 200 per player |
-| `global_mail_index` grows unbounded | Low | Prune expired entries on each `MailboxSendGlobal` write |
+| `mails_all` grows unbounded | Low | Prune expired entries on send and expose `PurgeExpired` |
 | Double-claim due to concurrent requests | Low | Cloud Save last-write-wins; claimed flag checked before grant — grant must be idempotent |
 | Admin auth relies on player ID allowlist | Medium | Replace with UGS service account token validation in production |
 | Economy service unavailable at claim time | Low | Return `EconomyUnavailable` error; let client retry; claimed flag not set on failure |
@@ -474,8 +477,8 @@ Each module follows the same pattern as `HealthCheckModule.cs`:
 - Namespace: `BackpackAdventures.CloudCode`
 
 Cloud Save keys to use (from `MailboxConstants` in `MailboxModels.cs`):
-- `global_mail_index` — global mail list (public)
-- `mailbox_global_state` — per-player global mail read/claim state
+- `mails_all` — admin global/targeted mail list in custom data
+- `mail_meta_state` — per-player global mail read/claim/delete state
 - `mailbox_user_items` — per-player user mail list
 - `mailbox_meta` — per-player metadata and lastReadAt
 

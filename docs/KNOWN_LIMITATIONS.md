@@ -16,7 +16,7 @@ Any authenticated player can call `SendGlobalMail` and `SendUserMail`. There is 
 
 ## 2. ClaimAttachment Has No Atomic Guard Against Double-Claim
 
-The claim operation uses a read-then-write pattern: read `mailbox_global_state` or `mailbox_user_items`, check the `AttachmentClaimed` flag, then write the updated state. Cloud Save is last-write-wins with no native transactions.
+The claim operation uses a read-then-write pattern: read `mail_meta_state` or `mailbox_user_items`, check the claim flag, then write the updated state. Cloud Save is last-write-wins with no native transactions.
 
 **Race condition:** Two simultaneous claim requests from the same player may both read `AttachmentClaimed = false` before either write completes, causing both to proceed and potentially granting the reward twice.
 
@@ -34,17 +34,17 @@ The claim operation uses a read-then-write pattern: read `mailbox_global_state` 
 
 ---
 
-## 4. Cloud Save Size Limits on global_mail_index
+## 4. Cloud Save Size Limits on mails_all
 
-Cloud Save limits individual key values to approximately 5 MB of JSON. The `global_mail_index` key holds the entire broadcast mail list in one blob.
+Cloud Save limits individual key values to approximately 5 MB of JSON. The `mails_all` key holds the entire admin mail list in one blob.
 
 **Consequence:** A large number of global mails (hundreds with attachments) can approach or exceed the limit. `SendGlobalMail` will throw when the limit is hit.
 
-**No cleanup is implemented.** Expired mails are filtered at read time (`GetMailbox`) but are never deleted from Cloud Save. The key only grows.
+**Cleanup is explicit.** Expired mails are filtered at read time and can be removed from `mails_all` through `PurgeExpired` or `DeleteGlobalMail`.
 
 ---
 
-## 5. mailbox_global_state Grows Indefinitely
+## 5. mail_meta_state Grows Indefinitely
 
 `PlayerGlobalMailState.ReadIds` and `PlayerGlobalMailState.ClaimedIds` are append-only lists that are never pruned, even when the referenced global mail has expired. This counts toward the player's Cloud Save storage quota.
 
@@ -58,15 +58,19 @@ Cloud Save limits individual key values to approximately 5 MB of JSON. The `glob
 
 ---
 
-## 7. ExpiresAt Not Validated at Write Time
+## 7. Malformed ExpiresAt Becomes No Expiration
 
-`SendGlobalMail` and `SendUserMail` accept any `expiresAt` string without parsing or range validation. A past date, malformed string, or null value is stored as-is. Filtering is applied at read time in `GetMailbox`.
+`SendGlobalMail` and the admin compatibility `SendUserMail` wrapper parse `expiresAt`
+into nullable `Mail.EndTime`. A null or blank value intentionally stores
+`EndTime = null`, which means no expiration. A malformed non-empty value currently
+also resolves to null instead of returning a validation error, so callers should use
+the Admin Mail editor's `Use UTC time` mode or send a valid ISO 8601 UTC string.
 
 ---
 
 ## 8. No Rate Limiting
 
-No per-player or global rate limit exists on any mailbox function. Combined with the lack of admin authorization (#1), this is a denial-of-service vector on the `global_mail_index` Cloud Save key.
+No per-player or global rate limit exists on any mailbox function. Combined with the lack of admin authorization (#1), this is a denial-of-service vector on the `mails_all` Cloud Save key.
 
 ---
 
