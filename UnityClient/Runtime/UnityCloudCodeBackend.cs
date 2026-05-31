@@ -60,6 +60,9 @@ namespace BackpackAdventures.CloudCode.Client
                 return JsonConvert.DeserializeObject<T>(rawJson);
             }
 
+            if (typeof(ApiResponse).IsAssignableFrom(typeof(T)))
+                return token.ToObject<T>();
+
             if (token is JObject obj && LooksLikeApiResponseEnvelope(obj))
             {
                 JToken data = obj["data"] ?? obj["Data"];

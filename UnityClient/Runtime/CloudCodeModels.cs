@@ -7,21 +7,37 @@ namespace BackpackAdventures.CloudCode.Client
 {
     public class ApiResponse
     {
+        [JsonProperty("statusCode")]
         public int StatusCode { get; set; }
+
+        [JsonProperty("message")]
         public string Message { get; set; } = string.Empty;
 
-        // Bypass MissingMemberHandling.Error in the Cloud Code SDK deserializer.
-        // Server always sends a "data" property; without this hook, deserializing
-        // the wire JSON into the non-generic ApiResponse would throw because the
-        // class has no member to receive "data". Newtonsoft routes any unknown
-        // property here instead of erroring.
-        [JsonExtensionData]
-        private IDictionary<string, JToken> _extensionData { get; set; }
+        // The Cloud Code SDK may deserialize with MissingMemberHandling.Error.
+        // Keep data as a real public member so non-generic ApiResponse callers can
+        // receive the envelope without failing on Path 'data'.
+        [JsonProperty("data")]
+        public JToken Data { get; set; }
     }
 
     public class ApiResponse<T> : ApiResponse
     {
-        public T Data { get; set; }
+        [JsonIgnore]
+        public new T Data
+        {
+            get
+            {
+                JToken data = base.Data;
+                if (data == null || data.Type == JTokenType.Null)
+                    return default;
+
+                return data.ToObject<T>();
+            }
+            set
+            {
+                base.Data = value == null ? null : JToken.FromObject(value);
+            }
+        }
 
         public static ApiResponse<T> Ok(T data, string message = "OK")
         {
@@ -396,5 +412,4 @@ namespace BackpackAdventures.CloudCode.Client
     [Serializable] public class SetMailEndTimeData : SetMailEndTimeResponse { }
     [Serializable] public class PurgeExpiredData : PurgeExpiredResponse { }
 }
-
 
