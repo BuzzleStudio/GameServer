@@ -41,8 +41,8 @@ name: Deploy AdminWeb Proxy (Cloudflare Worker)
 on:
   push:
     branches:
-      - main
       - staging
+      - 'release/*'
     paths:
       - 'AdminWeb/proxy/**'
       - '.github/workflows/deploy-proxy.yml'

@@ -500,6 +500,21 @@ Fixed:
 
 Added `timingSafeEqual(a, b)`: SHA-256 digests both strings via `crypto.subtle.digest` (Web Crypto, available natively in all target runtimes), then XOR-accumulates the fixed 32-byte outputs in a loop that always runs to completion. Replaced `bearerToken !== env.ADMIN_PROXY_TOKEN` with `!(await timingSafeEqual(...))`. Prevents timing-based token enumeration attacks.
 
+### 2026-06-01 — devops: Trigger alignment + CICD.md (Task #9)
+
+**Trigger change — both Admin Web workflows now mirror `deploy.yml` exactly:**
+
+| Workflow | Before | After |
+|---|---|---|
+| `deploy-adminweb.yml` | `[main, staging]` | `[staging, 'release/*']` |
+| `deploy-proxy.yml` | `[main, staging]` | `[staging, 'release/*']` |
+
+Path filters and `workflow_dispatch` unchanged. Job logic, permissions, concurrency, and secret wiring untouched. `deploy.yml` untouched.
+
+**Note on single Pages site:** Both `staging` and `release/*` deploy to the same GitHub Pages URL. Last deploy wins. This is intentional — the SPA is environment-agnostic (env selected at runtime by the operator).
+
+**`docs/CICD.md` updated:** Added section 6 "Admin Web (SPA + Proxy)" covering both workflows, staging + release/* triggers, path filters, required secrets/variables table, one-time Pages setup, first-deploy order, and the security model. ToC entry added.
+
 ### 2026-06-01 — web-dev: SPA refactored to proxy model (Task #7)
 
 **Summary of changes:**
@@ -545,3 +560,21 @@ Response envelope unwrapped same as before: `output.Data`.
 Bundle: 31.00 kB JS / 8.54 kB gzip (down from 33.85 kB — auth/env logic removed).
 
 **Risk:** `VITE_PROXY_URL` not yet set → operators must enter the Proxy URL manually in the connection form until the repo variable is configured post first Worker deploy.
+
+---
+
+## Change Request 2 — Final State (team-lead, 2026-06-01)
+
+All three tasks done + reviewed: #6 proxy (accepted, smoke-test bug + constant-time compare fixed), #7 SPA refactor (accepted, bundle verified secret-free), #8 security review (CLEAN 6/6).
+
+**Env GUIDs are now moot for the web** — the proxy resolves env name→id server-side (no CORS). The editor's config-map placeholders remain optional (editor also has live resolution).
+
+**Commit `1e3b24f`** on `develop` of the `UnityCloudCode` submodule — 36 files (AdminWeb/ incl. proxy, AdminMailWindow.cs, both AdminWeb workflows, README, Devlog at commit time). The 124 unrelated pre-existing churn files were deliberately NOT staged. `deploy.yml` untouched.
+
+**⚠️ Push BLOCKED in this session:** WSL has no SSH key, no `github.com-personal` host alias, and no `gh` CLI. Commit is fast-forward (1 ahead / 0 behind origin/develop). Push from a credentialed environment: `git -C UnityBackpackAdventures/Assets/UnityCloudCode push origin develop`.
+
+**Remaining external setup (PO):**
+1. **Push** `1e3b24f`.
+2. Cloudflare account + repo secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_PROXY_TOKEN`; repo variable `ADMIN_PROXY_ALLOWED_ORIGIN`. Run deploy-proxy → copy Worker URL → set `VITE_PROXY_URL` repo variable.
+3. Enable GitHub Pages (Settings → Pages → Source = GitHub Actions).
+4. Live smoke test (send + manage) through the proxy.

@@ -32,8 +32,8 @@ name: Deploy Admin Web to GitHub Pages
 on:
   push:
     branches:
-      - main
       - staging
+      - 'release/*'
     paths:
       - 'AdminWeb/**'
       - '.github/workflows/deploy-adminweb.yml'

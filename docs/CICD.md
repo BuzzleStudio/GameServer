@@ -11,6 +11,7 @@ This document covers the automated deployment pipeline that pushes the BackpackA
 3. [Setting Up GitHub Secrets](#3-setting-up-github-secrets)
 4. [Triggering a Deployment Manually](#4-triggering-a-deployment-manually)
 5. [Troubleshooting Common Issues](#5-troubleshooting-common-issues)
+6. [Admin Web (SPA + Proxy)](#6-admin-web-spa--proxy)
 
 ---
 
@@ -200,3 +201,81 @@ For local use: `echo "<SECRET>" | ugs login --service-key-id <KEY_ID> --secret-k
 **Symptom:** Deployment succeeds but `ugs cloud-code modules list` does not show the module.
 
 **Fix:** UGS may take a few seconds to propagate. Wait 30 seconds and re-check manually.
+
+---
+
+## 6. Admin Web (SPA + Proxy)
+
+The Admin Web is a static browser dashboard for managing in-game mail without the Unity Editor. It consists of two independently deployable units, each with its own workflow.
+
+### Workflows
+
+| Workflow | File | Deploy target |
+|---|---|---|
+| Deploy Admin Web SPA | `.github/workflows/deploy-adminweb.yml` | GitHub Pages (`https://dycuong03.github.io/UnityCloudCode/`) |
+| Deploy AdminWeb Proxy | `.github/workflows/deploy-proxy.yml` | Cloudflare Worker (`adminweb-proxy.<subdomain>.workers.dev`) |
+
+### Triggers
+
+Both workflows use the same branch strategy as `deploy.yml` (Cloud Code):
+
+```yaml
+on:
+  push:
+    branches:
+      - staging
+      - 'release/*'
+    paths:
+      - 'AdminWeb/**'          # deploy-adminweb: SPA source
+      - 'AdminWeb/proxy/**'    # deploy-proxy: Worker source only
+      # + each workflow's own .yml file
+  workflow_dispatch:
+```
+
+**Note:** Both `staging` and `release/*` publish to the **same single GitHub Pages site** (last deploy wins). This is intentional — the SPA is environment-agnostic; the operator selects the target environment at runtime by entering the environment name and proxy token in the browser.
+
+### Required Secrets and Variables
+
+#### Secrets (GitHub repo → Settings → Secrets and variables → Secrets)
+
+| Secret | Used by | Description |
+|---|---|---|
+| `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | `deploy-proxy.yml` (Worker secret) | UGS service-account key ID — set as a **server-side** Worker secret; never in the SPA bundle |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | `deploy-proxy.yml` (Worker secret) | UGS service-account secret — server-side only |
+| `CLOUDFLARE_API_TOKEN` | `deploy-proxy.yml` | Cloudflare API token with **Workers:Edit** permission |
+| `CLOUDFLARE_ACCOUNT_ID` | `deploy-proxy.yml` | Cloudflare account ID |
+| `ADMIN_PROXY_TOKEN` | `deploy-proxy.yml` (Worker secret) | Gate token the operator enters in the browser; the proxy validates it server-side |
+
+#### Variables (GitHub repo → Settings → Secrets and variables → Variables)
+
+| Variable | Used by | Description |
+|---|---|---|
+| `ADMIN_PROXY_ALLOWED_ORIGIN` | `deploy-proxy.yml` (Worker secret `ALLOWED_ORIGIN`) | CORS allowed origin, e.g. `https://dycuong03.github.io` |
+| `VITE_PROXY_URL` | `deploy-adminweb.yml` (build env) + `deploy-proxy.yml` (smoke test) | Deployed Worker URL — baked into the SPA at build time; also used by the proxy smoke test |
+
+### One-Time GitHub Pages Setup
+
+1. Go to **GitHub repo → Settings → Pages**.
+2. Under **Source**, select **GitHub Actions**.
+3. The next qualifying push triggers the first Pages deploy automatically.
+
+### First-Deploy Order
+
+The proxy must be deployed before the SPA so that `VITE_PROXY_URL` can be set:
+
+1. Push to `staging` (or trigger `deploy-proxy.yml` manually via **Actions → Run workflow**).
+2. Wait for the Worker deploy to succeed.
+3. Open **Cloudflare dashboard → Workers & Pages → adminweb-proxy → Triggers** and copy the `workers.dev` URL.
+4. Set it as the `VITE_PROXY_URL` repository variable (**Settings → Secrets and variables → Variables → New variable**).
+5. Also set `ADMIN_PROXY_ALLOWED_ORIGIN` to the Pages origin (e.g. `https://dycuong03.github.io`).
+6. Push to `staging` (or trigger `deploy-adminweb.yml` manually) — the SPA build now picks up `VITE_PROXY_URL` and bakes it into the bundle.
+
+On the very first proxy deploy, the smoke-test step is skipped automatically (with instructions) because `VITE_PROXY_URL` is not yet set. Subsequent deploys run the health check.
+
+### Security Model
+
+- **UGS Key/Secret:** held exclusively as Cloudflare Worker secrets — never written to the SPA bundle, never logged.
+- **Operator credential:** the operator enters only the `ADMIN_PROXY_TOKEN` gate token in the browser (session-only `sessionStorage`, cleared on logout). The proxy validates it with a constant-time comparison before forwarding any request.
+- **CORS:** the Worker allows requests only from `ALLOWED_ORIGIN` (the Pages origin).
+- **Error responses:** the Worker sanitises error messages before returning them to the browser — secrets are redacted even if they somehow appear in an error string.
+- The SPA bundle itself contains no credentials and no secrets — it is safe to inspect.
