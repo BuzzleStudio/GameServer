@@ -16,7 +16,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
     {
         private const string ModuleName = "BackpackAdventuresModule";
         private const string ProjectIdPrefKey = "BackpackAdventures.AdminMail.ProjectId";
-        private const string EnvironmentIdPrefKey = "BackpackAdventures.AdminMail.EnvironmentId";
+        private const string EnvironmentIdPrefKey = "BackpackAdventures.AdminMail.EnvironmentId"; // legacy — kept for migration read only
+        private const string EnvironmentNamePrefKey = "BackpackAdventures.AdminMail.EnvironmentName";
         private const string ServiceKeyIdPrefKey = "BackpackAdventures.AdminMail.ServiceKeyId";
 
         private enum Tab { SendGlobal, SendTargeted, Manage }
@@ -42,7 +43,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private Vector2 _scroll;
 
         private string _projectId = string.Empty;
-        private string _environmentId = string.Empty;
+        private string _environmentName = string.Empty;
+        private string _resolvedEnvironmentId = string.Empty;
+        private string _resolvedForName = string.Empty;
         private string _serviceKeyId = string.Empty;
         private string _serviceSecret = string.Empty;
         private string _operatorId = string.Empty;
@@ -89,7 +92,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void OnEnable()
         {
             _projectId = EditorPrefs.GetString(ProjectIdPrefKey, _projectId);
-            _environmentId = EditorPrefs.GetString(EnvironmentIdPrefKey, _environmentId);
+            _environmentName = EditorPrefs.GetString(EnvironmentNamePrefKey, string.Empty);
+            if (string.IsNullOrEmpty(_environmentName))
+                _environmentName = EditorPrefs.GetString(EnvironmentIdPrefKey, string.Empty); // migrate from old GUID key
             _serviceKeyId = EditorPrefs.GetString(ServiceKeyIdPrefKey, _serviceKeyId);
             EnsureAttachmentDefaults();
         }
@@ -127,7 +132,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void DrawAdminWarning()
         {
             EditorGUILayout.HelpBox(
-                "Admin calls use UGS REST with project-scoped Unity service account. Project/Environment/Key ID can be saved locally; service account secret is session-only.",
+                "Admin calls use UGS REST with project-scoped Unity service account. Project ID, Environment Name, and Key ID can be saved locally; service account secret is session-only. The environment name (e.g. \"production\") is resolved to its GUID via UGS Environments API before each call.",
                 MessageType.Warning);
         }
 
@@ -135,12 +140,14 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             EditorGUILayout.LabelField("Project-Scoped Service Account REST", EditorStyles.boldLabel);
             _projectId = EditorGUILayout.TextField("Project ID", _projectId);
-            _environmentId = EditorGUILayout.TextField("Environment ID", _environmentId);
+            _environmentName = EditorGUILayout.TextField("Environment Name", _environmentName);
+            if (!string.IsNullOrEmpty(_resolvedEnvironmentId) && _resolvedForName == _environmentName.Trim())
+                EditorGUILayout.LabelField($"  → Resolved ID: {_resolvedEnvironmentId}", EditorStyles.miniLabel);
             _serviceKeyId = EditorGUILayout.TextField("Project Service Key ID", _serviceKeyId);
             _serviceSecret = EditorGUILayout.PasswordField("Project Service Secret", _serviceSecret);
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Save Project/Env/Key ID", GUILayout.Width(190)))
+            if (GUILayout.Button("Save Project/Env/Key", GUILayout.Width(190)))
                 SaveRestPrefs();
             if (GUILayout.Button("Clear Saved", GUILayout.Width(100)))
                 ClearRestPrefs();
@@ -310,7 +317,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private async Task SendGlobalMailAsync()
         {
             ValidateSubjectBody(_globalSubject, _globalBody);
-            using var backendScope = UseRestBackend();
+            string envId = await ResolveEnvironmentIdAsync();
+            using var backendScope = UseRestBackend(envId);
             var result = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 _globalSubject.Trim(),
                 _globalBody.Trim(),
@@ -332,7 +340,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             var targetUserIds = BuildTargetUserIds();
             ValidateSubjectBody(_userSubject, _userBody);
-            using var backendScope = UseRestBackend();
+            string envId = await ResolveEnvironmentIdAsync();
+            using var backendScope = UseRestBackend(envId);
             var result = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
                 _userSubject.Trim(),
                 _userBody.Trim(),
@@ -354,7 +363,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             if (string.IsNullOrWhiteSpace(_manageMailId))
                 throw new ArgumentException("Mail ID is required for Delete.");
-            using var backendScope = UseRestBackend();
+            string envId = await ResolveEnvironmentIdAsync();
+            using var backendScope = UseRestBackend(envId);
             var result = await BackpackCloudCodeService.CallAdminDeleteGlobalMailAsync(_manageMailId.Trim(), adminToken: null, operatorId: _operatorId);
             _rawJson = backendScope.Backend.FormatSuccessResponse("DeleteGlobalMail", result);
             _statusMessage = $"DeleteGlobalMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId}";
@@ -364,7 +374,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             if (string.IsNullOrWhiteSpace(_manageMailId))
                 throw new ArgumentException("Mail ID is required for Set EndTime.");
-            using var backendScope = UseRestBackend();
+            string envId = await ResolveEnvironmentIdAsync();
+            using var backendScope = UseRestBackend(envId);
             var endTime = BuildEndTimeIso(_manageUseEndTime, _manageEndDate, _manageEndTime);
             var result = await BackpackCloudCodeService.CallSetMailEndTimeAsync(_manageMailId.Trim(), endTime, adminToken: null, operatorId: _operatorId);
             _rawJson = backendScope.Backend.FormatSuccessResponse("SetMailEndTime", result);
@@ -375,7 +386,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             if (string.IsNullOrWhiteSpace(_manageMailId))
                 throw new ArgumentException("Mail ID is required for Expire.");
-            using var backendScope = UseRestBackend();
+            string envId = await ResolveEnvironmentIdAsync();
+            using var backendScope = UseRestBackend(envId);
             var result = await BackpackCloudCodeService.CallExpireMailAsync(_manageMailId.Trim(), adminToken: null, operatorId: _operatorId);
             _rawJson = backendScope.Backend.FormatSuccessResponse("ExpireMail", result);
             _statusMessage = $"ExpireMail: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} mailId={result.mailId}";
@@ -383,7 +395,8 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
         private async Task PurgeExpiredAsync()
         {
-            using var backendScope = UseRestBackend();
+            string envId = await ResolveEnvironmentIdAsync();
+            using var backendScope = UseRestBackend(envId);
             var result = await BackpackCloudCodeService.CallPurgeExpiredAsync(adminToken: null, operatorId: _operatorId);
             _rawJson = backendScope.Backend.FormatSuccessResponse("PurgeExpired", result);
             _statusMessage = $"PurgeExpired: HTTP {backendScope.Backend.LastStatusCode} {backendScope.Backend.LastReasonPhrase} purgedCount={result.purgedCount}";
@@ -592,26 +605,29 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private void SaveRestPrefs()
         {
             EditorPrefs.SetString(ProjectIdPrefKey, _projectId?.Trim() ?? string.Empty);
-            EditorPrefs.SetString(EnvironmentIdPrefKey, _environmentId?.Trim() ?? string.Empty);
+            EditorPrefs.SetString(EnvironmentNamePrefKey, _environmentName?.Trim() ?? string.Empty);
             EditorPrefs.SetString(ServiceKeyIdPrefKey, _serviceKeyId?.Trim() ?? string.Empty);
-            _statusMessage = "Saved Project ID, Environment ID, and Service Key ID.";
+            _statusMessage = "Saved Project ID, Environment Name, and Service Key ID.";
         }
 
         private void ClearRestPrefs()
         {
             EditorPrefs.DeleteKey(ProjectIdPrefKey);
+            EditorPrefs.DeleteKey(EnvironmentNamePrefKey);
             EditorPrefs.DeleteKey(EnvironmentIdPrefKey);
             EditorPrefs.DeleteKey(ServiceKeyIdPrefKey);
             _projectId = string.Empty;
-            _environmentId = string.Empty;
+            _environmentName = string.Empty;
             _serviceKeyId = string.Empty;
+            _resolvedEnvironmentId = string.Empty;
+            _resolvedForName = string.Empty;
             _statusMessage = "Cleared saved REST config.";
         }
 
         private bool HasRestCredentials()
         {
             return !string.IsNullOrWhiteSpace(_projectId) &&
-                   !string.IsNullOrWhiteSpace(_environmentId) &&
+                   !string.IsNullOrWhiteSpace(_environmentName) &&
                    !string.IsNullOrWhiteSpace(_serviceKeyId) &&
                    !string.IsNullOrWhiteSpace(_serviceSecret);
         }
@@ -621,15 +637,59 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             return !string.IsNullOrWhiteSpace(_operatorId);
         }
 
-        private BackendScope UseRestBackend()
+        // FILL: replace placeholder values with real UGS environment GUIDs from the dashboard.
+        // These are not secrets — they are project-scoped public identifiers.
+        // Keys must be lowercase to match case-insensitive lookup below.
+        private static readonly Dictionary<string, string> EnvironmentNameMap =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "production", "<FILL_PRODUCTION_ENV_GUID>" },
+                { "testing",    "<FILL_TESTING_ENV_GUID>" },
+            };
+
+        private static bool LooksLikeUuid(string value) =>
+            value != null && value.Length == 36 &&
+            value[8] == '-' && value[13] == '-' && value[18] == '-' && value[23] == '-';
+
+        private async Task<string> ResolveEnvironmentIdAsync()
         {
             if (!HasRestCredentials())
-                throw new InvalidOperationException("Project ID, Environment ID, Service Key ID, and Service Secret are required.");
+                throw new InvalidOperationException("Project ID, Environment Name, Service Key ID, and Service Secret are required.");
 
+            string name = _environmentName.Trim();
+            if (!string.IsNullOrEmpty(_resolvedEnvironmentId) && _resolvedForName == name)
+                return _resolvedEnvironmentId;
+
+            string id;
+
+            // (1) Already a GUID — use it directly, no network call needed.
+            if (LooksLikeUuid(name))
+            {
+                id = name;
+            }
+            // (2) Config-map lookup — use the mapped GUID if it has been filled in.
+            else if (EnvironmentNameMap.TryGetValue(name, out string mapped) && !mapped.StartsWith("<FILL"))
+            {
+                id = mapped;
+            }
+            // (3) Fallback: live UGS Environments API.
+            else
+            {
+                id = await EditorRestCloudCodeBackend.ResolveEnvironmentIdAsync(
+                    _projectId.Trim(), name, _serviceKeyId.Trim(), _serviceSecret);
+            }
+
+            _resolvedEnvironmentId = id;
+            _resolvedForName = name;
+            return id;
+        }
+
+        private BackendScope UseRestBackend(string resolvedEnvId)
+        {
             SaveRestPrefs();
             return new BackendScope(new EditorRestCloudCodeBackend(
                 _projectId.Trim(),
-                _environmentId.Trim(),
+                resolvedEnvId,
                 _serviceKeyId.Trim(),
                 _serviceSecret));
         }
@@ -788,6 +848,47 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 LastStatusCode = response.StatusCode;
                 LastReasonPhrase = response.ReasonPhrase;
                 LastResponseBody = response.Body;
+            }
+
+            // Calls GET https://services.api.unity.com/unity/v1/projects/{projectId}/environments
+            // using Basic (service-account) auth. Returns the UUID matching envName (case-insensitive).
+            // Endpoint sourced from task spec + UGS CLI IdentityApiV1 (unity/v1 path).
+            // Expected response shape: { "results": [ { "id": "<UUID>", "name": "<string>", ... } ] }
+            public static async Task<string> ResolveEnvironmentIdAsync(
+                string projectId, string envName, string keyId, string secret)
+            {
+                string url = $"https://services.api.unity.com/unity/v1/projects/{Uri.EscapeDataString(projectId)}/environments";
+                string credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{keyId}:{secret}"));
+
+                using var message = new HttpRequestMessage(HttpMethod.Get, url);
+                message.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+
+                using HttpResponseMessage httpResponse = await HttpClient.SendAsync(message);
+                string body = await httpResponse.Content.ReadAsStringAsync();
+                if (!httpResponse.IsSuccessStatusCode)
+                    throw new CloudCodeRestException("ResolveEnvironment",
+                        new RestHttpResponse((int)httpResponse.StatusCode, httpResponse.ReasonPhrase, body, false));
+
+                var json = JObject.Parse(body);
+                // Tolerate both "results" and "environments" root keys for resilience
+                var results = (json["results"] ?? json["environments"]) as JArray;
+                if (results == null)
+                    throw new InvalidOperationException(
+                        $"Environments API returned unexpected shape (no 'results'). Response: {body}");
+
+                foreach (JToken env in results)
+                {
+                    string name = env.Value<string>("name");
+                    if (string.Equals(name, envName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string id = env.Value<string>("id");
+                        if (!string.IsNullOrEmpty(id))
+                            return id;
+                    }
+                }
+
+                throw new InvalidOperationException(
+                    $"Environment '{envName}' not found in project '{projectId}'. Verify the name matches the UGS dashboard.");
             }
 
             private async Task<string> GetAccessTokenAsync()

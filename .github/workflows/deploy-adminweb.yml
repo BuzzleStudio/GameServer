@@ -1,0 +1,123 @@
+# Deploy Admin Web SPA to GitHub Pages
+#
+# Triggers on push to main or staging when files under AdminWeb/ change,
+# or when this workflow file itself changes; also supports manual dispatch.
+#
+# UGS service-account secrets are NEVER injected into the static bundle.
+# The SPA routes all Cloud Code calls through the serverless proxy (deploy-proxy.yml).
+# Operators enter only the ADMIN_PROXY_TOKEN gate token at runtime (session-only).
+#
+# Required one-time repo setup:
+#   GitHub repo → Settings → Pages → Source = "GitHub Actions"
+#
+# Required repository variable (Settings → Secrets and variables → Variables):
+#   VITE_PROXY_URL   — deployed Cloudflare Worker URL, e.g.
+#                      https://adminweb-proxy.<account>.workers.dev
+#                      (non-secret; set this after the first deploy-proxy run)
+#
+# Live URL (after first successful deploy):
+#   https://dycuong03.github.io/UnityCloudCode/
+#
+# Build contract (agreed with web-dev):
+#   Working directory : AdminWeb/
+#   Install command   : npm ci
+#   Build command     : npm run build  (VITE_BASE + VITE_PROXY_URL injected at build time)
+#   Output directory  : AdminWeb/dist
+#   Vite base path    : '/UnityCloudCode/'  (injected via VITE_BASE;
+#                        default in vite.config.ts is './' for local dev)
+#   Proxy URL         : injected via VITE_PROXY_URL (non-secret repo variable)
+
+name: Deploy Admin Web to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+    paths:
+      - 'AdminWeb/**'
+      - '.github/workflows/deploy-adminweb.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------------
+  # 1. Build the Vite SPA
+  # ------------------------------------------------------------------
+  build:
+    name: Build Admin Web SPA
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: AdminWeb/package-lock.json
+
+      - name: Install dependencies
+        working-directory: AdminWeb
+        run: npm ci
+
+      - name: Build SPA
+        working-directory: AdminWeb
+        env:
+          VITE_BASE: /UnityCloudCode/
+          # Non-secret: the deployed Cloudflare Worker URL baked into the bundle.
+          # Set VITE_PROXY_URL as a repository variable (not a secret).
+          # UGS Key/Secret are NEVER injected here — they live in the Worker only.
+          VITE_PROXY_URL: ${{ vars.VITE_PROXY_URL }}
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: AdminWeb/dist
+
+  # ------------------------------------------------------------------
+  # 2. Deploy to GitHub Pages
+  # ------------------------------------------------------------------
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Write job summary
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then ICON="SUCCESS"; else ICON="FAILED"; fi
+          {
+            echo "## Admin Web Deploy — $ICON"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| **Branch** | ${{ github.ref_name }} |"
+            echo "| **Commit** | ${{ github.sha }} |"
+            echo "| **Actor** | ${{ github.actor }} |"
+            echo "| **Page URL** | ${{ steps.deployment.outputs.page_url }} |"
+            echo "| **Status** | $STATUS |"
+          } >> "$GITHUB_STEP_SUMMARY"

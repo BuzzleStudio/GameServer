@@ -193,3 +193,55 @@ See [docs/MAILBOX_API_USAGE.md](docs/MAILBOX_API_USAGE.md) for full API document
 See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) for current limitations, unimplemented features, and known risks.
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed change history including design decisions and risk notes.
+
+---
+
+## Admin Web
+
+Browser-based admin dashboard mirroring the Unity Editor **CloudCode > Admin Mail** window.
+Operators can send global/targeted mail and manage (list / edit / expire / delete) global mails
+without opening the Unity Editor.
+
+### Live URL
+
+```
+https://dycuong03.github.io/UnityCloudCode/
+```
+
+### Enabling GitHub Pages (one-time repo setup)
+
+1. Go to **GitHub repo → Settings → Pages**.
+2. Under **Source**, select **GitHub Actions**.
+3. The next push to `main` or `staging` that touches `AdminWeb/**` will deploy automatically.
+
+### Deploy trigger
+
+| Event | Condition |
+|---|---|
+| `push` to `main` or `staging` | Only when `AdminWeb/**` or the workflow file changes |
+| `workflow_dispatch` | Manual trigger from the Actions tab |
+
+Workflow file: `.github/workflows/deploy-adminweb.yml`
+
+### Build contract
+
+| Item | Value |
+|---|---|
+| Working directory | `AdminWeb/` |
+| Install | `npm ci` |
+| Build | `VITE_BASE=/UnityCloudCode/ npm run build` |
+| Output | `AdminWeb/dist/` |
+| Vite base default | `./` (relative, for local dev) |
+| Vite base (Pages) | `/UnityCloudCode/` — injected via `VITE_BASE` env var at CI build time |
+
+### Runtime credentials — security model
+
+The web app prompts the operator for a **Service Account Key ID** and **Secret** on first use.
+Credentials are stored in `sessionStorage` only — they are **never committed to the repository,
+never sent to any proxy, and cleared when the browser tab is closed**.
+
+This is an internal operator tool with the same trust model as the Unity Editor AdminMailWindow.
+The operator is responsible for keeping their service-account credentials secure.
+
+**No GitHub secrets are required for this workflow.** The SPA calls UGS APIs directly from the
+browser using credentials entered at runtime.
