@@ -47,64 +47,102 @@ internal static class CloudSaveHelper
         Timeout = TimeSpan.FromSeconds(10),
     };
 
+    // ── Cache key helpers ────────────────────────────────────────────────────
+
+    private static string PlayerCacheKey(IExecutionContext ctx, string playerId, string key)
+        => $"{ctx.ProjectId}:player:{playerId}:{key}";
+
+    private static string CustomCacheKey(IExecutionContext ctx, string key)
+        => $"{ctx.ProjectId}:custom:{GlobalCustomId}:{key}";
+
     // ── Player data ──────────────────────────────────────────────────────────
 
+    // Read-through: returns cached value when live; falls through to REST on miss/expiry.
     internal static async Task<T?> GetPlayerDataAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string playerId, string key)
     {
+        var cacheKey = PlayerCacheKey(ctx, playerId, key);
+        if (MailboxCache.TryGet<T>(cacheKey, out var cached)) return cached;
+
         var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items?keys={Uri.EscapeDataString(key)}";
         var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
-        return ExtractFirstValue<T>(json);
+        var result = ExtractFirstValue<T>(json);
+        MailboxCache.Set(cacheKey, result);
+        return result;
     }
 
+    // Always REST — writeLock token must be current for safe CAS writes.
+    // Write-through of data portion into the plain cache as a side-effect.
     internal static async Task<(T? data, string writeLock)> GetPlayerDataWithLockAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string playerId, string key)
     {
         var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items?keys={Uri.EscapeDataString(key)}";
         var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
-        return ExtractFirstWithLock<T>(json);
+        var result = ExtractFirstWithLock<T>(json);
+        MailboxCache.Set(PlayerCacheKey(ctx, playerId, key), result.data);
+        return result;
     }
 
+    // Write-through: cache is updated with the new value on success.
     internal static async Task SetPlayerDataAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string playerId, string key, T value,
         string? writeLock = null)
     {
+        var cacheKey = PlayerCacheKey(ctx, playerId, key);
         var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/players/{Uri.EscapeDataString(playerId)}/items";
-        await PostItemAsync(ctx, url, key, value, writeLock);
+        await PostItemAsync(ctx, url, key, value, writeLock, cacheKey);
+        MailboxCache.Set(cacheKey, value);
     }
 
     // ── Custom data (project-wide) ───────────────────────────────────────────
 
+    // Read-through: returns cached value when live; falls through to REST on miss/expiry.
     internal static async Task<T?> GetCustomDataAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key)
     {
+        var cacheKey = CustomCacheKey(ctx, key);
+        if (MailboxCache.TryGet<T>(cacheKey, out var cached)) return cached;
+
         var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items?keys={Uri.EscapeDataString(key)}";
         var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
-        return ExtractFirstValue<T>(json);
+        var result = ExtractFirstValue<T>(json);
+        MailboxCache.Set(cacheKey, result);
+        return result;
     }
 
+    // Write-through: cache is updated with the new value on success.
     internal static async Task SetCustomDataAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key, T value)
     {
+        var cacheKey = CustomCacheKey(ctx, key);
         var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
-        await PostItemAsync(ctx, url, key, value, writeLock: null);
+        await PostItemAsync(ctx, url, key, value, null, cacheKey);
+        MailboxCache.Set(cacheKey, value);
     }
 
+    // Always REST — writeLock token must be current for safe CAS writes.
+    // Write-through of data portion into the plain cache as a side-effect.
     internal static async Task<(T? data, string writeLock)> GetCustomDataWithLockAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key)
     {
         var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items?keys={Uri.EscapeDataString(key)}";
         var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
-        return ExtractFirstWithLock<T>(json);
+        var result = ExtractFirstWithLock<T>(json);
+        MailboxCache.Set(CustomCacheKey(ctx, key), result.data);
+        return result;
     }
 
+    // Write-through: cache is updated with the new value on success.
     internal static async Task SetCustomDataWithLockAsync<T>(
         IGameApiClient _, IExecutionContext ctx, string key, T value, string writeLock)
     {
+        var cacheKey = CustomCacheKey(ctx, key);
         var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
-        await PostItemAsync(ctx, url, key, value, writeLock);
+        await PostItemAsync(ctx, url, key, value, writeLock, cacheKey);
+        MailboxCache.Set(cacheKey, value);
     }
 
+    // Evicts cache entry on successful delete so stale data cannot be served afterward.
     internal static async Task DeleteCustomDataAsync(
         IGameApiClient _, IExecutionContext ctx, string key)
     {
@@ -112,6 +150,7 @@ internal static class CloudSaveHelper
         var (_, status, _) = await SendAsync(HttpMethod.Delete, ctx, url, body: null, treat404AsSuccess: true);
         if ((int)status >= 400 && status != HttpStatusCode.NotFound)
             throw new InvalidOperationException($"DeleteCustomDataAsync failed: HTTP {(int)status} on {key}");
+        MailboxCache.Evict(CustomCacheKey(ctx, key));
     }
 
     // ── Conflict detection ───────────────────────────────────────────────────
@@ -126,7 +165,8 @@ internal static class CloudSaveHelper
     // ── Private helpers ──────────────────────────────────────────────────────
 
     private static async Task PostItemAsync<T>(
-        IExecutionContext ctx, string url, string key, T value, string? writeLock)
+        IExecutionContext ctx, string url, string key, T value, string? writeLock,
+        string? cacheKey = null)
     {
         // Cloud Save's SetItemBody documents `value` as "Any JSON serializable structure"
         // (NOT a JSON-encoded string). Sending the value as a string produces HTTP 404
@@ -146,7 +186,11 @@ internal static class CloudSaveHelper
             body: new StringContent(bodyJson, Encoding.UTF8, "application/json"));
 
         if ((int)status == 409)
+        {
+            // Evict so the next read fetches a fresh writeLock token from REST.
+            if (cacheKey != null) MailboxCache.Evict(cacheKey);
             throw new InvalidOperationException($"Cloud Save write-lock conflict (HTTP 409) on key={key}. Response: {respBody}");
+        }
         if ((int)status >= 400)
             throw new InvalidOperationException($"Cloud Save SetItem failed: HTTP {(int)status} on key={key}. Response: {respBody}");
     }

@@ -1,0 +1,22 @@
+# Cloudflare Worker — AdminWeb proxy
+#
+# Secrets (set via `wrangler secret put` or deploy-proxy.yml):
+#   UNITY_PROJECT_SERVICE_ACCOUNT_KEY     — UGS service-account key ID
+#   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET  — UGS service-account secret
+#   ADMIN_PROXY_TOKEN                     — gate token the SPA presents as Bearer
+#   ALLOWED_ORIGIN                        — CORS Allow-Origin (e.g. https://dycuong03.github.io)
+#
+# Plain vars (non-secret, safe to commit):
+#   (none currently — all sensitive values are secrets)
+#
+# After first deploy the worker URL is:
+#   https://adminweb-proxy.<your-account>.workers.dev
+# Set that URL as the VITE_PROXY_URL repo variable (or Actions var) for deploy-adminweb.yml.
+
+name = "adminweb-proxy"
+main = "src/worker.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Optional: bind a custom domain via Cloudflare dashboard instead of the default
+# *.workers.dev subdomain. No config change needed here for that.

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Unity.Services.CloudCode.Core;
 
 namespace BackpackAdventures.CloudCode;
@@ -25,6 +26,7 @@ public class ApiResponse<T>
     public int StatusCode { get; set; } = 200;
     public string Message { get; set; } = string.Empty;
     public T? Data { get; set; }
+    public long ServerExecutionMs { get; set; }
 
     public static ApiResponse<T> Ok(T data, string message = "OK")
     {
@@ -33,6 +35,17 @@ public class ApiResponse<T>
             StatusCode = 200,
             Message = message,
             Data = data
+        };
+    }
+
+    public static ApiResponse<T> Ok(T data, Stopwatch sw, string message = "OK")
+    {
+        return new ApiResponse<T>
+        {
+            StatusCode = 200,
+            Message = message,
+            Data = data,
+            ServerExecutionMs = sw.ElapsedMilliseconds
         };
     }
 }

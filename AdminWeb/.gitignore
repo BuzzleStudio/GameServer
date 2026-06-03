@@ -1,0 +1,16 @@
+# AdminWeb — self-contained build/runtime artifacts (not committed)
+node_modules/
+dist/
+proxy/node_modules/
+proxy/dist/
+
+# Unity-generated .meta for the build-output folders above (no asset contents committed)
+node_modules.meta
+dist.meta
+proxy/node_modules.meta
+proxy/dist.meta
+
+# Local env overrides (never commit secrets)
+.env
+.env.local
+*.local

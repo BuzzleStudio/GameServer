@@ -1,0 +1,148 @@
+# Deploy AdminWeb Proxy — Cloudflare Worker
+#
+# Deploys AdminWeb/proxy/ as a Cloudflare Worker via wrangler-action.
+# Triggers when proxy source or this workflow file changes on main/staging,
+# or manually via workflow_dispatch.
+#
+# This workflow is INDEPENDENT of:
+#   deploy.yml          — Cloud Code module deploy (UGS)
+#   deploy-adminweb.yml — GitHub Pages SPA deploy
+#
+# Required GitHub repository secrets:
+#   CLOUDFLARE_API_TOKEN                  — Cloudflare API token with Workers:Edit permission
+#   CLOUDFLARE_ACCOUNT_ID                 — Cloudflare account ID
+#   UNITY_PROJECT_SERVICE_ACCOUNT_KEY     — UGS service-account key ID   (set as Worker secret)
+#   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET  — UGS service-account secret   (set as Worker secret)
+#   ADMIN_PROXY_TOKEN                     — Gate token SPA uses as Bearer (set as Worker secret)
+#
+# Required GitHub repository variable (Settings → Secrets and variables → Variables):
+#   ADMIN_PROXY_ALLOWED_ORIGIN  — CORS allowed origin, e.g. https://dycuong03.github.io
+#                                 (not a secret; the Pages origin is public)
+#
+# After the first successful deploy, the Worker URL is shown in the Cloudflare dashboard
+# (Workers & Pages → adminweb-proxy → Triggers). It looks like:
+#   https://adminweb-proxy.<your-chosen-subdomain>.workers.dev
+# Copy that URL and set it as the VITE_PROXY_URL repository variable so:
+#   (a) deploy-adminweb.yml can bake it into the SPA at build time (non-secret), and
+#   (b) the smoke-test step below can hit the health endpoint on subsequent deploys.
+# On the very first deploy VITE_PROXY_URL won't be set yet — the smoke test is skipped
+# gracefully with an informational message rather than failing the run.
+#
+# Portability note:
+#   worker.ts is a standard Fetch-handler module Worker. To deploy on other
+#   platforms, replace this workflow with the equivalent:
+#     Vercel     — `vercel deploy` with Edge Functions adapter
+#     Netlify    — `netlify deploy` with Edge Functions adapter
+#     Deno Deploy — `deployctl deploy` (worker.ts is compatible as-is)
+#   Set the same four secrets in whichever platform you use.
+
+name: Deploy AdminWeb Proxy (Cloudflare Worker)
+
+on:
+  push:
+    branches:
+      - staging
+      - 'release/*'
+    paths:
+      - 'AdminWeb/proxy/**'
+      - '.github/workflows/deploy-proxy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-proxy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Worker via Wrangler
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Checkout
+      # ------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. Deploy Worker + set server-side secrets
+      #    wrangler-action runs `wrangler deploy` then `wrangler secret put`
+      #    for each entry in `secrets:`. The matching env var supplies the value.
+      #    Secrets are NEVER written to the bundle or logged.
+      # ------------------------------------------------------------------
+      - name: Deploy Worker and set secrets
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: AdminWeb/proxy
+          secrets: |
+            UNITY_PROJECT_SERVICE_ACCOUNT_KEY
+            UNITY_PROJECT_SERVICE_ACCOUNT_SECRET
+            ADMIN_PROXY_TOKEN
+            ALLOWED_ORIGIN
+        env:
+          UNITY_PROJECT_SERVICE_ACCOUNT_KEY: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
+          UNITY_PROJECT_SERVICE_ACCOUNT_SECRET: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
+          ADMIN_PROXY_TOKEN: ${{ secrets.ADMIN_PROXY_TOKEN }}
+          # ALLOWED_ORIGIN is the Pages origin — not a secret, stored as a repo variable.
+          ALLOWED_ORIGIN: ${{ vars.ADMIN_PROXY_ALLOWED_ORIGIN }}
+
+      # ------------------------------------------------------------------
+      # 3. Smoke-test the deployed health endpoint
+      #
+      #    Driven by the VITE_PROXY_URL repo variable (non-secret), which holds
+      #    the workers.dev URL set after the first deploy. Skipped gracefully on
+      #    the first run (variable not yet set) so the pipeline doesn't fail before
+      #    the operator has a chance to copy the URL from the Cloudflare dashboard.
+      # ------------------------------------------------------------------
+      - name: Smoke test — GET /api/health
+        if: ${{ vars.VITE_PROXY_URL != '' }}
+        run: |
+          set -e
+          WORKER_URL="${{ vars.VITE_PROXY_URL }}"
+          echo "Testing: $WORKER_URL/api/health"
+          RESPONSE=$(curl -sf "$WORKER_URL/api/health")
+          echo "Response: $RESPONSE"
+          if ! echo "$RESPONSE" | grep -q '"ok":true'; then
+            echo "ERROR: health check did not return {\"ok\":true}"
+            exit 1
+          fi
+          echo "Health check passed."
+
+      - name: Smoke test skipped — VITE_PROXY_URL not yet set
+        if: ${{ vars.VITE_PROXY_URL == '' }}
+        run: |
+          echo "VITE_PROXY_URL repo variable is not set — smoke test skipped."
+          echo ""
+          echo "This is expected on the first deploy. After this run completes:"
+          echo "  1. Open Cloudflare dashboard → Workers & Pages → adminweb-proxy → Triggers"
+          echo "  2. Copy the workers.dev URL (e.g. https://adminweb-proxy.<subdomain>.workers.dev)"
+          echo "  3. Set it as the VITE_PROXY_URL repository variable:"
+          echo "     GitHub repo → Settings → Secrets and variables → Variables → New variable"
+          echo "  4. Also set ADMIN_PROXY_ALLOWED_ORIGIN to your Pages origin if not already set."
+          echo "  Subsequent deploys will run the health-check smoke test automatically."
+
+      # ------------------------------------------------------------------
+      # 4. Job summary
+      # ------------------------------------------------------------------
+      - name: Write job summary
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then ICON="SUCCESS"; else ICON="FAILED"; fi
+          {
+            echo "## AdminWeb Proxy Deploy — $ICON"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| **Worker** | adminweb-proxy |"
+            echo "| **Branch** | ${{ github.ref_name }} |"
+            echo "| **Commit** | ${{ github.sha }} |"
+            echo "| **Actor** | ${{ github.actor }} |"
+            echo "| **Status** | $STATUS |"
+            echo ""
+            echo "> After first deploy: copy the Worker URL and set it as the"
+            echo "> \`VITE_PROXY_URL\` repository variable for the SPA build."
+          } >> "$GITHUB_STEP_SUMMARY"
