@@ -205,7 +205,7 @@ without opening the Unity Editor.
 ### Live URL
 
 ```
-https://adminweb.pages.dev
+https://adminweb.ninh-buzzle.workers.dev
 ```
 
 ### One-time Cloudflare setup

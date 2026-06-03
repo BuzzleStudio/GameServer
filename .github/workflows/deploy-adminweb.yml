@@ -92,6 +92,7 @@ jobs:
           rm .pages-secrets.json
 
       - name: Deploy SPA and API to Cloudflare Pages
+        id: deploy-pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -100,15 +101,29 @@ jobs:
           command: pages deploy dist --project-name=adminweb --branch=${{ github.ref_name }}
 
       - name: Smoke test same-origin API
-        if: ${{ github.ref_name == 'staging' }}
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy-pages.outputs.deployment-url }}
         run: |
           set -e
-          RESPONSE=$(curl -sf "https://adminweb.pages.dev/api/health")
-          echo "Response: $RESPONSE"
-          if ! echo "$RESPONSE" | grep -q '"ok":true'; then
-            echo "ERROR: health check did not return {\"ok\":true}"
-            exit 1
-          fi
+          BASE_URL="${DEPLOYMENT_URL:-https://adminweb.ninh-buzzle.workers.dev}"
+          HEALTH_URL="${BASE_URL%/}/api/health"
+          echo "Testing: $HEALTH_URL"
+
+          for i in 1 2 3 4 5 6; do
+            HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" "$HEALTH_URL" || true)
+            RESPONSE=$(cat response.json 2>/dev/null || true)
+            echo "Attempt $i: HTTP $HTTP_CODE"
+            echo "Response: $RESPONSE"
+
+            if [ "$HTTP_CODE" = "200" ] && echo "$RESPONSE" | grep -q '"ok":true'; then
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "ERROR: health check did not return HTTP 200 with {\"ok\":true}"
+          exit 1
 
       - name: Write job summary
         if: always()
@@ -120,7 +135,7 @@ jobs:
             echo ""
             echo "| Field | Value |"
             echo "|---|---|"
-            echo "| **Pages URL** | https://adminweb.pages.dev |"
+            echo "| **Pages URL** | https://adminweb.ninh-buzzle.workers.dev |"
             echo "| **API** | /api/* same-origin Pages Function |"
             echo "| **Branch** | ${{ github.ref_name }} |"
             echo "| **Commit** | ${{ github.sha }} |"
