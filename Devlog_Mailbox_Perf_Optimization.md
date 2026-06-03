@@ -130,6 +130,55 @@ Scope expanded by PO to the other Mailbox endpoints (run on every mailbox open /
 - Test-infra hardening (lead): `ProgrammableHttpMessageHandler` now thread-safe (`_gate` lock — B issues concurrent requests) and builds a FRESH `HttpResponseMessage` per send (fixes disposed-body reuse when an endpoint re-reads a key, e.g. `mails_all` twice in MarkGlobalRead, or sticky defaults). Added `LastPost()` for body inspection. New `TestInfrastructure/HttpSeam.cs` shared `_http` swap.
 - Module deploy build: 0 warnings, 0 errors. No stray `.meta`.
 
+## Round 3 — Version-aware `mails_all` cache (`global_mail_change_log`)
+
+Replaces TTL-only staleness for the project-wide `mails_all` key with cross-instance version validation.
+
+- **New global CustomData key `global_mail_change_log`** (`MailboxConstants.KeyGlobalMailChangeLog`). Model `GlobalMailChangeLog { long Version; string LastChangedAt; }` — minimal, no event list, no per-mail/reason fields.
+- **No-cache:** `global_mail_change_log` added to `MailboxCache.IsNoCacheKey` (alongside `player_wallet`) — always read fresh, else version validation is pointless.
+- **`mails_all` is now version-aware** (`MailboxCache.TryGetVersioned`/`SetVersioned`; entry stores the change-log version it was cached at). `CloudSaveHelper.GetCustomDataAsync(mails_all)` → reads `global_mail_change_log` fresh, serves cache only if `cachedVersion == currentVersion`, else refetches + re-stamps. TTL retained as a defense-in-depth backstop.
+- **Bump centralized in the write path:** `CloudSaveHelper` bumps the change log after every successful `mails_all` write (`OnCustomWriteSucceededAsync` → `BumpGlobalMailChangeLogAsync`, writeLock + bounded retry; missing key → Version 1, else +1, `LastChangedAt` ISO-8601 UTC). This covers **all** mutation paths automatically: SendGlobalMail, DeleteGlobalMail, ExpireMail, SetMailEndTime, PurgeExpired — **and SendUserMail**. No bump on no-ops (dedup early-return, not-found, purge-0) because they never call Set.
+- **Helpers added:** `GetGlobalMailChangeLogAsync`, `GetCurrentGlobalMailVersionAsync`, `BumpGlobalMailChangeLogAsync`, `GetCustomDataWithVersionAwareCacheAsync`, `FetchCustomAsync`.
+- **Correctness preserved:** `Get*WithLockAsync` still always REST-fetch (fresh writeLock); 409 still evicts; delete still evicts; `player_wallet` still no-cache; Cloud Save writeLock remains the correctness layer. Cache stays per-process, best-effort.
+
+### DEVIATION from spec (flagged): SendUserMail also bumps
+Spec listed 5 mutation paths and excluded SendUserMail. But `SendUserMailModule` writes targeted mail as `gm_`-prefixed entries **into `mails_all`** — so omitting its bump would leave targeted user mail stale across instances, defeating the goal. Centralizing the bump on the `mails_all` write (not per-endpoint) makes it impossible to miss a path and auto-covers SendUserMail. Still a single global key; no player-scoped change log was added.
+
+### Round 3 tests — 11 added, server suite now 79/79 PASSED (lead-run)
+`ChangeLog/GlobalMailChangeLogTests.cs`: change-log not cached (2 reads → 2 GETs); mails_all cache hit when version unchanged; mails_all refetch when version changes (cross-instance invalidation); SendGlobalMail/DeleteGlobalMail bump; ExpireMail/SetMailEndTime bump only when found (no-op → no bump); PurgeExpired bumps only when it removes (purge-0 → no bump).
+- Updated existing tests for the new `mails_all` contract (no weakening): `MailboxCacheTests` (3 — use neutral keys for plain-cache mechanics + 3-arg `CacheEntry` in the reflection helper); `ClaimAllRoundTripTests` (3 — versioned cache API; mails_all-fetch reduction 6→1 still asserted).
+- Module deploy build: 0 warnings, 0 errors. No stray `.meta`.
+
+### Known limitations (Round 3)
+- Each `mails_all` read now does **+1 small `global_mail_change_log` GET** to validate (by design — the alternative is the ≤5s stale window). The large `mails_all` doc is still served from cache; only the tiny version doc is fetched.
+- Each `mails_all` write does **+1 GET +1 POST** to bump the change log (admin/expiry frequency — negligible).
+- Still per-process / best-effort; correctness unchanged (writeLock). The change log reduces cross-instance stale global mail from "≤TTL window" to "next read sees the new version".
+- Client suite unaffected (server-only change, no API response shape change) — not re-run.
+
+## Round 4 — Best-effort change-log bump + ApiResponse runtime field
+
+### Best-effort `global_mail_change_log` bump after committed `mails_all`
+- **`mails_all` is the source of truth; the bump is a cache-invalidation signal.** A bump failure no longer fails an already-committed mutation.
+- `OnCustomWriteSucceededAsync` (mails_all branch): `try { bump; SetVersioned(newVersion) } catch { Evict(mails_all cache); logger?.LogWarning(...) }` — never rethrows. The strict `mails_all` POST path is unchanged (a failed `mails_all` write still throws as before).
+- `BumpGlobalMailChangeLogAsync`: `ChangeLogBumpAttempts = 3`. Retries on 409 (re-read fresh log + lock + increment); on exhausted 409 OR any non-409 error it **throws**, which the caller treats as best-effort failure.
+- On bump failure the local `mails_all` cache is **evicted** (never stamped with a wrong/old version) → next read refetches at the current version; other workers fall back to the TTL window.
+- Logging threaded via optional `ILogger?` on `SetCustomDataAsync` / `SetCustomDataWithLockAsync`; the 8 `mails_all` mutation call sites (SendGlobalMail ×2, SendUserMail ×2, ExpireMail ×3, PurgeExpired ×1) pass `_logger`.
+- No double bump: bump runs only after a successful `mails_all` POST; Send* conflict-retry's first (409'd) write never reaches the bump. No bump on no-ops.
+
+### ApiResponse runtime field for no-data APIs
+- **Client** (`UnityClient/Runtime/CloudCodeModels.cs`): added `[JsonProperty("serverExecutionMs")] long ServerExecutionMs` to the **base** `ApiResponse` → inherited by `ApiResponse<T>`, so every response (including no-data endpoints) carries server runtime. Additive: older payloads → 0.
+- **Server** (`ModuleConfig.cs`): mirrored `ServerExecutionMs` onto the non-generic `ApiResponse` + `Ok(Stopwatch)` helper, so no-data endpoints can report runtime symmetrically with `ApiResponse<T>`.
+
+### Round 4 tests — 5 added, server suite now 84/84 PASSED (lead-run)
+`ChangeLog/BumpFailureTests.cs`: (1) mails_all POST fails → endpoint fails, no bump; (2) bump OK → mails_all cache stamped at new version; (3) mails_all OK + bump non-409 → endpoint succeeds, warning logged, cache evicted; (4) bump 409→retry OK → success, single mails_all write (no double bump); (5) bump 409 exhausted (×3) → endpoint succeeds, cache evicted.
+- Shared `CapturingLogger` extended to capture Warning+ (added `HasWarningContaining`).
+- Module deploy build: 0 warnings, 0 errors. No stray `.meta`.
+- Client EditMode not re-run (Unity MCP unavailable this session); client change is one additive Newtonsoft property.
+
+### Known limitations (Round 4)
+- If a bump fails, that single change is not signalled cross-instance until the next successful bump; other workers serve stale for ≤ TTL (5s) — the original fallback, by design.
+- `ServerExecutionMs` on the non-generic server `ApiResponse` is available but currently unused (all endpoints return `ApiResponse<T>`); present for symmetry/future no-data endpoints.
+
 ## Final State
 COMPLETE. All acceptance criteria met:
 - RAM cache added (read-through/write-through/lock-safe/409-evict, wallet excluded). ✅

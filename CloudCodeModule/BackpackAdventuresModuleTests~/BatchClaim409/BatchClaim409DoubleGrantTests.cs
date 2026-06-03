@@ -280,10 +280,14 @@ public class BatchClaim409DoubleGrantTests : IDisposable
 
 internal sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
 {
-    private readonly List<string> _errors = new();
+    // Captures Warning and above so both LogError and LogWarning are inspectable.
+    private readonly List<string> _messages = new();
 
     public bool HasErrorContaining(string fragment) =>
-        _errors.Exists(e => e.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+        _messages.Exists(e => e.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+
+    public bool HasWarningContaining(string fragment) =>
+        _messages.Exists(e => e.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
     public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel level) => true;
@@ -295,7 +299,7 @@ internal sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<
         Exception? exception,
         Func<TState, Exception?, string> formatter)
     {
-        if (level >= Microsoft.Extensions.Logging.LogLevel.Error)
-            _errors.Add(formatter(state, exception));
+        if (level >= Microsoft.Extensions.Logging.LogLevel.Warning)
+            _messages.Add(formatter(state, exception));
     }
 }

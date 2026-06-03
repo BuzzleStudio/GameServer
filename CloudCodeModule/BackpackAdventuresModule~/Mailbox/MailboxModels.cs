@@ -14,6 +14,9 @@ public static class MailboxConstants
     public const string KeyMeta = "mailbox_meta";
     public const string KeyIdemCache = "mailbox_idem_cache";
     public const string KeyPlayerWallet = "player_wallet";
+    // Global CustomData key holding the monotonic version of mails_all. Read fresh (no-cache) to
+    // validate whether a cached mails_all entry is still current across Cloud Code worker instances.
+    public const string KeyGlobalMailChangeLog = "global_mail_change_log";
     public const int MaxUserMailsStored = 200;
     public const int HardCapUserMailsStored = 250;
     public const int MaxGlobalMailsStored = 500;
@@ -24,6 +27,17 @@ public static class MailboxConstants
     public const int MaxGiftsPerDay = 5;
     public const int MaxSubjectLength = 128;
     public const int MaxBodyLength = 1024;
+}
+
+/// <summary>
+/// Version stamp for the global mails_all collection (CustomData key: global_mail_change_log).
+/// Bumped on every successful mails_all write; read fresh (no RAM cache) to validate cached mails_all.
+/// Intentionally minimal — no event list, no per-mail/per-reason fields.
+/// </summary>
+public sealed class GlobalMailChangeLog
+{
+    public long Version { get; set; }
+    public string LastChangedAt { get; set; } = "";
 }
 
 public enum MailType

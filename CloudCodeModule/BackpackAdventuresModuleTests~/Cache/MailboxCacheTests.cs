@@ -43,7 +43,9 @@ public class MailboxCacheTests : IDisposable
     [Fact]
     public void Hit_AfterSet_ReturnsDeserializedValue()
     {
-        var key = Key("mails_all");
+        // Plain (non-versioned) cache mechanics — use a neutral key. mails_all is version-aware
+        // and intentionally bypasses plain Set/TryGet.
+        var key = Key("hit_after_set");
         var collection = new GlobalMailCollection();
         collection.Mails.Add(new GlobalMailPayload { Mail = new Mail { MessageId = "gm_001" } });
 
@@ -217,7 +219,8 @@ public class MailboxCacheTests : IDisposable
     [Fact]
     public void Set_DifferentTypes_Coexist()
     {
-        var kCol   = Key(MailboxConstants.KeyMailsAll);
+        // Neutral key for the collection — mails_all is version-aware and bypasses plain Set/TryGet.
+        var kCol   = Key("coexist_collection");
         var kState = Key(MailboxConstants.KeyGlobalState);
         var kMb    = Key(MailboxConstants.KeyUserItems);
 
@@ -249,7 +252,8 @@ public class MailboxCacheTests : IDisposable
         var json = JsonSerializer.Serialize(value);
         var expiredTime = DateTime.UtcNow.AddSeconds(-1); // already expired
 
-        var entry = Activator.CreateInstance(entryType, json, expiredTime)
+        // CacheEntry is (string Json, DateTime ExpiresUtc, long Version); -1 = unversioned.
+        var entry = Activator.CreateInstance(entryType, json, expiredTime, -1L)
             ?? throw new InvalidOperationException("Could not construct CacheEntry");
 
         // _store is readonly but we DON'T reassign it — we call the dictionary's indexer.

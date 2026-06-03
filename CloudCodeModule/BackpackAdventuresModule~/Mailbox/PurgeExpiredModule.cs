@@ -36,7 +36,7 @@ public class PurgeExpiredModule
             return ApiResponse<PurgeExpiredResponse>.Ok(new PurgeExpiredResponse { PurgedCount = 0, PurgedAt = DateTime.UtcNow.ToString("o") });
 
         var purgedAt = DateTime.UtcNow.ToString("o");
-        await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
+        await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock, _logger);
 
         return ApiResponse<PurgeExpiredResponse>.Ok(new PurgeExpiredResponse { PurgedCount = purgedCount, PurgedAt = purgedAt });
     }

@@ -46,10 +46,11 @@ public class ClaimAllRoundTripTests : IDisposable
         // CloudSaveHelper.GetCustomDataAsync does after the first REST call.
         var cacheKey = $"{_proj}:custom:{CloudSaveHelper.GlobalCustomId}:{MailboxConstants.KeyMailsAll}";
         var collection = MakeCollection(5);
-        MailboxCache.Set(cacheKey, collection);
+        const long version = 1; // global_mail_change_log version, unchanged between reads
+        MailboxCache.SetVersioned(cacheKey, collection, version);
 
-        // Act: call TryGet as CloudSaveHelper would on its second access
-        var hit = MailboxCache.TryGet<GlobalMailCollection>(cacheKey, out var cached);
+        // Act: second access with the SAME version → cache hit (no extra mails_all HTTP read)
+        var hit = MailboxCache.TryGetVersioned<GlobalMailCollection>(cacheKey, version, out var cached);
 
         // Assert
         Assert.True(hit, "Second GetCustomDataAsync for mails_all must be a cache hit.");
@@ -66,18 +67,20 @@ public class ClaimAllRoundTripTests : IDisposable
         var cacheKey = $"{_proj}:custom:{CloudSaveHelper.GlobalCustomId}:{MailboxConstants.KeyMailsAll}";
         var collection = MakeCollection(5);
 
+        const long version = 1; // change-log version unchanged across the 5 reads
+
         // First access — cache miss (would go to HTTP)
-        var firstHit = MailboxCache.TryGet<GlobalMailCollection>(cacheKey, out _);
+        var firstHit = MailboxCache.TryGetVersioned<GlobalMailCollection>(cacheKey, version, out _);
         Assert.False(firstHit, "First access must be a cache miss (HTTP read).");
 
-        // Simulate the result of that HTTP read being stored (write-through)
-        MailboxCache.Set(cacheKey, collection);
+        // Simulate the result of that HTTP read being stored (write-through with the current version)
+        MailboxCache.SetVersioned(cacheKey, collection, version);
 
-        // Subsequent 4 reads — all must be cache hits
+        // Subsequent 4 reads — all must be cache hits (version unchanged)
         int hits = 0;
         for (int i = 0; i < 4; i++)
         {
-            if (MailboxCache.TryGet<GlobalMailCollection>(cacheKey, out _))
+            if (MailboxCache.TryGetVersioned<GlobalMailCollection>(cacheKey, version, out _))
                 hits++;
         }
 
@@ -211,18 +214,21 @@ public class ClaimAllRoundTripTests : IDisposable
     {
         int misses = 0;
         var collection = MakeCollection(mailCount);
+        const long version = 1; // change-log version stable across this ClaimAll invocation
+        // Counts mails_all (collection) fetches only — the expensive doc. The per-read change-log
+        // version check is a separate tiny GET, covered by GlobalMailChangeLogTests.
 
         // Simulate ClaimAllGlobal's first read
-        if (!MailboxCache.TryGet<GlobalMailCollection>(cacheKey, out _))
+        if (!MailboxCache.TryGetVersioned<GlobalMailCollection>(cacheKey, version, out _))
         {
             misses++;
-            MailboxCache.Set(cacheKey, collection); // write-through after HTTP
+            MailboxCache.SetVersioned(cacheKey, collection, version); // write-through after HTTP
         }
 
         // Simulate per-mail ClaimGlobal reads (each calls GetCustomDataAsync)
         for (int i = 0; i < mailCount; i++)
         {
-            if (!MailboxCache.TryGet<GlobalMailCollection>(cacheKey, out _))
+            if (!MailboxCache.TryGetVersioned<GlobalMailCollection>(cacheKey, version, out _))
                 misses++;
         }
 
