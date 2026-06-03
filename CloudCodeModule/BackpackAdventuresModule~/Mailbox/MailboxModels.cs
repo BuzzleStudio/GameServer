@@ -27,6 +27,7 @@ public static class MailboxConstants
     public const int MaxGiftsPerDay = 5;
     public const int MaxSubjectLength = 128;
     public const int MaxBodyLength = 1024;
+    public const int MaxAttachmentAssetTypeLength = 64;
 }
 
 /// <summary>
@@ -73,6 +74,9 @@ public class MailAttachment
 
     [JsonPropertyName("quantity")]
     public int Quantity { get; set; }
+
+    [JsonPropertyName("chance")]
+    public double Chance { get; set; } = 1.0;
 }
 
 // Stored inside the `mails_all` array. Serializes as the bare Mail object (the
@@ -652,6 +656,7 @@ public static class MailSchemaHelper
             {
                 ItemId = attachment.PayoutAssetId,
                 Quantity = attachment.PayoutAmount,
+                Chance = attachment.Chance,
                 Type = NormalizeAssetTypeToStorage(attachment.AssetType)
             });
         }
@@ -668,6 +673,7 @@ public static class MailSchemaHelper
             {
                 ItemId = attachment.PayoutAssetId,
                 Quantity = attachment.PayoutAmount,
+                Chance = attachment.Chance,
                 Type = NormalizeAssetTypeToStorage(attachment.AssetType)
             });
         }
@@ -724,7 +730,7 @@ public static class MailSchemaHelper
             result.Add(new MailAttachmentDto
             {
                 PayoutAssetId = attachment.ItemId,
-                Chance = 1.0,
+                Chance = attachment.Chance,
                 AssetType = NormalizeAssetTypeForDto(attachment.Type),
                 PayoutAmount = attachment.Quantity
             });
@@ -741,7 +747,7 @@ public static class MailSchemaHelper
             result.Add(new Payout
             {
                 PayoutAssetId = attachment.ItemId,
-                Chance = 1.0,
+                Chance = attachment.Chance,
                 AssetType = NormalizeAssetTypeForDto(attachment.Type),
                 PayoutAmount = attachment.Quantity
             });
@@ -783,9 +789,30 @@ public static class MailSchemaHelper
             null);
     }
 
+    public static void ValidateEditableMailFields(string title, string content, List<MailAttachment>? attachments)
+    {
+        if (string.IsNullOrWhiteSpace(title) || title.Length > MailboxConstants.MaxSubjectLength)
+            throw new ArgumentException(MailboxError.InvalidInput);
+        if (string.IsNullOrWhiteSpace(content) || content.Length > MailboxConstants.MaxBodyLength)
+            throw new ArgumentException(MailboxError.InvalidInput);
+        if (attachments == null) return;
+        foreach (var att in attachments)
+        {
+            if (string.IsNullOrWhiteSpace(att.ItemId)
+                || string.IsNullOrWhiteSpace(att.Type)
+                || att.Type.Length > MailboxConstants.MaxAttachmentAssetTypeLength
+                || att.Quantity <= 0
+                || att.Chance <= 0)
+                throw new ArgumentException(MailboxError.InvalidInput);
+        }
+    }
+
     private static string NormalizeAssetTypeForDto(string assetType)
     {
         if (string.IsNullOrEmpty(assetType)) return string.Empty;
+        if (!assetType.Equals("currency", StringComparison.OrdinalIgnoreCase)
+            && !assetType.Equals("item", StringComparison.OrdinalIgnoreCase))
+            return assetType.Trim();
         if (assetType.Length == 1) return assetType.ToUpperInvariant();
         return char.ToUpperInvariant(assetType[0]) + assetType.Substring(1).ToLowerInvariant();
     }
@@ -793,7 +820,10 @@ public static class MailSchemaHelper
     private static string NormalizeAssetTypeToStorage(string assetType)
     {
         if (string.IsNullOrEmpty(assetType)) return string.Empty;
-        return assetType.Equals("Currency", StringComparison.OrdinalIgnoreCase) ? "currency" : "item";
+        var trimmed = assetType.Trim();
+        if (trimmed.Equals("Currency", StringComparison.OrdinalIgnoreCase)) return "currency";
+        if (trimmed.Equals("Item", StringComparison.OrdinalIgnoreCase)) return "item";
+        return trimmed;
     }
 }
 
@@ -967,6 +997,27 @@ public class SetMailEndTimeRequest
     public string OperatorId { get; set; } = string.Empty;
 }
 
+public class UpdateGlobalMailRequest
+{
+    [JsonPropertyName("mailId")]
+    public string MailId { get; set; } = string.Empty;
+
+    [JsonPropertyName("subject")]
+    public string Subject { get; set; } = string.Empty;
+
+    [JsonPropertyName("body")]
+    public string Body { get; set; } = string.Empty;
+
+    [JsonPropertyName("attachments")]
+    public List<MailAttachment>? Attachments { get; set; }
+
+    [JsonPropertyName("adminToken")]
+    public string AdminToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("operatorId")]
+    public string OperatorId { get; set; } = string.Empty;
+}
+
 public class AdminDeleteMailRequest
 {
     [JsonPropertyName("mailId")]
@@ -1053,6 +1104,11 @@ public class SetMailEndTimeResponse
 {
     public string MailId { get; set; } = string.Empty;
     public string? EndTime { get; set; }
+}
+
+public class UpdateGlobalMailResponse
+{
+    public string MailId { get; set; } = string.Empty;
 }
 
 public class PurgeExpiredResponse

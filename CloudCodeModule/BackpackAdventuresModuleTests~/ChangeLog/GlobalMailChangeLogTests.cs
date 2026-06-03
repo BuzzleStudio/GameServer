@@ -3,7 +3,7 @@
 //   1. global_mail_change_log is never RAM-cached (read fresh every time).
 //   2. mails_all cache HIT when version unchanged.
 //   3. mails_all REFETCH when version changes (cross-instance invalidation).
-//   4-8. Global mail mutation endpoints bump the version after a real change; no bump on no-ops.
+//   4-9. Global mail mutation endpoints bump the version after a real change; no bump on no-ops.
 //        Bump is centralized in the mails_all write helper, so it covers SendGlobalMail,
 //        SendUserMail, DeleteGlobalMail, ExpireMail, SetMailEndTime, PurgeExpired.
 //
@@ -256,7 +256,39 @@ public class GlobalMailChangeLogTests : IDisposable
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // 8. PurgeExpired bumps only when it actually removes mails
+    // 8. UpdateGlobalMail bumps only when it actually changes global mail data
+    // ════════════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task UpdateGlobalMail_Found_BumpsVersion()
+    {
+        MailboxCache.Enabled = false;
+        var ctx = AdminCtx();
+        _handler.AddGetCloudSaveResult(MailboxConstants.KeyMailsAll, Collection(GlobalMail("gm_edit", -1)), writeLock: "lk");
+        _handler.AddPostOk(MailboxConstants.KeyMailsAll);
+        _handler.AddPostOk(MailboxConstants.KeyGlobalMailChangeLog);
+
+        var module = new ExpireMailModule(ctx, null!, NullLogger<ExpireMailModule>.Instance);
+        var resp = await module.UpdateGlobalMailAsync(new UpdateGlobalMailRequest
+        {
+            MailId = "gm_edit",
+            Subject = "Edited",
+            Body = "Edited body",
+            Attachments = new()
+            {
+                new MailAttachment { ItemId = "ticket", Type = "BattlePass", Quantity = 2, Chance = 0.5 }
+            },
+            OperatorId = "op-1",
+            AdminToken = "t"
+        });
+
+        Assert.Equal("gm_edit", resp.Data!.MailId);
+        Assert.Equal(1, _handler.PostCount(ChangeLogFrag));
+        Console.WriteLine("[8] UpdateGlobalMail (found) → change_log POST=1.");
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // 9. PurgeExpired bumps only when it actually removes mails
     // ════════════════════════════════════════════════════════════════════════════
 
     [Fact]

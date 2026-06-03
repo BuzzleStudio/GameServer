@@ -12,6 +12,7 @@ import {
   apiSendGlobalMail,
   apiGetGlobalMails,
   apiSetMailEndTime,
+  apiUpdateGlobalMail,
   apiExpireMail,
   apiDeleteGlobalMail,
   apiPurgeExpired,
@@ -77,12 +78,11 @@ interface AppState {
   // Mail list
   mailList:       MailRecord[] | null
   mailPage:       number
-  mailPageSize:   number
   mailTotalCount: number
-  mailHasMore:    boolean
   // Inline end-time editing per mail row (by MessageId)
   inlineEndDate: Record<string, string>
   inlineEndTime: Record<string, string>
+  inlineAttachments: Record<string, AttachmentDraft[]>
   // Status
   busy:        boolean
   statusMsg:   string
@@ -96,6 +96,10 @@ const defaultAttachment = (): AttachmentDraft => ({
   payoutAmount: 1,
   chance: 1,
 })
+
+const MAILS_PER_PAGE = 5
+const FETCH_PAGE_SIZE = 50
+const MAX_FETCH_PAGES = 20
 
 const state: AppState = {
   projectId:   '',
@@ -130,11 +134,10 @@ const state: AppState = {
   manageEndTime:    '',
   mailList:       null,
   mailPage:       0,
-  mailPageSize:   10,
   mailTotalCount: 0,
-  mailHasMore:    false,
   inlineEndDate:  {},
   inlineEndTime:  {},
+  inlineAttachments: {},
   busy:       false,
   statusMsg:  '',
   statusType: '',
@@ -186,18 +189,35 @@ function setEndTimePreset(days: number, dateId: string, timeId: string) {
 function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
   const result: MailAttachment[] = []
   for (const d of drafts) {
+    const assetType = d.assetType.trim()
     if (!d.payoutAssetId.trim()) continue
+    if (!assetType) throw new Error(`Attachment '${d.payoutAssetId}': AssetType is required`)
     if (d.payoutAmount <= 0) throw new Error(`Attachment '${d.payoutAssetId}': PayoutAmount must be > 0`)
     if (d.chance <= 0) throw new Error(`Attachment '${d.payoutAssetId}': Chance must be > 0`)
+    const wireType = assetType.toLowerCase() === 'currency'
+      ? 'currency'
+      : assetType.toLowerCase() === 'item'
+        ? 'item'
+        : assetType
     result.push({
-      type:     d.assetType === 'Currency' ? 'currency' : 'item',
+      type:     wireType,
       id:       d.payoutAssetId.trim(),
       itemId:   d.payoutAssetId.trim(),
       amount:   d.payoutAmount,
       quantity: d.payoutAmount,
+      chance:   d.chance,
     })
   }
   return result.length > 0 ? result : null
+}
+
+function attachmentInfoToDraft(att: ReturnType<typeof mailAttachments>[number]): AttachmentDraft {
+  return {
+    payoutAssetId: att.PayoutAssetId ?? att.payoutAssetId ?? '',
+    assetType: att.AssetType ?? att.assetType ?? 'Currency',
+    payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
+    chance: att.Chance ?? att.chance ?? 1,
+  }
 }
 
 function resolveProxyArgs(): ProxyCallArgs {
@@ -278,10 +298,7 @@ function renderAttachmentList(listId: string, prefix: string, drafts: Attachment
       </div>
       <div class="form-group">
         <label>AssetType</label>
-        <select id="${prefix}-att-type-${i}">
-          <option value="Currency" ${d.assetType === 'Currency' ? 'selected' : ''}>Currency</option>
-          <option value="Item"     ${d.assetType === 'Item'     ? 'selected' : ''}>Item</option>
-        </select>
+        <input type="text" id="${prefix}-att-type-${i}" value="${esc(d.assetType)}" list="asset-type-options" placeholder="Currency / Item / custom" />
       </div>
       <div class="form-group">
         <label>PayoutAmount</label>
@@ -306,7 +323,7 @@ function renderAttachmentList(listId: string, prefix: string, drafts: Attachment
 function syncAttachmentsFromDom(prefix: string, drafts: AttachmentDraft[]): AttachmentDraft[] {
   return drafts.map((d, i) => ({
     payoutAssetId: val(`${prefix}-att-id-${i}`),
-    assetType: (val(`${prefix}-att-type-${i}`) as 'Currency' | 'Item') || d.assetType,
+    assetType: val(`${prefix}-att-type-${i}`).trim() || d.assetType,
     payoutAmount: parseInt(val(`${prefix}-att-amt-${i}`), 10) || d.payoutAmount,
     chance: parseFloat(
       (document.getElementById(`${prefix}-att-chance-${i}`) as HTMLInputElement | null)?.value ?? String(d.chance),
@@ -439,11 +456,48 @@ function renderSendTargetedTab(): string {
   </div>`
 }
 
+function ensureInlineAttachmentDrafts(mail: MailRecord): AttachmentDraft[] {
+  const id = mailId(mail)
+  if (!state.inlineAttachments[id]) {
+    state.inlineAttachments[id] = mailAttachments(mail).map(attachmentInfoToDraft)
+  }
+  return state.inlineAttachments[id]
+}
+
+function renderInlineAttachments(mail: MailRecord, idKey: string): string {
+  const id = mailId(mail)
+  const drafts = ensureInlineAttachmentDrafts(mail)
+  const rows = drafts.length === 0
+    ? '<div class="empty" style="padding:8px">No attachments.</div>'
+    : drafts.map((d, i) => `
+      <div class="inline-att-row">
+        <input type="text" id="mia-id-${idKey}-${i}" value="${esc(d.payoutAssetId)}" placeholder="Asset ID" />
+        <input type="text" id="mia-type-${idKey}-${i}" value="${esc(d.assetType)}" list="asset-type-options" placeholder="Type" />
+        <input type="number" id="mia-amt-${idKey}-${i}" value="${d.payoutAmount}" min="1" title="Amount" />
+        <input type="number" id="mia-chance-${idKey}-${i}" value="${d.chance}" min="0.01" max="1" step="0.01" title="Chance" />
+        <button class="btn btn-danger btn-sm inline-att-remove" data-mail-id="${esc(id)}" data-id-key="${idKey}" data-idx="${i}" ${state.busy ? 'disabled' : ''}>✕</button>
+      </div>`).join('')
+
+  return `
+    <div class="inline-att-list" id="mia-list-${idKey}">${rows}</div>
+    <button class="btn btn-ghost btn-sm inline-att-add" data-mail-id="${esc(id)}" data-id-key="${idKey}" ${state.busy ? 'disabled' : ''}>+ Add</button>`
+}
+
+function syncInlineAttachmentsFromDom(mailIdValue: string, idKey: string): AttachmentDraft[] {
+  const drafts = state.inlineAttachments[mailIdValue] ?? []
+  state.inlineAttachments[mailIdValue] = drafts.map((d, i) => ({
+    payoutAssetId: val(`mia-id-${idKey}-${i}`),
+    assetType: val(`mia-type-${idKey}-${i}`).trim() || d.assetType,
+    payoutAmount: parseInt(val(`mia-amt-${idKey}-${i}`), 10) || d.payoutAmount,
+    chance: parseFloat(val(`mia-chance-${idKey}-${i}`)) || d.chance,
+  }))
+  return state.inlineAttachments[mailIdValue]
+}
+
 // ─── Mail list table ──────────────────────────────────────────────────────────────
 function renderMailRow(m: MailRecord): string {
   const id    = mailId(m)
   const targets = mailTargetUsers(m)
-  const atts  = mailAttachments(m)
   const endT  = mailEndTime(m)
   const idKey = id.replace(/[^a-z0-9]/gi, '_')
   const ied   = state.inlineEndDate[id] ?? (endT ? endT.substring(0, 10) : '')
@@ -452,8 +506,8 @@ function renderMailRow(m: MailRecord): string {
   return `
   <tr>
     <td><div class="mail-id">${esc(id)}</div>${targets.length > 0 ? `<span class="tag tag-targeted">targeted (${targets.length})</span>` : ''}</td>
-    <td><div class="mail-title">${esc(mailTitle(m))}</div></td>
-    <td><div class="mail-body" title="${esc(mailContent(m))}">${esc(mailContent(m))}</div></td>
+    <td><input type="text" id="mt-${idKey}" value="${esc(mailTitle(m))}" maxlength="128" /></td>
+    <td><textarea id="mc-${idKey}" maxlength="1024">${esc(mailContent(m))}</textarea></td>
     <td>${esc(mailStartTime(m))}</td>
     <td>
       <div>${esc(endT ?? 'none')}</div>
@@ -463,8 +517,9 @@ function renderMailRow(m: MailRecord): string {
         <button class="btn btn-ghost btn-sm set-et" data-mail-id="${esc(id)}" data-id-key="${idKey}">✓</button>
       </div>
     </td>
-    <td>${atts.length > 0 ? `<span class="tag">${atts.length} att.</span>` : '-'}</td>
+    <td>${renderInlineAttachments(m, idKey)}</td>
     <td class="actions-cell">
+      <button class="btn btn-secondary btn-sm save-mail" data-mail-id="${esc(id)}" data-id-key="${idKey}" ${!isConnected() || state.busy ? 'disabled' : ''}>Save</button>
       <button class="btn btn-ghost btn-sm expire-mail" data-mail-id="${esc(id)}" ${!isConnected() || state.busy ? 'disabled' : ''}>Expire</button>
       <button class="btn btn-danger btn-sm del-mail"   data-mail-id="${esc(id)}" ${!isConnected() || state.busy ? 'disabled' : ''}>Delete</button>
     </td>
@@ -473,15 +528,18 @@ function renderMailRow(m: MailRecord): string {
 
 // ─── Manage tab ───────────────────────────────────────────────────────────────────
 function renderManageTab(): string {
-  const mails = state.mailList
-  const total = state.mailTotalCount
+  const allMails = state.mailList
+  const total = allMails?.length ?? state.mailTotalCount
   const page  = state.mailPage
+  const pageCount = total === 0 ? 1 : Math.ceil(total / MAILS_PER_PAGE)
+  const pageStart = page * MAILS_PER_PAGE
+  const mails = allMails?.slice(pageStart, pageStart + MAILS_PER_PAGE) ?? null
 
   let tableHtml = ''
   if (mails === null) {
     tableHtml = '<div class="empty">Click "Load Mails" to fetch global mails.</div>'
   } else if (mails.length === 0) {
-    tableHtml = '<div class="empty">No mails found for this page.</div>'
+    tableHtml = '<div class="empty">No mails found.</div>'
   } else {
     tableHtml = `
     <div class="mail-table-wrap">
@@ -495,8 +553,8 @@ function renderManageTab(): string {
     </div>
     <div class="pager">
       <button class="btn btn-ghost btn-sm" id="pg-prev" ${page <= 0 || state.busy ? 'disabled' : ''}>← Prev</button>
-      <span>Page ${page + 1} · ${total} total</span>
-      <button class="btn btn-ghost btn-sm" id="pg-next" ${!state.mailHasMore || state.busy ? 'disabled' : ''}>Next →</button>
+      <span>Page ${page + 1} / ${pageCount} · ${total} total · ${MAILS_PER_PAGE} per page</span>
+      <button class="btn btn-ghost btn-sm" id="pg-next" ${page >= pageCount - 1 || state.busy ? 'disabled' : ''}>Next →</button>
     </div>`
   }
 
@@ -504,14 +562,8 @@ function renderManageTab(): string {
   <div class="card">
     <div class="card-title">📋 Get Global Mails</div>
     <div style="display:flex;gap:8px;align-items:flex-end">
-      <div class="form-group" style="flex:0 0 80px;margin-bottom:0">
-        <label>Page</label><input type="number" id="m-page" value="${state.mailPage}" min="0" style="width:70px" />
-      </div>
-      <div class="form-group" style="flex:0 0 90px;margin-bottom:0">
-        <label>Page size</label><input type="number" id="m-page-size" value="${state.mailPageSize}" min="1" max="50" style="width:80px" />
-      </div>
       <button class="btn btn-secondary" id="m-load" ${!isConnected() || state.busy ? 'disabled' : ''}>
-        ${state.busy ? '<span class="spinner"></span>' : '🔄'} Load Mails
+        ${state.busy ? '<span class="spinner"></span>' : '🔄'} Load All Mails
       </button>
     </div>
     <div style="margin-top:12px">${tableHtml}</div>
@@ -604,6 +656,10 @@ function renderApp() {
     : renderManageTab()
 
   el<HTMLDivElement>('app').innerHTML = `
+  <datalist id="asset-type-options">
+    <option value="Currency"></option>
+    <option value="Item"></option>
+  </datalist>
   <header class="app-header">
     <span id="conn-dot" class="status-dot"></span>
     <h1>Admin Mail</h1>
@@ -775,19 +831,63 @@ async function doSendGlobalMail(targeted = false) {
   else          { state.globalSubject = ''; state.globalBody = ''; state.globalAttachments = [defaultAttachment()] }
 }
 
-async function doLoadMails() {
+async function doLoadMails(resetPage = false, showStatus = true) {
   const args = resolveProxyArgs()
-  state.mailPage     = parseInt(val('m-page'), 10) || 0
-  state.mailPageSize = parseInt(val('m-page-size'), 10) || 10
+  if (resetPage) state.mailPage = 0
+  const all: MailRecord[] = []
+  let page = 0
+  let hasMore = true
+  let lastRawResponse = ''
 
-  const { data, rawResponse } = await apiGetGlobalMails(args, {
-    page: state.mailPage, pageSize: state.mailPageSize,
+  while (hasMore) {
+    const { data, rawResponse } = await apiGetGlobalMails(args, {
+      page, pageSize: FETCH_PAGE_SIZE,
+    })
+    const mails = data.Mails ?? data.mails ?? []
+    all.push(...mails)
+    hasMore = data.HasMore ?? data.hasMore ?? false
+    lastRawResponse = rawResponse
+    page++
+    if (page >= MAX_FETCH_PAGES) break
+  }
+
+  state.mailList = all
+  state.mailTotalCount = all.length
+  state.inlineEndDate = {}
+  state.inlineEndTime = {}
+  state.inlineAttachments = {}
+  const maxPage = Math.max(0, Math.ceil(all.length / MAILS_PER_PAGE) - 1)
+  if (state.mailPage > maxPage) state.mailPage = maxPage
+  if (showStatus) {
+    setStatus(`GetGlobalMails: loaded ${all.length} mails (${MAILS_PER_PAGE} per page)`, 'success', lastRawResponse)
+  }
+}
+
+async function refreshLoadedMails() {
+  if (state.mailList !== null) await doLoadMails(false, false)
+}
+
+async function doUpdateGlobalMail(mailIdArg: string, idKey: string) {
+  const args = resolveProxyArgs()
+  const mId = mailIdArg.trim()
+  if (!mId) throw new Error('Mail ID is required.')
+  const subject = val(`mt-${idKey}`).trim()
+  const body = val(`mc-${idKey}`).trim()
+  if (!subject || subject.length > 128) throw new Error('Title must be 1-128 characters.')
+  if (!body || body.length > 1024) throw new Error('Content must be 1-1024 characters.')
+
+  const drafts = syncInlineAttachmentsFromDom(mId, idKey)
+  const attachments = buildAttachments(drafts)
+  const { data, rawResponse } = await apiUpdateGlobalMail(args, {
+    mailId: mId,
+    subject,
+    body,
+    attachments,
+    operatorId: state.operatorId,
+    adminToken: null,
   })
-
-  state.mailList       = data.Mails ?? data.mails ?? []
-  state.mailTotalCount = data.TotalCount ?? data.totalCount ?? 0
-  state.mailHasMore    = data.HasMore ?? data.hasMore ?? false
-  setStatus(`GetGlobalMails: ${state.mailList.length} mails (total ${state.mailTotalCount})`, 'success', rawResponse)
+  setStatus(`UpdateGlobalMail: mailId=${data.mailId ?? mId}`, 'success', rawResponse)
+  await refreshLoadedMails()
 }
 
 async function doSetMailEndTime(mailIdArg?: string, idKey?: string) {
@@ -806,6 +906,7 @@ async function doSetMailEndTime(mailIdArg?: string, idKey?: string) {
     mailId: mId, endTime: endTimeIso, operatorId: state.operatorId, adminToken: null,
   })
   setStatus(`SetMailEndTime: mailId=${data.mailId ?? mId} endTime=${data.endTime ?? 'null'}`, 'success', rawResponse)
+  await refreshLoadedMails()
 }
 
 async function doExpireMail(mailIdArg?: string) {
@@ -818,7 +919,7 @@ async function doExpireMail(mailIdArg?: string) {
     mailId: mId, operatorId: state.operatorId, adminToken: null,
   })
   setStatus(`ExpireMail: mailId=${data.mailId ?? mId} expiredAt=${data.expiredAt ?? '-'}`, 'success', rawResponse)
-  if (state.mailList !== null) await doLoadMails()
+  await refreshLoadedMails()
 }
 
 async function doDeleteMail(mailIdArg?: string) {
@@ -831,7 +932,7 @@ async function doDeleteMail(mailIdArg?: string) {
     mailId: mId, operatorId: state.operatorId, adminToken: null,
   })
   setStatus(`DeleteGlobalMail: mailId=${data.mailId ?? mId}`, 'success', rawResponse)
-  if (state.mailList !== null) await doLoadMails()
+  await refreshLoadedMails()
 }
 
 async function doPurgeExpired() {
@@ -842,7 +943,7 @@ async function doPurgeExpired() {
     operatorId: state.operatorId, adminToken: null,
   })
   setStatus(`PurgeExpired: purgedCount=${data.purgedCount ?? 0} at ${data.purgedAt ?? '-'}`, 'success', rawResponse)
-  if (state.mailList !== null) await doLoadMails()
+  await refreshLoadedMails()
 }
 
 // ─── Event listeners ──────────────────────────────────────────────────────────────
@@ -926,21 +1027,52 @@ function attachMainListeners() {
   attachUserIdListeners()
 
   // Manage
-  document.getElementById('m-load')?.addEventListener('click',   () => run(doLoadMails))
+  document.getElementById('m-load')?.addEventListener('click',   () => run(() => doLoadMails(true)))
   document.getElementById('m-set-et')?.addEventListener('click', () => run(() => doSetMailEndTime()))
   document.getElementById('m-expire')?.addEventListener('click', () => run(() => doExpireMail()))
   document.getElementById('m-delete')?.addEventListener('click', () => run(() => doDeleteMail()))
   document.getElementById('m-purge')?.addEventListener('click',  () => run(doPurgeExpired))
 
-  document.getElementById('pg-prev')?.addEventListener('click', () => { if (state.mailPage > 0) { state.mailPage--; run(doLoadMails) } })
-  document.getElementById('pg-next')?.addEventListener('click', () => { if (state.mailHasMore) { state.mailPage++; run(doLoadMails) } })
+  document.getElementById('pg-prev')?.addEventListener('click', () => {
+    if (state.mailPage > 0) {
+      state.mailPage--
+      refreshMainPanel()
+    }
+  })
+  document.getElementById('pg-next')?.addEventListener('click', () => {
+    const total = state.mailList?.length ?? 0
+    const pageCount = total === 0 ? 1 : Math.ceil(total / MAILS_PER_PAGE)
+    if (state.mailPage < pageCount - 1) {
+      state.mailPage++
+      refreshMainPanel()
+    }
+  })
 
   document.getElementById('mail-tbody')?.addEventListener('click', (e) => {
     const target   = e.target as HTMLElement
+    const saveBtn = target.closest<HTMLElement>('.save-mail')
+    const addAttBtn = target.closest<HTMLElement>('.inline-att-add')
+    const removeAttBtn = target.closest<HTMLElement>('.inline-att-remove')
     const expireBtn = target.closest<HTMLElement>('.expire-mail')
     const deleteBtn = target.closest<HTMLElement>('.del-mail')
     const setEtBtn  = target.closest<HTMLElement>('.set-et')
-    if (expireBtn) run(() => doExpireMail(expireBtn.dataset['mailId'] ?? ''))
+    if (saveBtn) run(() => doUpdateGlobalMail(saveBtn.dataset['mailId'] ?? '', saveBtn.dataset['idKey'] ?? ''))
+    else if (addAttBtn) {
+      const mId = addAttBtn.dataset['mailId'] ?? ''
+      const idKey = addAttBtn.dataset['idKey'] ?? ''
+      syncInlineAttachmentsFromDom(mId, idKey)
+      state.inlineAttachments[mId].push(defaultAttachment())
+      refreshMainPanel()
+    }
+    else if (removeAttBtn) {
+      const mId = removeAttBtn.dataset['mailId'] ?? ''
+      const idKey = removeAttBtn.dataset['idKey'] ?? ''
+      const idx = parseInt(removeAttBtn.dataset['idx'] ?? '0', 10)
+      syncInlineAttachmentsFromDom(mId, idKey)
+      state.inlineAttachments[mId].splice(idx, 1)
+      refreshMainPanel()
+    }
+    else if (expireBtn) run(() => doExpireMail(expireBtn.dataset['mailId'] ?? ''))
     else if (deleteBtn) run(() => doDeleteMail(deleteBtn.dataset['mailId'] ?? ''))
     else if (setEtBtn)  run(() => doSetMailEndTime(setEtBtn.dataset['mailId'] ?? '', setEtBtn.dataset['idKey'] ?? ''))
   })

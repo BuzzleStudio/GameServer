@@ -156,6 +156,8 @@ export type {
   GetGlobalMailsResponse,
   SetMailEndTimeRequest,
   SetMailEndTimeResponse,
+  UpdateGlobalMailRequest,
+  UpdateGlobalMailResponse,
   ExpireMailRequest,
   ExpireMailResponse,
   DeleteGlobalMailRequest,
@@ -171,6 +173,8 @@ import type {
   GetGlobalMailsResponse,
   SetMailEndTimeRequest,
   SetMailEndTimeResponse,
+  UpdateGlobalMailRequest,
+  UpdateGlobalMailResponse,
   ExpireMailRequest,
   ExpireMailResponse,
   DeleteGlobalMailRequest,
@@ -196,6 +200,12 @@ export async function apiSetMailEndTime(
   args: ProxyCallArgs, req: SetMailEndTimeRequest,
 ) {
   return callCloudCode<SetMailEndTimeResponse>(args, 'SetMailEndTime', req)
+}
+
+export async function apiUpdateGlobalMail(
+  args: ProxyCallArgs, req: UpdateGlobalMailRequest,
+) {
+  return callCloudCode<UpdateGlobalMailResponse>(args, 'UpdateGlobalMail', req)
 }
 
 export async function apiExpireMail(
