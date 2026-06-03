@@ -119,6 +119,16 @@ details > summary:hover { color: var(--text); }
 .mail-id { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
 .mail-title { font-weight: 500; }
 .mail-body { color: var(--text-dim); max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mail-table input[type="text"],
+.mail-table input[type="number"],
+.mail-table textarea {
+  font-size: 12px;
+  padding: 5px 7px;
+}
+.mail-table textarea {
+  min-height: 74px;
+  min-width: 220px;
+}
 .tag { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 10px; background: var(--accent2); color: #ddd; margin-right: 2px; }
 .tag-targeted { background: #1e3a2a; color: #86efac; }
 .actions-cell { white-space: nowrap; }
@@ -148,3 +158,6 @@ details > summary:hover { color: var(--text); }
 /* ── Inline-edit end-time in mail table ──────────────────────────────────────── */
 .mail-endtime-edit { display: flex; gap: 4px; align-items: center; margin-top: 4px; }
 .mail-endtime-edit input { width: 100px; font-size: 11px; padding: 3px 6px; }
+.inline-att-list { display: flex; flex-direction: column; gap: 4px; min-width: 360px; margin-bottom: 6px; }
+.inline-att-row { display: grid; grid-template-columns: 1.2fr 1fr 70px 70px auto; gap: 4px; align-items: center; }
+.inline-att-row input { min-width: 0; }

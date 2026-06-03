@@ -10,12 +10,13 @@ export interface MailAttachment {
   itemId: string;
   amount: number;
   quantity: number;
+  chance: number;
 }
 
 // ── Local draft (mirrors AttachmentDraft in AdminMailWindow.cs) ──────────────────
 export interface AttachmentDraft {
   payoutAssetId: string;
-  assetType: 'Currency' | 'Item';
+  assetType: string;
   payoutAmount: number;
   chance: number;
 }
@@ -128,6 +129,20 @@ export interface SetMailEndTimeRequest {
 export interface SetMailEndTimeResponse {
   mailId?: string;
   endTime?: string | null;
+}
+
+// ── UpdateGlobalMail ─────────────────────────────────────────────────────────────
+export interface UpdateGlobalMailRequest {
+  mailId: string;
+  subject: string;
+  body: string;
+  attachments?: MailAttachment[] | null;
+  adminToken?: string | null;
+  operatorId: string;
+}
+
+export interface UpdateGlobalMailResponse {
+  mailId?: string;
 }
 
 // ── ExpireMail ────────────────────────────────────────────────────────────────────

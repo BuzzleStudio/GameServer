@@ -29,7 +29,7 @@ public class SendGlobalMailModule
     public async Task<ApiResponse<SendGlobalMailResponse>> SendGlobalMailAsync(SendGlobalMailRequest request)
     {
         await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
-        ValidateRequest(request.Subject, request.Body, request.Attachments);
+        MailSchemaHelper.ValidateEditableMailFields(request.Subject, request.Body, request.Attachments);
 
         var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
         collection ??= new GlobalMailCollection();
@@ -77,20 +77,6 @@ public class SendGlobalMailModule
         }
 
         return ApiResponse<SendGlobalMailResponse>.Ok(new SendGlobalMailResponse { GlobalMailId = mailId, SentAt = sentAt });
-    }
-
-    private static void ValidateRequest(string subject, string body, System.Collections.Generic.List<MailAttachment>? attachments)
-    {
-        if (string.IsNullOrWhiteSpace(subject) || subject.Length > MailboxConstants.MaxSubjectLength)
-            throw new ArgumentException(MailboxError.InvalidInput);
-        if (string.IsNullOrWhiteSpace(body) || body.Length > MailboxConstants.MaxBodyLength)
-            throw new ArgumentException(MailboxError.InvalidInput);
-        if (attachments == null) return;
-        foreach (var att in attachments)
-        {
-            if (string.IsNullOrEmpty(att.ItemId) || att.Quantity <= 0 || (att.Type != "currency" && att.Type != "item"))
-                throw new ArgumentException(MailboxError.InvalidInput);
-        }
     }
 
     private static List<string>? NormalizeTargetUserIds(List<string>? targetUserIds)

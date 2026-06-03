@@ -251,7 +251,11 @@ on:
 | `CLOUDFLARE_ACCOUNT_ID` | `deploy-adminweb.yml` | Cloudflare account ID |
 | `ADMIN_PROXY_TOKEN` | `deploy-adminweb.yml` (Pages secret) | Gate token the operator enters in the browser; the Pages Function validates it server-side |
 
-No GitHub repo variables are required for AdminWeb deploy.
+Optional repo variable:
+
+| Variable | Used by | Description |
+|---|---|---|
+| `CLOUDFLARE_PAGES_PROJECT` | `deploy-adminweb.yml` | Existing Cloudflare Pages project name, e.g. `adminweb-fza`. Required only when auto-select is ambiguous because the account has multiple Pages projects. |
 
 ### One-Time Cloudflare Setup
 
@@ -260,6 +264,7 @@ No GitHub repo variables are required for AdminWeb deploy.
 2. Set the production branch to `staging` in the Cloudflare dashboard.
 3. Ensure `CLOUDFLARE_API_TOKEN` has **Pages:Edit** permission.
 4. Set the GitHub repository secrets listed above.
+5. If multiple Pages projects exist, set `CLOUDFLARE_PAGES_PROJECT` to the target project name.
 
 ### First Deploy
 
