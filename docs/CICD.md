@@ -212,14 +212,14 @@ The Admin Web is a static browser dashboard for managing in-game mail without th
 
 | Workflow | File | Deploy target |
 |---|---|---|
-| Deploy AdminWeb to Cloudflare Pages | `.github/workflows/deploy-adminweb.yml` | Cloudflare Pages (`https://adminweb.ninh-buzzle.workers.dev`) + `/api/*` Pages Function |
+| Deploy AdminWeb to Cloudflare Pages | `.github/workflows/deploy-adminweb.yml` | Cloudflare Pages deployment URL + `/api/*` Pages Function |
 
 The workflow runs these steps in one job:
 
 1. Install and build `AdminWeb/` with `VITE_BASE=/`.
 2. Sync UGS/proxy token secrets from GitHub secrets into Cloudflare Pages secrets.
 3. Deploy `AdminWeb/dist/` and `AdminWeb/functions/` to Cloudflare Pages project `adminweb`.
-4. Smoke-test `GET https://adminweb.ninh-buzzle.workers.dev/api/health`.
+4. Smoke-test `GET <deployment-url>/api/health`, using the URL returned by `wrangler-action`.
 
 ### Triggers
 
