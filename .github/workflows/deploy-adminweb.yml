@@ -13,6 +13,8 @@
 #   UNITY_PROJECT_SERVICE_ACCOUNT_KEY     - UGS service-account key ID
 #   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET  - UGS service-account secret
 #   ADMIN_PROXY_TOKEN                     - Gate token the SPA presents as Bearer
+#
+# The workflow creates the Cloudflare Pages project automatically when missing.
 
 name: Deploy AdminWeb to Cloudflare Pages
 
@@ -59,6 +61,20 @@ jobs:
         env:
           VITE_BASE: /
         run: npm run build
+
+      - name: Ensure Cloudflare Pages project
+        working-directory: AdminWeb
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+          if npx wrangler@3.65.0 pages project list | grep -q '^adminweb[[:space:]]'; then
+            echo "Cloudflare Pages project 'adminweb' already exists."
+          else
+            echo "Creating Cloudflare Pages project 'adminweb'."
+            npx wrangler@3.65.0 pages project create adminweb --production-branch=staging
+          fi
 
       - name: Sync Pages secrets
         working-directory: AdminWeb
