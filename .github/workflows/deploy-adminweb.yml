@@ -69,11 +69,20 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -e
-          if npx wrangler@3.65.0 pages project list | grep -q '^adminweb[[:space:]]'; then
+          echo "Ensuring Cloudflare Pages project 'adminweb' exists."
+          set +e
+          npx wrangler@3.65.0 pages project create adminweb --production-branch=staging > create-project.log 2>&1
+          CREATE_EXIT=$?
+          set -e
+
+          cat create-project.log
+          if [ "$CREATE_EXIT" -eq 0 ]; then
+            echo "Cloudflare Pages project 'adminweb' created."
+          elif grep -qi "already exists" create-project.log; then
             echo "Cloudflare Pages project 'adminweb' already exists."
           else
-            echo "Creating Cloudflare Pages project 'adminweb'."
-            npx wrangler@3.65.0 pages project create adminweb --production-branch=staging
+            echo "ERROR: failed to ensure Cloudflare Pages project 'adminweb'."
+            exit "$CREATE_EXIT"
           fi
 
       - name: Sync Pages secrets
