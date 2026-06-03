@@ -205,7 +205,7 @@ without opening the Unity Editor.
 ### Live URL
 
 ```
-https://adminweb.pages.dev
+Use the URL returned by the `deploy-adminweb.yml` Cloudflare Pages deploy step.
 ```
 
 ### One-time Cloudflare setup
