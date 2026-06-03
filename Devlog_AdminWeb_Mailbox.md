@@ -26,7 +26,7 @@ GUID, and apply the same simplification to the Unity editor for parity.
 | Decision | Choice |
 |---|---|
 | Web architecture | **Static SPA**, operator enters service-account Key/Secret at runtime (sessionStorage, never committed). Browser calls UGS token-exchange + Cloud Code REST directly. Proxy only if CORS blocks. |
-| Deploy target | **GitHub Pages** in the `UnityCloudCode` repo |
+| Deploy target | **Cloudflare Pages** (`https://adminweb.pages.dev`) — migrated from GitHub Pages |
 | Env name→ID | **Live UGS API resolution** (same pattern as existing `deploy.yml` lines 187-200) — applied in BOTH the web and the editor |
 
 ---
@@ -38,7 +38,7 @@ GUID, and apply the same simplification to the Unity editor for parity.
    `AssetType` (Currency/Item); environment entered by **name**.
 2. **UnityClient editor parity** — `AdminMailWindow.cs`: replace Environment **ID**
    field with Environment **name**; resolve name→ID via UGS API before token-exchange.
-3. **GitHub Actions deploy workflow** — build the SPA and publish to GitHub Pages.
+3. **GitHub Actions deploy workflow** — build the SPA and publish to Cloudflare Pages.
 
 ## Non-Scope
 
@@ -95,7 +95,7 @@ token-exchange URL `environmentId=` param.
 
 ```mermaid
 flowchart TD
-    OP[Operator browser] -->|Key/Secret entered at runtime| SPA[Admin Web SPA<br/>GitHub Pages]
+    OP[Operator browser] -->|Key/Secret entered at runtime| SPA[Admin Web SPA<br/>Cloudflare Pages]
     SPA -->|1 resolve env name to id| ENVAPI[UGS Environments API]
     SPA -->|2 token-exchange Basic| TOK[services.api.unity.com auth]
     TOK -->|accessToken| SPA
@@ -126,7 +126,7 @@ flowchart TD
 |---|---|---|---|---|
 | 1 | Admin Web SPA (send + manage + attachments + env-by-name) | web-dev (sonnet) | `AdminWeb/` Vite app | ✅ Done |
 | 2 | Editor parity: env name instead of GUID in `AdminMailWindow` | unity-dev (sonnet) | edited `AdminMailWindow.cs` + helper | ✅ Done |
-| 3 | GitHub Pages deploy workflow + docs | devops (sonnet) | `.github/workflows/deploy-adminweb.yml` | ✅ Done |
+| 3 | Cloudflare Pages deploy workflow + docs | devops (sonnet) | `.github/workflows/deploy-adminweb.yml` | ✅ Done |
 | 4 | Integration review, CORS verification, docs sync | lead (opus) | review notes, Devlog update | Pending PO |
 
 ## Agent Allocation
@@ -135,7 +135,7 @@ flowchart TD
 |---|---|---|---|
 | web-dev | sonnet | Build `AdminWeb/` SPA mirroring AdminMailWindow | All 6 endpoints callable; Send + Manage tabs; attachments with AssetType; env by name; creds session-only; `npm run build` produces `dist/` |
 | unity-dev | sonnet | Editor env name parity | Editor field is Environment **Name**; resolves to ID via UGS API; token-exchange still works; EditMode compiles; no other behavior changed |
-| devops | sonnet | Deploy workflow → GitHub Pages | Workflow builds `AdminWeb` and deploys `dist/` to Pages on push + manual; no service-account secrets required; does not modify existing `deploy.yml` |
+| devops | sonnet | Deploy workflow → Cloudflare Pages | Workflow builds `AdminWeb` and deploys `dist/` to Cloudflare Pages on push + manual; no UGS service-account secrets in the bundle; does not modify existing `deploy.yml` |
 
 ---
 
@@ -156,32 +156,41 @@ flowchart TD
 | Browser CORS blocked by UGS services API | Medium | HIGH (breaks static-SPA model) | **Verified**: auth + CC endpoints CORS OK; only Environments API CORS-blocked. SPA handles with UUID fallback + warning. |
 | Service secret exposure in browser | By design (internal tool) | Medium | Session-only, never persisted/committed; same trust model as editor; warn in UI |
 | Env name→ID API shape differs from CLI | Low | Medium | Reuse `deploy.yml` resolution pattern; fall back to `ugs env list` semantics |
-| GitHub Pages base path / SPA routing | Low | Low | Set `base` in vite config; hash routing if needed |
+| Pages base path / SPA routing | Low | Low | `VITE_BASE=/` on Cloudflare Pages; `_redirects` handles SPA fallback |
 
 ## Execution Notes
 
-### 2026-06-01 — devops: GitHub Pages deploy workflow created (Task #3)
+### 2026-06-01 — devops: Deploy workflow created (Task #3, initially GitHub Pages)
 
 **Files created/modified:**
 
 | File | Action |
 |---|---|
-| `.github/workflows/deploy-adminweb.yml` | Created — GitHub Pages build + deploy workflow |
-| `README.md` | Updated — added "Admin Web" section (Pages setup, URL, trigger, build contract, security model) |
+| `.github/workflows/deploy-adminweb.yml` | Created — initially GitHub Pages; migrated to Cloudflare Pages (see 2026-06-03) |
+| `README.md` | Updated — added "Admin Web" section (setup, URL, trigger, build contract, security model) |
 
-**Workflow summary:**
+**Workflow summary (initial):**
 
 - **Triggers:** `push` to `main`/`staging` filtered to `AdminWeb/**` and the workflow file itself; `workflow_dispatch`.
-- **Permissions:** `contents: read`, `pages: write`, `id-token: write`.
-- **Concurrency:** group `pages`, `cancel-in-progress: true`.
-- **Build job:** `actions/checkout@v4` → `actions/setup-node@v4` (Node 20, npm cache keyed on `AdminWeb/package-lock.json`) → `npm ci` → `npm run build` (both with `working-directory: AdminWeb`) → `actions/upload-pages-artifact@v3` (`path: AdminWeb/dist`).
-- **Deploy job:** `needs: build`, environment `github-pages`, `actions/deploy-pages@v4`. Outputs page URL in job summary.
-- **No service-account secrets** required by this workflow; creds are operator-entered at runtime.
+- Single combined build+deploy job using `cloudflare/wrangler-action@v3`.
 
-**Required one-time repo setup:** GitHub repo → Settings → Pages → Source = **GitHub Actions**.
+### 2026-06-03 — cf-deploy: Migrated deploy-adminweb.yml to Cloudflare Pages
 
-**Vite base path coordination with web-dev:**
-Recommended `base: '/UnityCloudCode/'` in `vite.config.ts` — this matches the GitHub Pages subdirectory (`https://dycuong03.github.io/UnityCloudCode/`). Alternative: `base: './'` works if absolute asset paths are not needed (simpler but limits deep-route navigation). Message sent to web-dev with recommendation.
+**Files changed:**
+
+| File | Change |
+|---|---|
+| `.github/workflows/deploy-adminweb.yml` | Rewritten — Cloudflare Pages via `wrangler-action@v3 pages deploy dist`; `VITE_BASE=/`; no GH Pages permissions |
+| `AdminWeb/public/_redirects` | Created — SPA fallback `/* /index.html 200` |
+| `AdminWeb/vite.config.ts` | Comment updated to Cloudflare Pages |
+| `.github/workflows/deploy-proxy.yml` | Header docs updated; CORS origin example → `https://adminweb.pages.dev` |
+| `README.md` | Live URL → `https://adminweb.pages.dev`; setup steps updated |
+| `docs/CICD.md` | Table, note, secrets, and setup sections updated to Cloudflare Pages |
+
+**Required one-time setup (historically GitHub Pages; migrated to Cloudflare Pages 2026-06-03):** See 2026-06-03 migration note above.
+
+**Vite base path coordination with web-dev (historical):**
+Initially recommended `base: '/UnityCloudCode/'` for the GitHub Pages subdirectory. Migrated to `VITE_BASE=/` for Cloudflare Pages root serving. `vite.config.ts` default remains `'./'` for local dev.
 
 **Existing `deploy.yml` untouched** — the Cloud Code module deploy workflow is unmodified.
 
@@ -355,13 +364,13 @@ All five tasks accepted: #1 SPA, #2 editor parity, #3 deploy workflow, #4 web co
 **Deliverables (uncommitted, in working tree of the `UnityCloudCode` submodule):**
 - `AdminWeb/` — Vite + TS static SPA (send global/targeted, manage list/edit/delete, attachments w/ AssetType, env by name, session-only creds)
 - `UnityClient/Editor/CloudCodeFeature/AdminMailWindow.cs` — env **name** input + name→ID config-map (primary) + live API (fallback)
-- `.github/workflows/deploy-adminweb.yml` — GitHub Pages build+deploy
+- `.github/workflows/deploy-adminweb.yml` — Cloudflare Pages build+deploy (migrated from GitHub Pages)
 - `README.md` — Admin Web section
 
 **Remaining items (all require PO / external action — cannot be done in-session):**
 1. **Provide the two environment GUIDs** for `production`/`testing`; fill the editor map + set `VITE_ENV_*` (or edit `envMap.ts`). Until then, name resolution falls through to the CORS-blocked live API and shows the paste-UUID warning.
 2. **Live smoke test** with real service-account creds: confirms (a) the `/unity/v1/.../environments` endpoint, (b) token-exchange + all mail ops, (c) the mail-list field casing.
-3. **Enable GitHub Pages**: repo Settings → Pages → Source = GitHub Actions.
+3. **Cloudflare Pages setup**: `wrangler pages project create adminweb`; set production branch = `staging`; ensure `CLOUDFLARE_API_TOKEN` has Pages:Edit; update `ADMIN_PROXY_ALLOWED_ORIGIN` to `https://adminweb.pages.dev` and re-run deploy-proxy. (GitHub Pages no longer needed.)
 4. **Commit/push** in the `UnityCloudCode` submodule (left uncommitted per protocol). ⚠️ The submodule working tree has large pre-existing churn (e.g. `deploy.yml`, `.idea/*`, line-ending diffs) unrelated to this task — review carefully and stage only the AdminWeb/editor/workflow/README changes.
 
 ---
@@ -511,7 +520,7 @@ Added `timingSafeEqual(a, b)`: SHA-256 digests both strings via `crypto.subtle.d
 
 Path filters and `workflow_dispatch` unchanged. Job logic, permissions, concurrency, and secret wiring untouched. `deploy.yml` untouched.
 
-**Note on single Pages site:** Both `staging` and `release/*` deploy to the same GitHub Pages URL. Last deploy wins. This is intentional — the SPA is environment-agnostic (env selected at runtime by the operator).
+**Note on single Pages project:** Both `staging` and `release/*` deploy to the same Cloudflare Pages project (`adminweb`). Last deploy wins. This is intentional — the SPA is environment-agnostic (env selected at runtime by the operator).
 
 **`docs/CICD.md` updated:** Added section 6 "Admin Web (SPA + Proxy)" covering both workflows, staging + release/* triggers, path filters, required secrets/variables table, one-time Pages setup, first-deploy order, and the security model. ToC entry added.
 
@@ -576,5 +585,5 @@ All three tasks done + reviewed: #6 proxy (accepted, smoke-test bug + constant-t
 **Remaining external setup (PO):**
 1. **Push** `1e3b24f`.
 2. Cloudflare account + repo secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_PROXY_TOKEN`; repo variable `ADMIN_PROXY_ALLOWED_ORIGIN`. Run deploy-proxy → copy Worker URL → set `VITE_PROXY_URL` repo variable.
-3. Enable GitHub Pages (Settings → Pages → Source = GitHub Actions).
+3. Cloudflare Pages one-time setup: `wrangler pages project create adminweb`, set production branch = `staging`, ensure token has Pages:Edit. Set `ADMIN_PROXY_ALLOWED_ORIGIN` to `https://adminweb.pages.dev` and re-run deploy-proxy.
 4. Live smoke test (send + manage) through the proxy.

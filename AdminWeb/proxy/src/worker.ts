@@ -34,7 +34,7 @@ export interface Env {
   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET: string;
   /** Gate token the SPA sends as `Authorization: Bearer <token>` */
   ADMIN_PROXY_TOKEN: string;
-  /** Exact origin allowed in CORS headers, e.g. https://dycuong03.github.io */
+  /** Exact origin allowed in CORS headers, e.g. https://adminweb.pages.dev */
   ALLOWED_ORIGIN: string;
 }
 

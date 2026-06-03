@@ -6,7 +6,7 @@
 #
 # This workflow is INDEPENDENT of:
 #   deploy.yml          — Cloud Code module deploy (UGS)
-#   deploy-adminweb.yml — GitHub Pages SPA deploy
+#   deploy-adminweb.yml — Cloudflare Pages SPA deploy
 #
 # Required GitHub repository secrets:
 #   CLOUDFLARE_API_TOKEN                  — Cloudflare API token with Workers:Edit permission
@@ -16,8 +16,14 @@
 #   ADMIN_PROXY_TOKEN                     — Gate token SPA uses as Bearer (set as Worker secret)
 #
 # Required GitHub repository variable (Settings → Secrets and variables → Variables):
-#   ADMIN_PROXY_ALLOWED_ORIGIN  — CORS allowed origin, e.g. https://dycuong03.github.io
+#   ADMIN_PROXY_ALLOWED_ORIGIN  — CORS allowed origin, e.g. https://adminweb.pages.dev
 #                                 (not a secret; the Pages origin is public)
+#
+# ⚠️  CORS migration note — ops action required:
+#   The AdminWeb SPA has moved from GitHub Pages to Cloudflare Pages.
+#   Set ADMIN_PROXY_ALLOWED_ORIGIN to https://adminweb.pages.dev (or your
+#   custom *.pages.dev URL) and re-run this workflow so the Worker allows
+#   the new origin. Until this is done, CORS will block SPA → proxy requests.
 #
 # After the first successful deploy, the Worker URL is shown in the Cloudflare dashboard
 # (Workers & Pages → adminweb-proxy → Triggers). It looks like:
