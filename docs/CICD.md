@@ -212,7 +212,7 @@ The Admin Web is a static browser dashboard for managing in-game mail without th
 
 | Workflow | File | Deploy target |
 |---|---|---|
-| Deploy Admin Web SPA | `.github/workflows/deploy-adminweb.yml` | GitHub Pages (`https://dycuong03.github.io/UnityCloudCode/`) |
+| Deploy Admin Web SPA | `.github/workflows/deploy-adminweb.yml` | Cloudflare Pages (`https://adminweb.pages.dev`) |
 | Deploy AdminWeb Proxy | `.github/workflows/deploy-proxy.yml` | Cloudflare Worker (`adminweb-proxy.<subdomain>.workers.dev`) |
 
 ### Triggers
@@ -232,7 +232,7 @@ on:
   workflow_dispatch:
 ```
 
-**Note:** Both `staging` and `release/*` publish to the **same single GitHub Pages site** (last deploy wins). This is intentional — the SPA is environment-agnostic; the operator selects the target environment at runtime by entering the environment name and proxy token in the browser.
+**Note:** Both `staging` and `release/*` publish to the **same Cloudflare Pages project** (`adminweb`). Last deploy wins. This is intentional — the SPA is environment-agnostic; the operator selects the target environment at runtime by entering the environment name and proxy token in the browser.
 
 ### Required Secrets and Variables
 
@@ -242,7 +242,7 @@ on:
 |---|---|---|
 | `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | `deploy-proxy.yml` (Worker secret) | UGS service-account key ID — set as a **server-side** Worker secret; never in the SPA bundle |
 | `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | `deploy-proxy.yml` (Worker secret) | UGS service-account secret — server-side only |
-| `CLOUDFLARE_API_TOKEN` | `deploy-proxy.yml` | Cloudflare API token with **Workers:Edit** permission |
+| `CLOUDFLARE_API_TOKEN` | `deploy-proxy.yml` + `deploy-adminweb.yml` | Cloudflare API token with **Workers:Edit** + **Pages:Edit** permission |
 | `CLOUDFLARE_ACCOUNT_ID` | `deploy-proxy.yml` | Cloudflare account ID |
 | `ADMIN_PROXY_TOKEN` | `deploy-proxy.yml` (Worker secret) | Gate token the operator enters in the browser; the proxy validates it server-side |
 
@@ -250,14 +250,15 @@ on:
 
 | Variable | Used by | Description |
 |---|---|---|
-| `ADMIN_PROXY_ALLOWED_ORIGIN` | `deploy-proxy.yml` (Worker secret `ALLOWED_ORIGIN`) | CORS allowed origin, e.g. `https://dycuong03.github.io` |
+| `ADMIN_PROXY_ALLOWED_ORIGIN` | `deploy-proxy.yml` (Worker secret `ALLOWED_ORIGIN`) | CORS allowed origin, e.g. `https://adminweb.pages.dev` |
 | `VITE_PROXY_URL` | `deploy-adminweb.yml` (build env) + `deploy-proxy.yml` (smoke test) | Deployed Worker URL — baked into the SPA at build time; also used by the proxy smoke test |
 
-### One-Time GitHub Pages Setup
+### One-Time Cloudflare Pages Setup
 
-1. Go to **GitHub repo → Settings → Pages**.
-2. Under **Source**, select **GitHub Actions**.
-3. The next qualifying push triggers the first Pages deploy automatically.
+1. Run `wrangler pages project create adminweb`
+   (or create the project in the Cloudflare dashboard under **Workers & Pages**).
+2. Set the production branch to `staging` in the Cloudflare dashboard.
+3. Ensure `CLOUDFLARE_API_TOKEN` has **Pages:Edit** permission (in addition to Workers:Edit).
 
 ### First-Deploy Order
 
@@ -267,7 +268,7 @@ The proxy must be deployed before the SPA so that `VITE_PROXY_URL` can be set:
 2. Wait for the Worker deploy to succeed.
 3. Open **Cloudflare dashboard → Workers & Pages → adminweb-proxy → Triggers** and copy the `workers.dev` URL.
 4. Set it as the `VITE_PROXY_URL` repository variable (**Settings → Secrets and variables → Variables → New variable**).
-5. Also set `ADMIN_PROXY_ALLOWED_ORIGIN` to the Pages origin (e.g. `https://dycuong03.github.io`).
+5. Set `ADMIN_PROXY_ALLOWED_ORIGIN` to `https://adminweb.pages.dev` and re-run `deploy-proxy.yml` so the Worker allows the new origin.
 6. Push to `staging` (or trigger `deploy-adminweb.yml` manually) — the SPA build now picks up `VITE_PROXY_URL` and bakes it into the bundle.
 
 On the very first proxy deploy, the smoke-test step is skipped automatically (with instructions) because `VITE_PROXY_URL` is not yet set. Subsequent deploys run the health check.
