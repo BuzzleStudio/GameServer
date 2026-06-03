@@ -16,31 +16,27 @@
 // Security: NO UGS service-account Key or Secret ever enters the browser bundle
 // or sessionStorage. The proxyToken is the only secret — kept in memory only.
 //
-// Proxy request shape (coordinate with devops/task #6):
-//   POST <proxyBase>/api/cloudcode
+// Proxy request shape:
+//   POST /api/cloudcode
 //   Authorization: Bearer <proxyToken>
 //   Content-Type: application/json
 //   { "projectId": "...", "environment": "production", "moduleName": "...",
 //     "endpoint": "SendGlobalMail", "request": { ... } }
 
-// ── Configurable proxy base URL ───────────────────────────────────────────────────
-// Set VITE_PROXY_URL at build time (non-secret — it's just a URL).
-// The operator can also override at runtime via the connection form (saved to sessionStorage).
-// FILL: set VITE_PROXY_URL=https://your-worker.workers.dev at build time,
-//       or override the "Proxy URL" field in the connection form at runtime.
+// ── Same-origin proxy base URL ───────────────────────────────────────────────────
+// Cloudflare Pages serves the SPA and Pages Function on the same origin.
+// Empty base means fetch('/api/cloudcode'), so no build-time proxy URL is needed.
 export const apiConfig = {
-  proxyBase: (import.meta.env['VITE_PROXY_URL'] as string | undefined) || '<PROXY_URL_NOT_SET>',
+  proxyBase: '',
 }
 
 // ── Session-storage credential keys ──────────────────────────────────────────────
 // NOTE: proxyToken is NEVER stored in sessionStorage — memory only.
-// proxyBase is non-secret (just a URL) and safe to persist.
 const SS = {
   projectId:   'adminmail.projectId',
   environment: 'adminmail.environment',
   moduleName:  'adminmail.moduleName',
   operatorId:  'adminmail.operatorId',
-  proxyBase:   'adminmail.proxyBase',   // runtime override for proxy URL (non-secret)
 } as const
 
 export interface StoredCredentials {
@@ -48,7 +44,6 @@ export interface StoredCredentials {
   environment: string  // name ("production" / "testing") or UUID
   moduleName:  string  // default "BackpackAdventuresModule"
   operatorId:  string
-  proxyBase:   string  // runtime proxy URL override; '' means use build-time default
 }
 
 export function saveCredentials(c: StoredCredentials): void {
@@ -56,7 +51,6 @@ export function saveCredentials(c: StoredCredentials): void {
   sessionStorage.setItem(SS.environment, c.environment)
   sessionStorage.setItem(SS.moduleName,  c.moduleName)
   sessionStorage.setItem(SS.operatorId,  c.operatorId)
-  sessionStorage.setItem(SS.proxyBase,   c.proxyBase)
 }
 
 export function loadCredentials(): StoredCredentials {
@@ -65,7 +59,6 @@ export function loadCredentials(): StoredCredentials {
     environment: sessionStorage.getItem(SS.environment) ?? '',
     moduleName:  sessionStorage.getItem(SS.moduleName)  ?? 'BackpackAdventuresModule',
     operatorId:  sessionStorage.getItem(SS.operatorId)  ?? '',
-    proxyBase:   sessionStorage.getItem(SS.proxyBase)   ?? '',
   }
 }
 
@@ -74,9 +67,8 @@ export function clearAllCredentials(): void {
 }
 
 // ── Resolve effective proxy base URL ─────────────────────────────────────────────
-// Runtime override (sessionStorage) wins over build-time VITE_PROXY_URL default.
-export function effectiveProxyBase(runtimeOverride: string): string {
-  return runtimeOverride.trim() || apiConfig.proxyBase
+export function effectiveProxyBase(): string {
+  return apiConfig.proxyBase
 }
 
 // ── Core proxy call ───────────────────────────────────────────────────────────────
@@ -92,7 +84,7 @@ export class ApiError extends Error {
 }
 
 export interface ProxyCallArgs {
-  proxyBase:   string   // effective proxy URL (runtime override or build-time default)
+  proxyBase:   string   // same-origin base, normally ''
   proxyToken:  string   // operator's proxy access token — MEMORY ONLY, never stored
   projectId:   string
   environment: string   // name or UUID — proxy resolves
