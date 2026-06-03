@@ -15,7 +15,6 @@ import {
   apiExpireMail,
   apiDeleteGlobalMail,
   apiPurgeExpired,
-  apiConfig,
 } from './api'
 
 import type { ProxyCallArgs } from './api'
@@ -44,7 +43,6 @@ interface AppState {
   environment: string   // name ("production"/"testing") or UUID — proxy resolves
   moduleName:  string   // default "BackpackAdventuresModule"
   operatorId:  string
-  proxyBase:   string   // runtime proxy URL override (non-secret, sessionStorage)
   // In-memory only — NEVER stored anywhere
   proxyToken:  string
   // Tabs
@@ -104,7 +102,6 @@ const state: AppState = {
   environment: '',
   moduleName:  'BackpackAdventuresModule',
   operatorId:  '',
-  proxyBase:   '',
   proxyToken:  '',
   activeTab:        'send',
   activeSendSubTab: 'global',
@@ -204,12 +201,7 @@ function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
 }
 
 function resolveProxyArgs(): ProxyCallArgs {
-  const pb = effectiveProxyBase(state.proxyBase)
-  if (!pb || pb === '<PROXY_URL_NOT_SET>') {
-    throw new Error(
-      'Proxy URL is not configured. Set VITE_PROXY_URL at build time or enter it in the Proxy URL field.',
-    )
-  }
+  const pb = effectiveProxyBase()
   if (!state.proxyToken) {
     throw new Error('Proxy access token is required. Enter it in the connection form.')
   }
@@ -228,8 +220,7 @@ function isConnected(): boolean {
     !!state.environment &&
     !!state.moduleName &&
     !!state.operatorId &&
-    !!state.proxyToken &&
-    effectiveProxyBase(state.proxyBase) !== '<PROXY_URL_NOT_SET>'
+    !!state.proxyToken
   )
 }
 
@@ -551,13 +542,10 @@ function renderManageTab(): string {
 
 // ─── Sidebar — Connection form ────────────────────────────────────────────────────
 function renderSidebar(): string {
-  const pb = effectiveProxyBase(state.proxyBase)
-  const proxyConfigured = pb !== '<PROXY_URL_NOT_SET>'
-
   return `
   <div class="alert alert-security">
     🔒 <strong>Proxy model:</strong> UGS service-account credentials are handled server-side
-    by the proxy. This form never receives, stores, or transmits your Key or Secret.
+    by the same-origin Cloudflare Pages Function. This form never receives, stores, or transmits your Key or Secret.
     Only the <strong>Proxy Access Token</strong> is sensitive — it is kept in memory only
     and cleared on "Logout". All other fields are session-stored for convenience.
   </div>
@@ -585,13 +573,6 @@ function renderSidebar(): string {
       <label>Proxy Access Token <span style="color:var(--accent)">★ session-only</span></label>
       <input type="password" id="c-token" value="" placeholder="Proxy bearer token (not stored)" autocomplete="new-password" />
       ${state.proxyToken ? '<small style="color:var(--success);font-size:11px">✓ Token in memory</small>' : ''}
-    </div>
-    <div class="form-group">
-      <label>Proxy URL <span style="color:var(--text-dim);font-size:11px">(non-secret — override build default)</span></label>
-      <input type="text" id="c-proxy-url" value="${esc(state.proxyBase)}" placeholder="${esc(apiConfig.proxyBase)}" autocomplete="off" />
-      ${proxyConfigured
-        ? `<small style="color:var(--success);font-size:11px">✓ ${esc(pb)}</small>`
-        : `<small style="color:var(--warning);font-size:11px">⚠ Not set — enter above or set VITE_PROXY_URL at build time</small>`}
     </div>
     ${isConnected()
       ? `<div class="alert alert-success" style="font-size:12px">✓ Connected — ${esc(state.moduleName)} / ${esc(state.environment)}</div>`
@@ -713,17 +694,9 @@ async function doConnect() {
   const environment = val('c-env').trim()
   const operatorId  = val('c-operator').trim()
   const proxyToken  = (document.getElementById('c-token') as HTMLInputElement | null)?.value ?? ''
-  const proxyBase   = val('c-proxy-url').trim()
 
   if (!projectId || !environment || !operatorId || !proxyToken) {
     setStatus('Project ID, Environment, Operator ID, and Proxy Token are required.', 'error')
-    refreshSidebar()
-    return
-  }
-
-  const pb = effectiveProxyBase(proxyBase)
-  if (pb === '<PROXY_URL_NOT_SET>') {
-    setStatus('Proxy URL is not configured. Enter it in the Proxy URL field or set VITE_PROXY_URL at build time.', 'error')
     refreshSidebar()
     return
   }
@@ -734,12 +707,11 @@ async function doConnect() {
   state.environment = environment
   state.operatorId  = operatorId
   state.proxyToken  = proxyToken   // memory only — NOT saved to sessionStorage
-  state.proxyBase   = proxyBase    // non-secret URL — saved to sessionStorage
 
-  saveCredentials({ projectId, environment, moduleName, operatorId, proxyBase })
+  saveCredentials({ projectId, environment, moduleName, operatorId })
 
   setStatus(
-    `Connected — ${moduleName} / ${environment} via ${pb}`,
+    `Connected — ${moduleName} / ${environment} via same-origin proxy`,
     'success',
   )
   refreshSidebar()
@@ -753,7 +725,6 @@ async function doLogout() {
   state.moduleName  = 'BackpackAdventuresModule'
   state.operatorId  = ''
   state.proxyToken  = ''    // cleared from memory
-  state.proxyBase   = ''
   setStatus('Logged out — all credentials cleared.', 'info')
   renderApp()
 }
@@ -1000,7 +971,6 @@ function init() {
   state.environment = saved.environment
   state.moduleName  = saved.moduleName || 'BackpackAdventuresModule'
   state.operatorId  = saved.operatorId
-  state.proxyBase   = saved.proxyBase
   // proxyToken always starts empty — operator must re-enter each session
   renderApp()
 }
