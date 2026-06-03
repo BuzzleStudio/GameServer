@@ -216,6 +216,8 @@ Use the URL returned by the `deploy-adminweb.yml` Cloudflare Pages deploy step.
 3. Ensure `CLOUDFLARE_API_TOKEN` has **Pages:Edit** permission.
 4. Set the required GitHub repo secrets. The workflow syncs UGS secrets into
    Cloudflare Pages before each deploy.
+5. If the Cloudflare account has multiple Pages projects, set repo variable
+   `CLOUDFLARE_PAGES_PROJECT` to the existing project name, e.g. `adminweb-fza`.
 
 ### Deploy trigger
 
