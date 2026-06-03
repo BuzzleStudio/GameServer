@@ -115,7 +115,28 @@ public class GlobalMailPayloadConverter : JsonConverter<GlobalMailPayload>
 [JsonConverter(typeof(GlobalMailCollectionConverter))]
 public class GlobalMailCollection
 {
-    public List<GlobalMailPayload> Mails { get; set; } = new();
+    private List<GlobalMailPayload> _mails = new();
+    private Dictionary<string, GlobalMailPayload>? _byId;
+
+    public List<GlobalMailPayload> Mails
+    {
+        get => _mails;
+        set { _mails = value ?? new(); _byId = null; }
+    }
+
+    public void InvalidateIndex() => _byId = null;
+
+    internal GlobalMailPayload? FindByIdInternal(string mailId)
+    {
+        if (_byId == null)
+        {
+            _byId = new Dictionary<string, GlobalMailPayload>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in _mails)
+                if (!string.IsNullOrEmpty(p.Mail?.MessageId))
+                    _byId[p.Mail.MessageId] = p;
+        }
+        return _byId.TryGetValue(mailId, out var r) ? r : null;
+    }
 }
 
 public class GlobalMailCollectionConverter : JsonConverter<GlobalMailCollection>
@@ -161,6 +182,9 @@ public class GlobalMailCollectionConverter : JsonConverter<GlobalMailCollection>
 
 public static class GlobalMailStore
 {
+    public static GlobalMailPayload? FindById(GlobalMailCollection? collection, string mailId)
+        => collection?.FindByIdInternal(mailId);
+
     public static GlobalMailPayload? FindById(List<GlobalMailPayload>? mails, string mailId)
     {
         return mails?.Find(m => string.Equals(m.Mail?.MessageId, mailId, StringComparison.OrdinalIgnoreCase));
@@ -204,11 +228,62 @@ public class PlayerGlobalMailState
     [JsonPropertyName("DeletedIds")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? LegacyDeletedIds { get; set; }
+
+    [JsonIgnore]
+    private Dictionary<string, MailMetadata>? _metaById;
+    private bool _migrated;
+
+    internal bool IsMigrated => _migrated;
+    internal void MarkMigrated() => _migrated = true;
+    public void InvalidateMetaIndex() => _metaById = null;
+
+    internal MailMetadata? FindMetadataById(string messageId)
+    {
+        _metaById ??= BuildMetaIndex();
+        return _metaById.TryGetValue(messageId, out var m) ? m : null;
+    }
+
+    internal MailMetadata GetOrCreateMetadataById(string messageId)
+    {
+        _metaById ??= BuildMetaIndex();
+        if (_metaById.TryGetValue(messageId, out var existing))
+            return existing;
+        var m = new MailMetadata { MessageId = messageId };
+        Mails.Add(m);
+        _metaById[messageId] = m;
+        return m;
+    }
+
+    private Dictionary<string, MailMetadata> BuildMetaIndex()
+    {
+        var d = new Dictionary<string, MailMetadata>(StringComparer.Ordinal);
+        foreach (var m in Mails)
+            if (!string.IsNullOrEmpty(m.MessageId))
+                d[m.MessageId] = m;
+        return d;
+    }
 }
 
 public class PlayerUserMailbox
 {
     public List<MailItemDto> Mails { get; set; } = new();
+
+    [JsonIgnore]
+    private Dictionary<string, MailItemDto>? _byId;
+
+    public void InvalidateIndex() => _byId = null;
+
+    internal MailItemDto? FindById(string mailId)
+    {
+        if (_byId == null)
+        {
+            _byId = new Dictionary<string, MailItemDto>(StringComparer.Ordinal);
+            foreach (var m in Mails)
+                if (!string.IsNullOrEmpty(m.MessageId))
+                    _byId[m.MessageId] = m;
+        }
+        return _byId.TryGetValue(mailId, out var r) ? r : null;
+    }
 }
 
 public class PlayerMailboxMeta
@@ -433,22 +508,19 @@ public static class MailSchemaHelper
     {
         state.Mails ??= new List<MailMetadata>();
         MigrateLegacyMetadata(state);
-        var metadata = state.Mails.Find(m => m.MessageId == mailId);
-        if (metadata != null) return metadata;
-        metadata = new MailMetadata { MessageId = mailId };
-        state.Mails.Add(metadata);
-        return metadata;
+        return state.GetOrCreateMetadataById(mailId);
     }
 
     public static MailMetadata? FindMetadata(PlayerGlobalMailState state, string mailId)
     {
         state.Mails ??= new List<MailMetadata>();
         MigrateLegacyMetadata(state);
-        return state.Mails.Find(m => m.MessageId == mailId);
+        return state.FindMetadataById(mailId);
     }
 
     public static void MigrateLegacyMetadata(PlayerGlobalMailState state)
     {
+        if (state.IsMigrated) return;
         state.Mails ??= new List<MailMetadata>();
         MergeLegacyMetadataList(state);
         NormalizeLegacyMetadataFields(state.Mails);
@@ -458,6 +530,8 @@ public static class MailSchemaHelper
         state.LegacyClaimedIds = null;
         state.LegacyReadIds = null;
         state.LegacyDeletedIds = null;
+        state.InvalidateMetaIndex();
+        state.MarkMigrated();
     }
 
     private static void MergeLegacyMetadataList(PlayerGlobalMailState state)

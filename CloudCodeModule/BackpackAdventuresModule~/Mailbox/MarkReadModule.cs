@@ -40,7 +40,7 @@ public class MarkReadModule
             await MarkUserReadAsync(playerId, request.MailId);
 
         if (!string.IsNullOrEmpty(request.RequestId))
-            await IdempotencyService.StoreResponseAsync(_gameApiClient, _context, playerId, request.RequestId, "MarkMailRead", request.MailId, new { isRead = true });
+            PendingIdemStore = StoreIdemSafeAsync(playerId, request.RequestId, "MarkMailRead", request.MailId, new { isRead = true });
 
         return ApiResponse<MarkMailReadResponse>.Ok(new MarkMailReadResponse { MailId = request.MailId, IsRead = true });
     }
@@ -50,8 +50,10 @@ public class MarkReadModule
     {
         var playerId = _context.PlayerId ?? string.Empty;
         var now = DateTime.UtcNow.ToString("o");
-        await MarkAllUserMailsReadWithRetryAsync(playerId);
-        await UpdateMetaLastReadAtWithRetryAsync(playerId, now);
+        // Independent keys (user items vs meta) → run concurrently to cut MarkAllRead latency ~in half.
+        await Task.WhenAll(
+            MarkAllUserMailsReadWithRetryAsync(playerId),
+            UpdateMetaLastReadAtWithRetryAsync(playerId, now));
         return ApiResponse<MarkAllReadResponse>.Ok(new MarkAllReadResponse { LastReadAt = now });
     }
 
@@ -87,7 +89,7 @@ public class MarkReadModule
         {
             var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(_gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
             mailbox ??= new PlayerUserMailbox();
-            var mail = mailbox.Mails.Find(m => m.MessageId == mailId);
+            var mail = mailbox.FindById(mailId);
             if (mail == null) throw new InvalidOperationException(MailboxError.MailNotFound);
             if (mail.MailMetaData.IsRead) return;
             mail.MailMetaData.IsRead = true;
@@ -129,6 +131,23 @@ public class MarkReadModule
                 return;
             }
             catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex) && attempt == 0) { }
+        }
+    }
+
+    // Best-effort idempotency store, OFF the response critical path (not awaited) — see the matching
+    // note in ClaimAttachmentModule. Correctness holds via the per-mail IsRead guard on re-run.
+    // Exposed via PendingIdemStore for deterministic test completion.
+    internal Task? PendingIdemStore;
+
+    private async Task StoreIdemSafeAsync(string playerId, string requestId, string operation, string mailId, object summary)
+    {
+        try
+        {
+            await IdempotencyService.StoreResponseAsync(_gameApiClient, _context, playerId, requestId, operation, mailId, summary);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Idempotency store (fire-and-forget) failed for {Operation} {MailId}", operation, mailId);
         }
     }
 

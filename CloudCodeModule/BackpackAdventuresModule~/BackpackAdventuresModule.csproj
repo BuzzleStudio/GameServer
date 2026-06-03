@@ -20,4 +20,11 @@
         <PublishReadyToRunComposite>true</PublishReadyToRunComposite>
     </PropertyGroup>
 
+    <!-- Allow the xUnit test project to access internal types (MailboxCache, CloudSaveHelper, etc.) -->
+    <ItemGroup>
+        <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+            <_Parameter1>BackpackAdventuresModule.Tests</_Parameter1>
+        </AssemblyAttribute>
+    </ItemGroup>
+
 </Project>
