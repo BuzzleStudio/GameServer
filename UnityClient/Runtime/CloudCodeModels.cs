@@ -13,6 +13,12 @@ namespace BackpackAdventures.CloudCode.Client
         [JsonProperty("message")]
         public string Message { get; set; } = string.Empty;
 
+        // Server execution time in milliseconds. Lives on the base so EVERY response carries it,
+        // including endpoints that return no data. Inherited by ApiResponse<T>. Optional/additive:
+        // older payloads without the field deserialize to 0.
+        [JsonProperty("serverExecutionMs")]
+        public long ServerExecutionMs { get; set; }
+
         // The Cloud Code SDK may deserialize with MissingMemberHandling.Error.
         // Keep data as a real public member so non-generic ApiResponse callers can
         // receive the envelope without failing on Path 'data'.

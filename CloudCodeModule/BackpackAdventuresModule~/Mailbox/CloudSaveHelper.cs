@@ -26,6 +26,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
 using Unity.Services.CloudCode.Core;
 
@@ -96,28 +97,31 @@ internal static class CloudSaveHelper
 
     // ── Custom data (project-wide) ───────────────────────────────────────────
 
-    // Read-through: returns cached value when live; falls through to REST on miss/expiry.
+    // Read-through. The project-wide mails_all key is VERSION-AWARE (validated against
+    // global_mail_change_log) instead of TTL-only, so a write on another worker instance
+    // invalidates this instance's cache on the next read. All other keys are TTL read-through.
     internal static async Task<T?> GetCustomDataAsync<T>(
-        IGameApiClient _, IExecutionContext ctx, string key)
+        IGameApiClient client, IExecutionContext ctx, string key)
     {
         var cacheKey = CustomCacheKey(ctx, key);
-        if (MailboxCache.TryGet<T>(cacheKey, out var cached)) return cached;
 
-        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items?keys={Uri.EscapeDataString(key)}";
-        var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
-        var result = ExtractFirstValue<T>(json);
+        if (key == MailboxConstants.KeyMailsAll)
+            return await GetCustomDataWithVersionAwareCacheAsync<T>(client, ctx, key, cacheKey);
+
+        if (MailboxCache.TryGet<T>(cacheKey, out var cached)) return cached;
+        var result = await FetchCustomAsync<T>(ctx, key);
         MailboxCache.Set(cacheKey, result);
         return result;
     }
 
-    // Write-through: cache is updated with the new value on success.
+    // Write-through. mails_all writes bump the global change log so other instances invalidate.
     internal static async Task SetCustomDataAsync<T>(
-        IGameApiClient _, IExecutionContext ctx, string key, T value)
+        IGameApiClient client, IExecutionContext ctx, string key, T value, ILogger? logger = null)
     {
         var cacheKey = CustomCacheKey(ctx, key);
         var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
         await PostItemAsync(ctx, url, key, value, null, cacheKey);
-        MailboxCache.Set(cacheKey, value);
+        await OnCustomWriteSucceededAsync(client, ctx, key, value, cacheKey, logger);
     }
 
     // Always REST — writeLock token must be current for safe CAS writes.
@@ -132,14 +136,14 @@ internal static class CloudSaveHelper
         return result;
     }
 
-    // Write-through: cache is updated with the new value on success.
+    // Write-through. mails_all writes bump the global change log so other instances invalidate.
     internal static async Task SetCustomDataWithLockAsync<T>(
-        IGameApiClient _, IExecutionContext ctx, string key, T value, string writeLock)
+        IGameApiClient client, IExecutionContext ctx, string key, T value, string writeLock, ILogger? logger = null)
     {
         var cacheKey = CustomCacheKey(ctx, key);
         var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items";
         await PostItemAsync(ctx, url, key, value, writeLock, cacheKey);
-        MailboxCache.Set(cacheKey, value);
+        await OnCustomWriteSucceededAsync(client, ctx, key, value, cacheKey, logger);
     }
 
     // Evicts cache entry on successful delete so stale data cannot be served afterward.
@@ -151,6 +155,99 @@ internal static class CloudSaveHelper
         if ((int)status >= 400 && status != HttpStatusCode.NotFound)
             throw new InvalidOperationException($"DeleteCustomDataAsync failed: HTTP {(int)status} on {key}");
         MailboxCache.Evict(CustomCacheKey(ctx, key));
+    }
+
+    // ── Global mail change log (version-aware mails_all cache) ─────────────────
+
+    // Reads the change log fresh. The key is in MailboxCache.IsNoCacheKey, so this never serves
+    // a cached version — required for version validation to be meaningful.
+    internal static async Task<GlobalMailChangeLog?> GetGlobalMailChangeLogAsync(
+        IGameApiClient client, IExecutionContext ctx)
+        => await GetCustomDataAsync<GlobalMailChangeLog>(client, ctx, MailboxConstants.KeyGlobalMailChangeLog);
+
+    // Current global mail version (0 when the change log has never been written).
+    internal static async Task<long> GetCurrentGlobalMailVersionAsync(
+        IGameApiClient client, IExecutionContext ctx)
+        => (await GetGlobalMailChangeLogAsync(client, ctx))?.Version ?? 0;
+
+    // Retry budget for the change-log bump under writeLock (409) contention.
+    private const int ChangeLogBumpAttempts = 3;
+
+    // Increments the global mail version. Reads with writeLock, retries on 409 by re-reading the
+    // latest log and incrementing again. THROWS on failure (exhausted 409 retries, or any non-409
+    // error) — the caller (OnCustomWriteSucceededAsync) treats a bump failure as best-effort AFTER
+    // the mails_all source-of-truth write has already committed.
+    internal static async Task<long> BumpGlobalMailChangeLogAsync(
+        IGameApiClient client, IExecutionContext ctx)
+    {
+        for (var attempt = 0; attempt < ChangeLogBumpAttempts; attempt++)
+        {
+            var (log, writeLock) = await GetCustomDataWithLockAsync<GlobalMailChangeLog>(
+                client, ctx, MailboxConstants.KeyGlobalMailChangeLog);
+            log ??= new GlobalMailChangeLog();      // missing → first bump produces Version = 1
+            log.Version += 1;
+            log.LastChangedAt = DateTime.UtcNow.ToString("o");
+            try
+            {
+                await SetCustomDataWithLockAsync(client, ctx, MailboxConstants.KeyGlobalMailChangeLog, log, writeLock);
+                return log.Version;
+            }
+            // Retry on 409 EXCEPT on the final attempt, where it propagates as a bump failure.
+            catch (Exception ex) when (IsWriteLockConflict(ex) && attempt < ChangeLogBumpAttempts - 1) { }
+        }
+        throw new InvalidOperationException("global_mail_change_log bump exhausted writeLock retries");
+    }
+
+    // Version-aware read for mails_all: validate cache against a fresh change-log version.
+    private static async Task<T?> GetCustomDataWithVersionAwareCacheAsync<T>(
+        IGameApiClient client, IExecutionContext ctx, string key, string cacheKey)
+    {
+        var version = await GetCurrentGlobalMailVersionAsync(client, ctx);
+        if (MailboxCache.TryGetVersioned<T>(cacheKey, version, out var cached)) return cached;
+        var result = await FetchCustomAsync<T>(ctx, key);
+        MailboxCache.SetVersioned(cacheKey, result, version);
+        return result;
+    }
+
+    // Post-write cache coherence. Bumping is keyed on the mails_all WRITE, so it covers every
+    // mutation path (SendGlobalMail, SendUserMail, DeleteGlobalMail, ExpireMail, SetMailEndTime,
+    // PurgeExpired) and never fires for no-ops, which return before calling Set*.
+    //
+    // mails_all is the SOURCE OF TRUTH and is already committed by the time we get here. The change
+    // log is only a cross-instance cache-invalidation signal, so its bump is BEST-EFFORT: a bump
+    // failure (exhausted 409 retries or any transient error) must NOT fail the committed mutation.
+    // On failure we evict this instance's mails_all cache (so it never serves an entry stamped with
+    // a wrong/old version) and let the TTL window cover other instances until the next bump.
+    private static async Task OnCustomWriteSucceededAsync<T>(
+        IGameApiClient client, IExecutionContext ctx, string key, T value, string cacheKey, ILogger? logger)
+    {
+        if (key != MailboxConstants.KeyMailsAll)
+        {
+            MailboxCache.Set(cacheKey, value);
+            return;
+        }
+
+        try
+        {
+            var newVersion = await BumpGlobalMailChangeLogAsync(client, ctx);
+            MailboxCache.SetVersioned(cacheKey, value, newVersion); // stamp with the new version
+        }
+        catch (Exception ex)
+        {
+            // Source-of-truth write already succeeded — do NOT rethrow. Evict so the next read
+            // refetches at the current version; other workers fall back to the TTL window.
+            MailboxCache.Evict(cacheKey);
+            logger?.LogWarning(ex,
+                "mails_all committed but global_mail_change_log bump failed; evicted local mails_all cache, " +
+                "TTL fallback protects other workers until the next successful bump.");
+        }
+    }
+
+    private static async Task<T?> FetchCustomAsync<T>(IExecutionContext ctx, string key)
+    {
+        var url = $"{BaseHost}/v1/data/projects/{ctx.ProjectId}/custom/{GlobalCustomId}/items?keys={Uri.EscapeDataString(key)}";
+        var (json, _, _) = await SendAsync(HttpMethod.Get, ctx, url, body: null);
+        return ExtractFirstValue<T>(json);
     }
 
     // ── Conflict detection ───────────────────────────────────────────────────

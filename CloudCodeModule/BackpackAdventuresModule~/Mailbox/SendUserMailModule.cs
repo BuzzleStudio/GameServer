@@ -64,7 +64,7 @@ public class SendUserMailModule
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock, _logger);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
@@ -76,7 +76,7 @@ public class SendUserMailModule
             if (freshExisting?.Mail != null)
                 return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = freshExisting.Mail.MessageId, SentAt = freshExisting.Mail.StartTime.ToUniversalTime().ToString("o") });
             freshMails.Add(new GlobalMailPayload { Mail = newMail });
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshCollection, freshLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshCollection, freshLock, _logger);
         }
 
         return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = mailId, SentAt = sentAt });

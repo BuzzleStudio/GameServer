@@ -19,6 +19,13 @@ public class ApiResponse
     public int StatusCode { get; set; } = 200;
     public string Message { get; set; } = string.Empty;
     public object? Data { get; set; }
+
+    // Server execution time (ms). Present on the non-generic response too, so endpoints that
+    // return no data still report runtime. Mirrors ApiResponse<T>.ServerExecutionMs.
+    public long ServerExecutionMs { get; set; }
+
+    public static ApiResponse Ok(Stopwatch sw, string message = "OK")
+        => new ApiResponse { StatusCode = 200, Message = message, ServerExecutionMs = sw.ElapsedMilliseconds };
 }
 
 public class ApiResponse<T>
