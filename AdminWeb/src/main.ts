@@ -230,7 +230,7 @@ function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
     const typeStr = d.assetType.trim() || 'Currency'
 
     result.push({
-      type:     typeStr.toLowerCase(),
+      type:     typeStr,
       id:       payoutAssetId,
       itemId:   payoutAssetId,
       amount:   d.payoutAmount,

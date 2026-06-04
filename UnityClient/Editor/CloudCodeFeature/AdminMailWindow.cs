@@ -614,7 +614,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                     payoutAssetId = draft.payoutAssetId.Trim();
                 }
 
-                string typeStr = ResolveAssetTypeString(draft).ToLowerInvariant();
+                string typeStr = ResolveAssetTypeString(draft);
 
                 result.Add(new MailAttachment
                 {
