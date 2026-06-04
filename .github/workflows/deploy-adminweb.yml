@@ -14,11 +14,15 @@
 #   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET  - UGS service-account secret
 #   ADMIN_PROXY_TOKEN                     - Gate token the SPA presents as Bearer
 #
-# Optional GitHub repository variable:
+# Optional GitHub repository variables:
 #   CLOUDFLARE_PAGES_PROJECT              - Existing Pages project name, e.g. adminweb-fza
+#   CLOUDFLARE_PAGES_CUSTOM_DOMAIN        - Custom domain to attach, e.g. admin.archergame.mobi
 #
 # If CLOUDFLARE_PAGES_PROJECT is unset, the workflow auto-selects a Pages
 # project only when the account has exactly one AdminWeb-looking project.
+#
+# If CLOUDFLARE_PAGES_CUSTOM_DOMAIN is set, the workflow attaches that domain
+# to the Pages project on every deploy (idempotent — safe to re-run).
 
 name: Deploy AdminWeb to Cloudflare Pages
 
@@ -148,6 +152,65 @@ jobs:
             exit "$CREATE_EXIT"
           fi
 
+      - name: Attach custom domain
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_PAGES_CUSTOM_DOMAIN }}
+        run: |
+          set -e
+          node <<'NODE'
+          ;(async () => {
+            const fs = require('fs')
+            const customDomain = (process.env.CLOUDFLARE_PAGES_CUSTOM_DOMAIN || '').trim()
+            if (!customDomain) {
+              console.log('CLOUDFLARE_PAGES_CUSTOM_DOMAIN not set — skipping custom domain attachment.')
+              return
+            }
+
+            const token = process.env.CLOUDFLARE_API_TOKEN
+            const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
+            const project = process.env.CF_PAGES_PROJECT
+
+            const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/pages/projects/${project}/domains`
+            const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+
+            // Check if already attached
+            const listRes = await fetch(base, { headers })
+            const listJson = await listRes.json()
+            const existing = Array.isArray(listJson.result) ? listJson.result.map(d => d.name) : []
+            if (existing.includes(customDomain)) {
+              console.log(`Custom domain '${customDomain}' already attached to '${project}'.`)
+              fs.appendFileSync(process.env.GITHUB_ENV, `CUSTOM_DOMAIN=${customDomain}\n`)
+              return
+            }
+
+            console.log(`Attaching custom domain '${customDomain}' to Pages project '${project}'.`)
+            const addRes = await fetch(base, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ name: customDomain }),
+            })
+            const addJson = await addRes.json()
+
+            if (!addRes.ok || !addJson.success) {
+              const errors = addJson.errors || []
+              const alreadyExists = errors.some(e => /already (exists|in use)/i.test(e.message || ''))
+              if (alreadyExists) {
+                console.log(`Custom domain '${customDomain}' already attached (confirmed via API error).`)
+                fs.appendFileSync(process.env.GITHUB_ENV, `CUSTOM_DOMAIN=${customDomain}\n`)
+                return
+              }
+              console.error('Failed to attach custom domain.')
+              console.error(JSON.stringify(addJson, null, 2))
+              process.exit(1)
+            }
+
+            console.log(`Custom domain '${customDomain}' attached successfully.`)
+            fs.appendFileSync(process.env.GITHUB_ENV, `CUSTOM_DOMAIN=${customDomain}\n`)
+          })().catch((err) => { console.error(err); process.exit(1) })
+          NODE
+
       - name: Sync Pages secrets
         working-directory: AdminWeb
         env:
@@ -215,6 +278,9 @@ jobs:
             echo "| Field | Value |"
             echo "|---|---|"
             echo "| **Pages URL** | $PAGES_URL |"
+            if [ -n "$CUSTOM_DOMAIN" ]; then
+              echo "| **Custom Domain** | https://$CUSTOM_DOMAIN |"
+            fi
             echo "| **API** | /api/* same-origin Pages Function |"
             echo "| **Branch** | ${{ github.ref_name }} |"
             echo "| **Commit** | ${{ github.sha }} |"
