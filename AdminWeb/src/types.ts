@@ -166,6 +166,7 @@ export interface UpdateGlobalMailRequest {
   subject: string;
   body: string;
   attachments?: MailAttachment[] | null;
+  targetUserIds?: string[] | null;
   adminToken?: string | null;
   operatorId: string;
 }

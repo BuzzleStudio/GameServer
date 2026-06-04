@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Unity.Services.CloudCode.Apis;
@@ -130,6 +131,9 @@ public class ExpireMailModule
         payload.Mail.Title = request.Subject.Trim();
         payload.Mail.Content = request.Body.Trim();
         payload.Mail.Attachments = MailSchemaHelper.MapPayouts(request.Attachments);
+        payload.Mail.TargetUserIds = request.TargetUserIds is { Count: > 0 }
+            ? request.TargetUserIds.Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).Distinct().ToList()
+            : null;
 
         try
         {

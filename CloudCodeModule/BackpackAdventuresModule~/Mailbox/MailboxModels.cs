@@ -428,6 +428,10 @@ public class MailItemDto
     [JsonPropertyName("MessageId")]
     public string MessageId { get; set; } = string.Empty;
 
+    [JsonPropertyName("TargetUserIds")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? TargetUserIds { get; set; }
+
     [JsonPropertyName("MailInfo")]
     public MailInfoDto MailInfo { get; set; } = new();
 
@@ -524,6 +528,7 @@ public static class MailSchemaHelper
         return new MailItemDto
         {
             MessageId = mail.MessageId,
+            TargetUserIds = mail.TargetUserIds is { Count: > 0 } ? mail.TargetUserIds : null,
             MailInfo = new MailInfoDto
             {
                 Title = mail.Title,
@@ -1059,6 +1064,9 @@ public class UpdateGlobalMailRequest
 
     [JsonPropertyName("attachments")]
     public List<MailAttachment>? Attachments { get; set; }
+
+    [JsonPropertyName("targetUserIds")]
+    public List<string>? TargetUserIds { get; set; }
 
     [JsonPropertyName("adminToken")]
     public string AdminToken { get; set; } = string.Empty;
