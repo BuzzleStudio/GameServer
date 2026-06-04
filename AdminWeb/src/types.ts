@@ -3,6 +3,34 @@
 //   UnityClient/Runtime/CloudCodeModels.cs
 //   CloudCodeModule/BackpackAdventuresModule~/Mailbox/*.cs
 
+// ── Rarity enum (matches C# Rarity in CloudCodeModels.cs) ───────────────────────
+export const Rarity = {
+  None: 0,
+  Common: 1,
+  Rare: 2,
+  Epic: 3,
+  Legendary: 4,
+  Mythic: 5,
+} as const
+export type RarityValue = typeof Rarity[keyof typeof Rarity]
+export const RARITY_LABELS: Record<RarityValue, string> = {
+  0: 'None',
+  1: 'Common',
+  2: 'Rare',
+  3: 'Epic',
+  4: 'Legendary',
+  5: 'Mythic',
+}
+
+// ── Per-item instance (PascalCase keys, Rarity as int) ───────────────────────────
+export interface ItemSpecificAsset {
+  BlueprintId: string
+  CurrentLevel: number
+  Rarity: RarityValue
+  InitialLevel: number
+  FromSource: string
+}
+
 // ── Wire format for attachments ─────────────────────────────────────────────────
 export interface MailAttachment {
   type: 'currency' | 'item' | string;
@@ -19,6 +47,7 @@ export interface AttachmentDraft {
   assetType: string;
   payoutAmount: number;
   chance: number;
+  itemRows: ItemSpecificAsset[];
 }
 
 // ── SendGlobalMail ────────────────────────────────────────────────────────────────
