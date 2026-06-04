@@ -21,7 +21,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private const string ServiceKeyIdPrefKey = "BackpackAdventures.AdminMail.ServiceKeyId";
 
         private enum Tab { SendGlobal, SendTargeted, Manage }
-        private enum AssetTypeOption { Currency, Item }
+        private enum AssetTypeOption { Currency, Item, Ticket, ItemSpecificAsset, Custom }
+
+        private static readonly string[] AssetTypeLabels = { "Currency", "Item", "Ticket", "ItemSpecificAsset", "Custom (manual)" };
 
         [Serializable]
         private sealed class ItemRow
@@ -38,6 +40,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             public string payoutAssetId = string.Empty;
             public AssetTypeOption assetType;
+            public string customAssetType = string.Empty;
             public int payoutAmount = 1;
             public float chance = 1f;
             public List<ItemRow> itemRows = new List<ItemRow> { new ItemRow() };
@@ -269,7 +272,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (!isExpanded)
                 return;
 
-            EditorGUILayout.HelpBox("Currency: plain PayoutAssetId. Item: list of item rows serialized to JSON array in PayoutAssetId.", MessageType.Info);
+            EditorGUILayout.HelpBox("Only ItemSpecificAsset type serializes item rows to JSON. All other types use a plain PayoutAssetId string. Use Custom to manually enter any AssetType value.", MessageType.Info);
 
             int removeIndex = -1;
             for (int i = 0; i < attachments.Count; i++)
@@ -283,34 +286,39 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 EditorGUILayout.EndHorizontal();
 
                 draft.assetType = (AssetTypeOption)EditorGUILayout.EnumPopup("AssetType", draft.assetType);
+                if (draft.assetType == AssetTypeOption.Custom)
+                    draft.customAssetType = EditorGUILayout.TextField("Custom AssetType", draft.customAssetType);
                 draft.payoutAmount = EditorGUILayout.IntField("PayoutAmount", draft.payoutAmount);
                 draft.chance = EditorGUILayout.Slider("Chance", draft.chance, 0f, 1f);
 
-                if (draft.assetType == AssetTypeOption.Currency)
-                {
-                    draft.payoutAssetId = EditorGUILayout.TextField("PayoutAssetId", draft.payoutAssetId);
-                }
-                else
+                if (draft.assetType == AssetTypeOption.ItemSpecificAsset)
                 {
                     EditorGUILayout.LabelField("Item Rows (serialized to JSON array in PayoutAssetId)", EditorStyles.miniBoldLabel);
                     if (draft.itemRows == null) draft.itemRows = new List<ItemRow>();
+
+                    // Compact table header
+                    EditorGUILayout.BeginHorizontal();
+                    EditorGUILayout.LabelField("BlueprintId", EditorStyles.miniLabel, GUILayout.MinWidth(80));
+                    EditorGUILayout.LabelField("Lvl", EditorStyles.miniLabel, GUILayout.Width(35));
+                    EditorGUILayout.LabelField("Rarity", EditorStyles.miniLabel, GUILayout.Width(80));
+                    EditorGUILayout.LabelField("Init", EditorStyles.miniLabel, GUILayout.Width(35));
+                    EditorGUILayout.LabelField("Source", EditorStyles.miniLabel, GUILayout.MinWidth(60));
+                    GUILayout.Space(28);
+                    EditorGUILayout.EndHorizontal();
 
                     int removeRow = -1;
                     for (int r = 0; r < draft.itemRows.Count; r++)
                     {
                         var row = draft.itemRows[r];
-                        EditorGUILayout.BeginVertical("helpBox");
                         EditorGUILayout.BeginHorizontal();
-                        EditorGUILayout.LabelField($"Item {r + 1}", EditorStyles.miniLabel, GUILayout.Width(50));
+                        row.blueprintId = EditorGUILayout.TextField(row.blueprintId, GUILayout.MinWidth(80));
+                        row.currentLevel = EditorGUILayout.IntField(row.currentLevel, GUILayout.Width(35));
+                        row.rarity = (Rarity)EditorGUILayout.EnumPopup(row.rarity, GUILayout.Width(80));
+                        row.initialLevel = EditorGUILayout.IntField(row.initialLevel, GUILayout.Width(35));
+                        row.fromSource = EditorGUILayout.TextField(row.fromSource, GUILayout.MinWidth(60));
                         if (GUILayout.Button("✕", GUILayout.Width(24)))
                             removeRow = r;
                         EditorGUILayout.EndHorizontal();
-                        row.blueprintId = EditorGUILayout.TextField("BlueprintId", row.blueprintId);
-                        row.currentLevel = EditorGUILayout.IntField("CurrentLevel", row.currentLevel);
-                        row.rarity = (Rarity)EditorGUILayout.EnumPopup("Rarity", row.rarity);
-                        row.initialLevel = EditorGUILayout.IntField("InitialLevel", row.initialLevel);
-                        row.fromSource = EditorGUILayout.TextField("FromSource", row.fromSource);
-                        EditorGUILayout.EndVertical();
                     }
 
                     if (removeRow >= 0)
@@ -318,6 +326,10 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
                     if (GUILayout.Button("+ Add Item Row", GUILayout.Width(120)))
                         draft.itemRows.Add(new ItemRow());
+                }
+                else
+                {
+                    draft.payoutAssetId = EditorGUILayout.TextField("PayoutAssetId", draft.payoutAssetId);
                 }
 
                 EditorGUILayout.EndVertical();
@@ -555,6 +567,13 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             return parsed.ToUniversalTime().ToString("o");
         }
 
+        private static string ResolveAssetTypeString(AttachmentDraft draft)
+        {
+            return draft.assetType == AssetTypeOption.Custom
+                ? (string.IsNullOrWhiteSpace(draft.customAssetType) ? "Currency" : draft.customAssetType.Trim())
+                : draft.assetType.ToString();
+        }
+
         private static List<MailAttachment> BuildAttachments(List<AttachmentDraft> drafts)
         {
             if (drafts == null || drafts.Count == 0) return null;
@@ -562,9 +581,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = new List<MailAttachment>();
             foreach (var draft in drafts)
             {
-                bool isItem = draft.assetType == AssetTypeOption.Item;
+                bool isItemSpecific = draft.assetType == AssetTypeOption.ItemSpecificAsset;
 
-                if (!isItem && string.IsNullOrWhiteSpace(draft.payoutAssetId))
+                if (!isItemSpecific && string.IsNullOrWhiteSpace(draft.payoutAssetId))
                     continue;
 
                 if (draft.payoutAmount <= 0)
@@ -573,7 +592,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                     throw new ArgumentException($"Attachment must have Chance > 0.");
 
                 string payoutAssetId;
-                if (isItem)
+                if (isItemSpecific)
                 {
                     var rows = draft.itemRows ?? new List<ItemRow>();
                     var serialized = new JArray();
@@ -595,13 +614,15 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                     payoutAssetId = draft.payoutAssetId.Trim();
                 }
 
+                string typeStr = ResolveAssetTypeString(draft).ToLowerInvariant();
+
                 result.Add(new MailAttachment
                 {
                     itemId = payoutAssetId,
                     id = payoutAssetId,
                     quantity = draft.payoutAmount,
                     amount = draft.payoutAmount,
-                    type = isItem ? "item" : "currency",
+                    type = typeStr,
                 });
             }
 
@@ -656,7 +677,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             int count = 0;
             foreach (AttachmentDraft attachment in attachments)
             {
-                if (attachment.assetType == AssetTypeOption.Item
+                if (attachment.assetType == AssetTypeOption.ItemSpecificAsset
                     ? attachment.itemRows != null && attachment.itemRows.Count > 0
                     : !string.IsNullOrWhiteSpace(attachment.payoutAssetId))
                     count++;

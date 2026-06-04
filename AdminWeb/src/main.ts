@@ -199,16 +199,22 @@ function setEndTimePreset(days: number, dateId: string, timeId: string) {
   ;(el<HTMLInputElement>(timeId)).value = p.time
 }
 
+const ASSET_TYPE_OPTIONS = ['Currency', 'Item', 'Ticket', 'ItemSpecificAsset'] as const
+
+function isItemSpecificAssetType(assetType: string): boolean {
+  return assetType.trim().toLowerCase() === 'itemspecificasset'
+}
+
 function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
   const result: MailAttachment[] = []
   for (const d of drafts) {
-    const isItem = d.assetType.trim().toLowerCase() === 'item'
-    if (!isItem && !d.payoutAssetId.trim()) continue
+    const isISA = isItemSpecificAssetType(d.assetType)
+    if (!isISA && !d.payoutAssetId.trim()) continue
     if (d.payoutAmount <= 0) throw new Error(`Attachment: PayoutAmount must be > 0`)
     if (d.chance <= 0) throw new Error(`Attachment: Chance must be > 0`)
 
     let payoutAssetId: string
-    if (isItem) {
+    if (isISA) {
       const rows = d.itemRows ?? [defaultItemRow()]
       payoutAssetId = JSON.stringify(rows.map((r) => ({
         BlueprintId: r.BlueprintId,
@@ -221,8 +227,10 @@ function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
       payoutAssetId = d.payoutAssetId.trim()
     }
 
+    const typeStr = d.assetType.trim() || 'Currency'
+
     result.push({
-      type:     isItem ? 'item' : 'currency',
+      type:     typeStr.toLowerCase(),
       id:       payoutAssetId,
       itemId:   payoutAssetId,
       amount:   d.payoutAmount,
@@ -252,13 +260,13 @@ function parseItemRows(payoutAssetId: string): ItemSpecificAsset[] {
 function attachmentInfoToDraft(att: ReturnType<typeof mailAttachments>[number]): AttachmentDraft {
   const assetType = att.AssetType ?? att.assetType ?? 'Currency'
   const payoutAssetId = att.PayoutAssetId ?? att.payoutAssetId ?? ''
-  const isItem = assetType.toLowerCase() === 'item'
+  const isISA = isItemSpecificAssetType(assetType)
   return {
-    payoutAssetId: isItem ? '' : payoutAssetId,
+    payoutAssetId: isISA ? '' : payoutAssetId,
     assetType,
     payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
     chance: att.Chance ?? att.chance ?? 1,
-    itemRows: isItem ? parseItemRows(payoutAssetId) : [defaultItemRow()],
+    itemRows: isISA ? parseItemRows(payoutAssetId) : [defaultItemRow()],
   }
 }
 
@@ -334,24 +342,21 @@ function raritySelectHtml(id: string, value: RarityValue): string {
 // ─── Item rows editor HTML ────────────────────────────────────────────────────────
 function itemRowsHtml(prefix: string, attIdx: number, rows: ItemSpecificAsset[]): string {
   const rowsHtml = rows.map((r, ri) => `
-    <div class="item-row" style="border:1px solid var(--border);border-radius:4px;padding:6px;margin-bottom:4px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span style="font-size:11px;color:var(--text-dim)">Item ${ri + 1}</span>
-        <button class="btn btn-danger btn-sm item-row-remove" data-prefix="${prefix}" data-att="${attIdx}" data-row="${ri}">✕</button>
-      </div>
-      <div class="form-group"><label>BlueprintId</label>
-        <input type="text" id="${prefix}-att-${attIdx}-row-bp-${ri}" value="${esc(r.BlueprintId)}" placeholder="blueprint_id" /></div>
-      <div class="form-group"><label>CurrentLevel</label>
-        <input type="number" id="${prefix}-att-${attIdx}-row-cl-${ri}" value="${r.CurrentLevel}" min="1" /></div>
-      <div class="form-group"><label>Rarity</label>
-        ${raritySelectHtml(`${prefix}-att-${attIdx}-row-rar-${ri}`, r.Rarity)}</div>
-      <div class="form-group"><label>InitialLevel</label>
-        <input type="number" id="${prefix}-att-${attIdx}-row-il-${ri}" value="${r.InitialLevel}" min="1" /></div>
-      <div class="form-group"><label>FromSource</label>
-        <input type="text" id="${prefix}-att-${attIdx}-row-fs-${ri}" value="${esc(r.FromSource)}" placeholder="source" /></div>
-    </div>`).join('')
+    <tr>
+      <td><input type="text" id="${prefix}-att-${attIdx}-row-bp-${ri}" value="${esc(r.BlueprintId)}" placeholder="blueprint_id" /></td>
+      <td><input type="number" id="${prefix}-att-${attIdx}-row-cl-${ri}" value="${r.CurrentLevel}" min="1" /></td>
+      <td>${raritySelectHtml(`${prefix}-att-${attIdx}-row-rar-${ri}`, r.Rarity)}</td>
+      <td><input type="number" id="${prefix}-att-${attIdx}-row-il-${ri}" value="${r.InitialLevel}" min="1" /></td>
+      <td><input type="text" id="${prefix}-att-${attIdx}-row-fs-${ri}" value="${esc(r.FromSource)}" placeholder="source" /></td>
+      <td><button class="btn btn-danger btn-sm item-row-remove" data-prefix="${prefix}" data-att="${attIdx}" data-row="${ri}">✕</button></td>
+    </tr>`).join('')
   return `
-    <div id="${prefix}-att-${attIdx}-rows">${rowsHtml}</div>
+    <div id="${prefix}-att-${attIdx}-rows">
+      <table class="item-rows-compact">
+        <thead><tr><th>BlueprintId</th><th>Lvl</th><th>Rarity</th><th>Init</th><th>Source</th><th></th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
     <button class="btn btn-ghost btn-sm item-row-add" data-prefix="${prefix}" data-att="${attIdx}" style="margin-top:4px">+ Add Item Row</button>`
 }
 
@@ -364,37 +369,35 @@ function renderAttachmentList(listId: string, prefix: string, drafts: Attachment
     return
   }
   container.innerHTML = drafts.map((d, i) => {
-    const isItem = d.assetType.trim().toLowerCase() === 'item'
+    const isISA = isItemSpecificAssetType(d.assetType)
     const rows = d.itemRows ?? [defaultItemRow()]
     return `
-    <div class="attachment-row" id="${prefix}-att-${i}">
-      <div class="form-group">
-        <label>AssetType</label>
-        <select id="${prefix}-att-type-${i}" class="att-type-select" data-prefix="${prefix}" data-idx="${i}">
-          <option value="Currency" ${!isItem ? 'selected' : ''}>Currency</option>
-          <option value="Item" ${isItem ? 'selected' : ''}>Item</option>
-        </select>
+    <div class="attachment-row" id="${prefix}-att-${i}" style="display:block">
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:8px">
+        <div class="form-group" style="flex:1;min-width:140px;margin-bottom:0">
+          <label>AssetType</label>
+          <input type="text" id="${prefix}-att-type-${i}" class="att-type-input asset-type-input" list="asset-type-list"
+            value="${esc(d.assetType)}" placeholder="Currency, Item, Ticket, ItemSpecificAsset, or custom..." data-prefix="${prefix}" data-idx="${i}" />
+        </div>
+        <div class="form-group" style="width:100px;margin-bottom:0">
+          <label>Amount</label>
+          <input type="number" id="${prefix}-att-amt-${i}" value="${d.payoutAmount}" min="1" />
+        </div>
+        <div class="form-group" style="width:120px;margin-bottom:0">
+          <label>Chance: <span id="${prefix}-att-chance-lbl-${i}">${d.chance.toFixed(2)}</span></label>
+          <input type="range" id="${prefix}-att-chance-${i}" min="0" max="1" step="0.01" value="${d.chance}" />
+        </div>
+        <button class="btn btn-danger btn-sm att-remove" data-prefix="${prefix}" data-idx="${i}" style="margin-bottom:2px">Remove</button>
       </div>
-      <div class="form-group">
-        <label>PayoutAmount</label>
-        <input type="number" id="${prefix}-att-amt-${i}" value="${d.payoutAmount}" min="1" />
-      </div>
-      <div class="form-group">
-        <label>Chance (0-1): <span id="${prefix}-att-chance-lbl-${i}">${d.chance.toFixed(2)}</span></label>
-        <input type="range" id="${prefix}-att-chance-${i}" min="0" max="1" step="0.01" value="${d.chance}" />
-      </div>
-      <div id="${prefix}-att-currency-${i}" ${isItem ? 'style="display:none"' : ''}>
+      <div id="${prefix}-att-plainid-${i}" ${isISA ? 'style="display:none"' : ''}>
         <div class="form-group">
           <label>PayoutAssetId</label>
           <input type="text" id="${prefix}-att-id-${i}" value="${esc(d.payoutAssetId)}" placeholder="e.g. mine_1" />
         </div>
       </div>
-      <div id="${prefix}-att-item-${i}" ${!isItem ? 'style="display:none"' : ''}>
-        <div style="font-size:12px;font-weight:bold;margin:6px 0 4px">Item Rows</div>
+      <div id="${prefix}-att-item-${i}" ${!isISA ? 'style="display:none"' : ''}>
+        <div style="font-size:12px;font-weight:bold;margin:4px 0 2px">Item Rows (serialized as JSON)</div>
         ${itemRowsHtml(prefix, i, rows)}
-      </div>
-      <div class="form-group" style="justify-content:flex-end">
-        <button class="btn btn-danger btn-sm att-remove" data-prefix="${prefix}" data-idx="${i}">Remove</button>
       </div>
     </div>`
   }).join('')
@@ -404,14 +407,14 @@ function renderAttachmentList(listId: string, prefix: string, drafts: Attachment
     const label  = document.getElementById(`${prefix}-att-chance-lbl-${i}`)
     if (slider && label) slider.oninput = () => { label.textContent = parseFloat(slider.value).toFixed(2) }
 
-    const typeSelect = document.getElementById(`${prefix}-att-type-${i}`) as HTMLSelectElement | null
-    if (typeSelect) {
-      typeSelect.onchange = () => {
-        const isNowItem = typeSelect.value.toLowerCase() === 'item'
-        const currDiv = document.getElementById(`${prefix}-att-currency-${i}`)
+    const typeInput = document.getElementById(`${prefix}-att-type-${i}`) as HTMLInputElement | null
+    if (typeInput) {
+      typeInput.oninput = () => {
+        const isNowISA = isItemSpecificAssetType(typeInput.value)
+        const plainDiv = document.getElementById(`${prefix}-att-plainid-${i}`)
         const itemDiv = document.getElementById(`${prefix}-att-item-${i}`)
-        if (currDiv) currDiv.style.display = isNowItem ? 'none' : ''
-        if (itemDiv) itemDiv.style.display = isNowItem ? '' : 'none'
+        if (plainDiv) plainDiv.style.display = isNowISA ? 'none' : ''
+        if (itemDiv) itemDiv.style.display = isNowISA ? '' : 'none'
       }
     }
   })
@@ -429,16 +432,16 @@ function syncItemRowsFromDom(prefix: string, attIdx: number, rows: ItemSpecificA
 
 function syncAttachmentsFromDom(prefix: string, drafts: AttachmentDraft[]): AttachmentDraft[] {
   return drafts.map((d, i) => {
-    const assetType = (document.getElementById(`${prefix}-att-type-${i}`) as HTMLSelectElement | null)?.value ?? d.assetType
-    const isItem = assetType.toLowerCase() === 'item'
+    const assetType = (document.getElementById(`${prefix}-att-type-${i}`) as HTMLInputElement | null)?.value ?? d.assetType
+    const isISA = isItemSpecificAssetType(assetType)
     return {
-      payoutAssetId: isItem ? '' : val(`${prefix}-att-id-${i}`),
+      payoutAssetId: isISA ? '' : val(`${prefix}-att-id-${i}`),
       assetType,
       payoutAmount: parseInt(val(`${prefix}-att-amt-${i}`), 10) || d.payoutAmount,
       chance: parseFloat(
         (document.getElementById(`${prefix}-att-chance-${i}`) as HTMLInputElement | null)?.value ?? String(d.chance),
       ),
-      itemRows: isItem ? syncItemRowsFromDom(prefix, i, d.itemRows ?? []) : [defaultItemRow()],
+      itemRows: isISA ? syncItemRowsFromDom(prefix, i, d.itemRows ?? []) : [defaultItemRow()],
     }
   })
 }
@@ -582,32 +585,21 @@ function renderInlineAttachments(mail: MailRecord, idKey: string): string {
   const rows = drafts.length === 0
     ? '<div class="empty" style="padding:8px">No attachments.</div>'
     : drafts.map((d, i) => {
-        const isItem = d.assetType.toLowerCase() === 'item'
+        const isISA = isItemSpecificAssetType(d.assetType)
         const itemRows = d.itemRows ?? [defaultItemRow()]
-        const itemRowsHtmlStr = itemRows.map((r, ri) => `
-          <div style="border:1px solid var(--border);border-radius:3px;padding:4px;margin:2px 0;font-size:11px">
-            <span style="color:var(--text-dim)">Item ${ri + 1}:</span>
-            bp=<input type="text" id="mia-row-bp-${idKey}-${i}-${ri}" value="${esc(r.BlueprintId)}" style="width:80px" />
-            cl=<input type="number" id="mia-row-cl-${idKey}-${i}-${ri}" value="${r.CurrentLevel}" style="width:36px" min="1" />
-            rar=${raritySelectHtml(`mia-row-rar-${idKey}-${i}-${ri}`, r.Rarity)}
-            il=<input type="number" id="mia-row-il-${idKey}-${i}-${ri}" value="${r.InitialLevel}" style="width:36px" min="1" />
-            src=<input type="text" id="mia-row-fs-${idKey}-${i}-${ri}" value="${esc(r.FromSource)}" style="width:60px" />
-          </div>`).join('')
+        const itemRowsHtmlStr = isISA ? itemRowsHtml(`mia-${idKey}`, i, itemRows) : ''
         return `
       <div class="inline-att-row" style="flex-direction:column;align-items:stretch">
         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
-          <select id="mia-type-${idKey}-${i}" style="width:90px">
-            <option value="Currency" ${!isItem ? 'selected' : ''}>Currency</option>
-            <option value="Item" ${isItem ? 'selected' : ''}>Item</option>
-          </select>
+          <input type="text" id="mia-type-${idKey}-${i}" list="asset-type-list" value="${esc(d.assetType)}" style="width:130px" placeholder="AssetType" />
           <input type="number" id="mia-amt-${idKey}-${i}" value="${d.payoutAmount}" min="1" title="Amount" style="width:56px" />
           <input type="number" id="mia-chance-${idKey}-${i}" value="${d.chance}" min="0.01" max="1" step="0.01" title="Chance" style="width:56px" />
           <button class="btn btn-danger btn-sm inline-att-remove" data-mail-id="${esc(id)}" data-id-key="${idKey}" data-idx="${i}" ${state.busy ? 'disabled' : ''}>✕</button>
         </div>
-        <div id="mia-currency-${idKey}-${i}" ${isItem ? 'style="display:none"' : ''}>
-          <input type="text" id="mia-id-${idKey}-${i}" value="${esc(d.payoutAssetId)}" placeholder="currency id" style="width:100%;margin-top:4px" />
+        <div id="mia-plainid-${idKey}-${i}" ${isISA ? 'style="display:none"' : ''}>
+          <input type="text" id="mia-id-${idKey}-${i}" value="${esc(d.payoutAssetId)}" placeholder="asset id" style="width:100%;margin-top:4px" />
         </div>
-        <div id="mia-item-${idKey}-${i}" ${!isItem ? 'style="display:none"' : ''}>
+        <div id="mia-item-${idKey}-${i}" ${!isISA ? 'style="display:none"' : ''}>
           ${itemRowsHtmlStr}
         </div>
       </div>`
@@ -621,18 +613,18 @@ function renderInlineAttachments(mail: MailRecord, idKey: string): string {
 function syncInlineAttachmentsFromDom(mailIdValue: string, idKey: string): AttachmentDraft[] {
   const drafts = state.inlineAttachments[mailIdValue] ?? []
   state.inlineAttachments[mailIdValue] = drafts.map((d, i) => {
-    const assetType = (document.getElementById(`mia-type-${idKey}-${i}`) as HTMLSelectElement | null)?.value ?? d.assetType
-    const isItem = assetType.toLowerCase() === 'item'
+    const assetType = (document.getElementById(`mia-type-${idKey}-${i}`) as HTMLInputElement | null)?.value ?? d.assetType
+    const isISA = isItemSpecificAssetType(assetType)
     const rows = d.itemRows ?? []
-    const syncedRows: ItemSpecificAsset[] = isItem ? rows.map((r, ri) => ({
-      BlueprintId: val(`mia-row-bp-${idKey}-${i}-${ri}`),
-      CurrentLevel: parseInt(val(`mia-row-cl-${idKey}-${i}-${ri}`), 10) || r.CurrentLevel,
-      Rarity: (parseInt(val(`mia-row-rar-${idKey}-${i}-${ri}`), 10) || 0) as RarityValue,
-      InitialLevel: parseInt(val(`mia-row-il-${idKey}-${i}-${ri}`), 10) || r.InitialLevel,
-      FromSource: val(`mia-row-fs-${idKey}-${i}-${ri}`),
+    const syncedRows: ItemSpecificAsset[] = isISA ? rows.map((r, ri) => ({
+      BlueprintId: val(`mia-${idKey}-att-${i}-row-bp-${ri}`),
+      CurrentLevel: parseInt(val(`mia-${idKey}-att-${i}-row-cl-${ri}`), 10) || r.CurrentLevel,
+      Rarity: (parseInt(val(`mia-${idKey}-att-${i}-row-rar-${ri}`), 10) || 0) as RarityValue,
+      InitialLevel: parseInt(val(`mia-${idKey}-att-${i}-row-il-${ri}`), 10) || r.InitialLevel,
+      FromSource: val(`mia-${idKey}-att-${i}-row-fs-${ri}`),
     })) : [defaultItemRow()]
     return {
-      payoutAssetId: isItem ? '' : val(`mia-id-${idKey}-${i}`),
+      payoutAssetId: isISA ? '' : val(`mia-id-${idKey}-${i}`),
       assetType,
       payoutAmount: parseInt(val(`mia-amt-${idKey}-${i}`), 10) || d.payoutAmount,
       chance: parseFloat(val(`mia-chance-${idKey}-${i}`)) || d.chance,
@@ -804,9 +796,11 @@ function renderApp() {
     : renderManageTab()
 
   el<HTMLDivElement>('app').innerHTML = `
-  <datalist id="asset-type-options">
+  <datalist id="asset-type-list">
     <option value="Currency"></option>
     <option value="Item"></option>
+    <option value="Ticket"></option>
+    <option value="ItemSpecificAsset"></option>
   </datalist>
   <header class="app-header">
     <span id="conn-dot" class="status-dot"></span>
@@ -1226,6 +1220,8 @@ function attachMainListeners() {
     const saveBtn = target.closest<HTMLElement>('.save-mail')
     const addAttBtn = target.closest<HTMLElement>('.inline-att-add')
     const removeAttBtn = target.closest<HTMLElement>('.inline-att-remove')
+    const addRowBtn = target.closest<HTMLElement>('.item-row-add')
+    const removeRowBtn = target.closest<HTMLElement>('.item-row-remove')
     const expireBtn = target.closest<HTMLElement>('.expire-mail')
     const deleteBtn = target.closest<HTMLElement>('.del-mail')
     const setEtBtn  = target.closest<HTMLElement>('.set-et')
@@ -1244,6 +1240,35 @@ function attachMainListeners() {
       syncInlineAttachmentsFromDom(mId, idKey)
       state.inlineAttachments[mId].splice(idx, 1)
       refreshMainPanel()
+    }
+    else if (addRowBtn) {
+      // Item row add inside inline manage table
+      const prefix = addRowBtn.dataset['prefix'] ?? ''
+      const attIdx = parseInt(addRowBtn.dataset['att'] ?? '0', 10)
+      // prefix = "mia-{idKey}", extract mail context from parent elements
+      for (const [mId, drafts] of Object.entries(state.inlineAttachments)) {
+        const idKey = mId.replace(/[^a-z0-9]/gi, '_')
+        if (prefix === `mia-${idKey}` && drafts[attIdx]) {
+          syncInlineAttachmentsFromDom(mId, idKey)
+          drafts[attIdx].itemRows = [...(drafts[attIdx].itemRows ?? []), defaultItemRow()]
+          refreshMainPanel()
+          break
+        }
+      }
+    }
+    else if (removeRowBtn) {
+      const prefix = removeRowBtn.dataset['prefix'] ?? ''
+      const attIdx = parseInt(removeRowBtn.dataset['att'] ?? '0', 10)
+      const rowIdx = parseInt(removeRowBtn.dataset['row'] ?? '0', 10)
+      for (const [mId, drafts] of Object.entries(state.inlineAttachments)) {
+        const idKey = mId.replace(/[^a-z0-9]/gi, '_')
+        if (prefix === `mia-${idKey}` && drafts[attIdx]?.itemRows) {
+          syncInlineAttachmentsFromDom(mId, idKey)
+          drafts[attIdx].itemRows.splice(rowIdx, 1)
+          refreshMainPanel()
+          break
+        }
+      }
     }
     else if (expireBtn) run(() => doExpireMail(expireBtn.dataset['mailId'] ?? ''))
     else if (deleteBtn) run(() => doDeleteMail(deleteBtn.dataset['mailId'] ?? ''))
