@@ -24,12 +24,23 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         private enum AssetTypeOption { Currency, Item }
 
         [Serializable]
+        private sealed class ItemRow
+        {
+            public string blueprintId = string.Empty;
+            public int currentLevel = 1;
+            public Rarity rarity = Rarity.None;
+            public int initialLevel = 1;
+            public string fromSource = string.Empty;
+        }
+
+        [Serializable]
         private sealed class AttachmentDraft
         {
             public string payoutAssetId = string.Empty;
             public AssetTypeOption assetType;
             public int payoutAmount = 1;
             public float chance = 1f;
+            public List<ItemRow> itemRows = new List<ItemRow> { new ItemRow() };
         }
 
         private Tab _activeTab = Tab.SendGlobal;
@@ -258,12 +269,12 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             if (!isExpanded)
                 return;
 
-            EditorGUILayout.HelpBox("Client builds List<MailAttachment> from rows below. The server will map these values into the current mailbox DTO and storage schema.", MessageType.Info);
+            EditorGUILayout.HelpBox("Currency: plain PayoutAssetId. Item: list of item rows serialized to JSON array in PayoutAssetId.", MessageType.Info);
 
             int removeIndex = -1;
             for (int i = 0; i < attachments.Count; i++)
             {
-                var item = attachments[i];
+                var draft = attachments[i];
                 EditorGUILayout.BeginVertical("box");
                 EditorGUILayout.BeginHorizontal();
                 EditorGUILayout.LabelField($"Attachment {i + 1}", EditorStyles.miniBoldLabel);
@@ -271,10 +282,44 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                     removeIndex = i;
                 EditorGUILayout.EndHorizontal();
 
-                item.payoutAssetId = EditorGUILayout.TextField("PayoutAssetId", item.payoutAssetId);
-                item.assetType = (AssetTypeOption)EditorGUILayout.EnumPopup("AssetType", item.assetType);
-                item.payoutAmount = EditorGUILayout.IntField("PayoutAmount", item.payoutAmount);
-                item.chance = EditorGUILayout.Slider("Chance", item.chance, 0f, 1f);
+                draft.assetType = (AssetTypeOption)EditorGUILayout.EnumPopup("AssetType", draft.assetType);
+                draft.payoutAmount = EditorGUILayout.IntField("PayoutAmount", draft.payoutAmount);
+                draft.chance = EditorGUILayout.Slider("Chance", draft.chance, 0f, 1f);
+
+                if (draft.assetType == AssetTypeOption.Currency)
+                {
+                    draft.payoutAssetId = EditorGUILayout.TextField("PayoutAssetId", draft.payoutAssetId);
+                }
+                else
+                {
+                    EditorGUILayout.LabelField("Item Rows (serialized to JSON array in PayoutAssetId)", EditorStyles.miniBoldLabel);
+                    if (draft.itemRows == null) draft.itemRows = new List<ItemRow>();
+
+                    int removeRow = -1;
+                    for (int r = 0; r < draft.itemRows.Count; r++)
+                    {
+                        var row = draft.itemRows[r];
+                        EditorGUILayout.BeginVertical("helpBox");
+                        EditorGUILayout.BeginHorizontal();
+                        EditorGUILayout.LabelField($"Item {r + 1}", EditorStyles.miniLabel, GUILayout.Width(50));
+                        if (GUILayout.Button("✕", GUILayout.Width(24)))
+                            removeRow = r;
+                        EditorGUILayout.EndHorizontal();
+                        row.blueprintId = EditorGUILayout.TextField("BlueprintId", row.blueprintId);
+                        row.currentLevel = EditorGUILayout.IntField("CurrentLevel", row.currentLevel);
+                        row.rarity = (Rarity)EditorGUILayout.EnumPopup("Rarity", row.rarity);
+                        row.initialLevel = EditorGUILayout.IntField("InitialLevel", row.initialLevel);
+                        row.fromSource = EditorGUILayout.TextField("FromSource", row.fromSource);
+                        EditorGUILayout.EndVertical();
+                    }
+
+                    if (removeRow >= 0)
+                        draft.itemRows.RemoveAt(removeRow);
+
+                    if (GUILayout.Button("+ Add Item Row", GUILayout.Width(120)))
+                        draft.itemRows.Add(new ItemRow());
+                }
+
                 EditorGUILayout.EndVertical();
             }
 
@@ -517,20 +562,46 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             var result = new List<MailAttachment>();
             foreach (var draft in drafts)
             {
-                if (string.IsNullOrWhiteSpace(draft.payoutAssetId))
+                bool isItem = draft.assetType == AssetTypeOption.Item;
+
+                if (!isItem && string.IsNullOrWhiteSpace(draft.payoutAssetId))
                     continue;
+
                 if (draft.payoutAmount <= 0)
-                    throw new ArgumentException($"Attachment '{draft.payoutAssetId}' must have PayoutAmount > 0.");
+                    throw new ArgumentException($"Attachment must have PayoutAmount > 0.");
                 if (draft.chance <= 0f)
-                    throw new ArgumentException($"Attachment '{draft.payoutAssetId}' must have Chance > 0.");
+                    throw new ArgumentException($"Attachment must have Chance > 0.");
+
+                string payoutAssetId;
+                if (isItem)
+                {
+                    var rows = draft.itemRows ?? new List<ItemRow>();
+                    var serialized = new JArray();
+                    foreach (var row in rows)
+                    {
+                        serialized.Add(new JObject
+                        {
+                            ["BlueprintId"] = row.blueprintId ?? string.Empty,
+                            ["CurrentLevel"] = row.currentLevel,
+                            ["Rarity"] = (int)row.rarity,
+                            ["InitialLevel"] = row.initialLevel,
+                            ["FromSource"] = row.fromSource ?? string.Empty,
+                        });
+                    }
+                    payoutAssetId = serialized.ToString(Formatting.None);
+                }
+                else
+                {
+                    payoutAssetId = draft.payoutAssetId.Trim();
+                }
 
                 result.Add(new MailAttachment
                 {
-                    itemId = draft.payoutAssetId.Trim(),
-                    id = draft.payoutAssetId.Trim(),
+                    itemId = payoutAssetId,
+                    id = payoutAssetId,
                     quantity = draft.payoutAmount,
                     amount = draft.payoutAmount,
-                    type = draft.assetType == AssetTypeOption.Currency ? "currency" : "item"
+                    type = isItem ? "item" : "currency",
                 });
             }
 
@@ -585,7 +656,9 @@ namespace BackpackAdventures.CloudCode.Client.Editor
             int count = 0;
             foreach (AttachmentDraft attachment in attachments)
             {
-                if (!string.IsNullOrWhiteSpace(attachment.payoutAssetId))
+                if (attachment.assetType == AssetTypeOption.Item
+                    ? attachment.itemRows != null && attachment.itemRows.Count > 0
+                    : !string.IsNullOrWhiteSpace(attachment.payoutAssetId))
                     count++;
             }
 

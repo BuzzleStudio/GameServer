@@ -64,6 +64,34 @@ public enum SenderType
     Player
 }
 
+public enum Rarity
+{
+    None = 0,
+    Common = 1,
+    Rare = 2,
+    Epic = 3,
+    Legendary = 4,
+    Mythic = 5
+}
+
+public class ItemSpecificAsset
+{
+    [JsonPropertyName("BlueprintId")]
+    public string BlueprintId { get; set; } = "";
+
+    [JsonPropertyName("CurrentLevel")]
+    public int CurrentLevel { get; set; } = 1;
+
+    [JsonPropertyName("Rarity")]
+    public Rarity Rarity { get; set; } = Rarity.None;
+
+    [JsonPropertyName("InitialLevel")]
+    public int InitialLevel { get; set; } = 1;
+
+    [JsonPropertyName("FromSource")]
+    public string FromSource { get; set; } = "";
+}
+
 public class MailAttachment
 {
     [JsonPropertyName("itemId")]
@@ -804,6 +832,27 @@ public static class MailSchemaHelper
                 || att.Quantity <= 0
                 || att.Chance <= 0)
                 throw new ArgumentException(MailboxError.InvalidInput);
+        }
+    }
+
+    public static string SerializeItemAssets(List<ItemSpecificAsset> items)
+    {
+        if (items == null || items.Count == 0)
+            return "[]";
+        return JsonSerializer.Serialize(items);
+    }
+
+    public static List<ItemSpecificAsset> ParseItemAssets(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new List<ItemSpecificAsset>();
+        try
+        {
+            var result = JsonSerializer.Deserialize<List<ItemSpecificAsset>>(json);
+            return result ?? new List<ItemSpecificAsset>();
+        }
+        catch
+        {
+            return new List<ItemSpecificAsset>();
         }
     }
 

@@ -13,8 +13,10 @@
 // See Assets/UnityCloudCode/docs/TEST_SETUP.md before running.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using NUnit.Framework;
 
 namespace BackpackAdventures.CloudCode.Client.Tests
@@ -840,7 +842,175 @@ namespace BackpackAdventures.CloudCode.Client.Tests
             Assert.AreEqual("ticket", mail.MailInfo.Attachment[0].PayoutAssetId);
             Assert.AreEqual(2, mail.MailInfo.Attachment[0].PayoutAmount);
             Assert.AreEqual("Item", mail.MailInfo.Attachment[0].AssetType);
-        }    }
+        }
+
+        [Test]
+        [Description("P02B - Global mail item attachment: PayoutAssetId is a JSON array of ItemSpecificAsset; all 5 fields survive send/read round-trip.")]
+        public async Task P02B_AdminSendGlobalMail_ItemAttachment_PayoutAssetIdIsJsonArray()
+        {
+            var items = new List<ItemSpecificAsset>
+            {
+                new ItemSpecificAsset
+                {
+                    BlueprintId  = "bp_epic_sword",
+                    CurrentLevel = 5,
+                    Rarity       = Rarity.Epic,
+                    InitialLevel = 2,
+                    FromSource   = "p02b_test"
+                }
+            };
+            var jsonArray = JsonConvert.SerializeObject(items);
+
+            var attachments = new List<MailAttachment>
+            {
+                new MailAttachment
+                {
+                    itemId   = jsonArray,
+                    id       = jsonArray,
+                    type     = TestConstants.ItemType,
+                    quantity = 1,
+                    amount   = 1
+                }
+            };
+
+            var resp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                subject: "P02B Item Asset Test",
+                body: "P02B body",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                attachments: attachments,
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            Assert.IsNotNull(resp, "P02B: send response must not be null");
+            string mailId = resp.globalMailId ?? resp.mailId;
+
+            var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            var mail = getResp.mails.FirstOrDefault(m => m.mailId == mailId);
+
+            Assert.IsNotNull(mail, "P02B: sent mail must be returned by GetGlobalMails");
+            Assert.IsNotNull(mail.MailInfo.Attachment, "P02B: attachment list must not be null");
+            Assert.AreEqual(1, mail.MailInfo.Attachment.Count, "P02B: exactly one attachment");
+
+            var payoutAssetId = mail.MailInfo.Attachment[0].PayoutAssetId;
+            Assert.IsTrue(payoutAssetId.StartsWith("["), "P02B: Item PayoutAssetId must be a JSON array");
+
+            var parsed = JsonConvert.DeserializeObject<List<ItemSpecificAsset>>(payoutAssetId);
+            Assert.IsNotNull(parsed, "P02B: PayoutAssetId must deserialize to ItemSpecificAsset list");
+            Assert.AreEqual(1, parsed.Count, "P02B: exactly one item in array");
+            Assert.AreEqual("bp_epic_sword", parsed[0].BlueprintId, "P02B: BlueprintId must round-trip");
+            Assert.AreEqual(5,          parsed[0].CurrentLevel,  "P02B: CurrentLevel must round-trip");
+            Assert.AreEqual(Rarity.Epic, parsed[0].Rarity,        "P02B: Rarity must round-trip");
+            Assert.AreEqual(2,          parsed[0].InitialLevel,  "P02B: InitialLevel must round-trip");
+            Assert.AreEqual("p02b_test", parsed[0].FromSource,    "P02B: FromSource must round-trip");
+        }
+
+        [Test]
+        [Description("P03B - Targeted admin mail item attachment: PayoutAssetId is a JSON array that survives the round-trip.")]
+        public async Task P03B_AdminSendUserMail_ItemAttachment_PayoutAssetIdIsJsonArray()
+        {
+            string selfId = MailboxTestHarness.CurrentPlayerId;
+
+            var items = new List<ItemSpecificAsset>
+            {
+                new ItemSpecificAsset
+                {
+                    BlueprintId  = "bp_legendary_helm",
+                    CurrentLevel = 99,
+                    Rarity       = Rarity.Legendary,
+                    InitialLevel = 10,
+                    FromSource   = "p03b_test"
+                }
+            };
+            var jsonArray = JsonConvert.SerializeObject(items);
+
+            var attachments = new List<MailAttachment>
+            {
+                new MailAttachment
+                {
+                    itemId   = jsonArray,
+                    id       = jsonArray,
+                    type     = TestConstants.ItemType,
+                    quantity = 1,
+                    amount   = 1
+                }
+            };
+
+            var resp = await BackpackCloudCodeService.CallAdminSendUserMailAsync(
+                targetPlayerId: selfId,
+                subject: "P03B Item Asset Test",
+                body: "P03B body",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                attachments: attachments,
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            Assert.IsNotNull(resp, "P03B: send response must not be null");
+
+            var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            var mail = getResp.mails.FirstOrDefault(m => m.mailId == resp.mailId);
+
+            Assert.IsNotNull(mail, "P03B: targeted admin mail must be returned by GetGlobalMails");
+            Assert.IsNotNull(mail.MailInfo.Attachment, "P03B: attachment list must not be null");
+            Assert.AreEqual(1, mail.MailInfo.Attachment.Count, "P03B: exactly one attachment");
+
+            var payoutAssetId = mail.MailInfo.Attachment[0].PayoutAssetId;
+            Assert.IsTrue(payoutAssetId.StartsWith("["), "P03B: Item PayoutAssetId must be a JSON array");
+
+            var parsed = JsonConvert.DeserializeObject<List<ItemSpecificAsset>>(payoutAssetId);
+            Assert.IsNotNull(parsed, "P03B: PayoutAssetId must deserialize to ItemSpecificAsset list");
+            Assert.AreEqual("bp_legendary_helm", parsed[0].BlueprintId,  "P03B: BlueprintId must round-trip");
+            Assert.AreEqual(Rarity.Legendary,    parsed[0].Rarity,        "P03B: Rarity must round-trip");
+            Assert.AreEqual(99,                  parsed[0].CurrentLevel,  "P03B: CurrentLevel must round-trip");
+        }
+
+        [Test]
+        [Description("P04B - Item attachment with default ItemSpecificAsset preserves all default field values through send/read.")]
+        public async Task P04B_ItemAttachment_DefaultItemSpecificAsset_Preserved()
+        {
+            var defaultItem = new ItemSpecificAsset(); // all defaults
+            var jsonArray = JsonConvert.SerializeObject(
+                new List<ItemSpecificAsset> { defaultItem });
+
+            var attachments = new List<MailAttachment>
+            {
+                new MailAttachment
+                {
+                    itemId   = jsonArray,
+                    id       = jsonArray,
+                    type     = TestConstants.ItemType,
+                    quantity = 1,
+                    amount   = 1
+                }
+            };
+
+            var resp = await BackpackCloudCodeService.CallAdminSendGlobalMailAsync(
+                subject: "P04B Default ItemSpecificAsset",
+                body: "P04B body",
+                expiresAt: MailboxTestHarness.FutureExpiry(),
+                attachments: attachments,
+                adminToken: TestConstants.AdminToken,
+                operatorId: TestConstants.OperatorId);
+
+            string mailId = resp.globalMailId ?? resp.mailId;
+            var getResp = await BackpackCloudCodeService.CallGetGlobalMailsAsync(page: 0, pageSize: 50);
+            var mail = getResp.mails.FirstOrDefault(m => m.mailId == mailId);
+
+            Assert.IsNotNull(mail, "P04B: mail must be returned by GetGlobalMails");
+            Assert.IsNotNull(mail.MailInfo.Attachment, "P04B: attachment list must not be null");
+
+            var payoutAssetId = mail.MailInfo.Attachment[0].PayoutAssetId;
+            Assert.IsTrue(payoutAssetId.StartsWith("["), "P04B: Item PayoutAssetId must be a JSON array");
+
+            var parsed = JsonConvert.DeserializeObject<List<ItemSpecificAsset>>(payoutAssetId);
+            Assert.IsNotNull(parsed, "P04B: PayoutAssetId must deserialize");
+            Assert.AreEqual(1, parsed.Count, "P04B: one item in array");
+            Assert.AreEqual("",          parsed[0].BlueprintId,  "P04B: BlueprintId default is empty string");
+            Assert.AreEqual(1,           parsed[0].CurrentLevel, "P04B: CurrentLevel default is 1");
+            Assert.AreEqual(Rarity.None, parsed[0].Rarity,       "P04B: Rarity default is None");
+            Assert.AreEqual(1,           parsed[0].InitialLevel, "P04B: InitialLevel default is 1");
+            Assert.AreEqual("",          parsed[0].FromSource,   "P04B: FromSource default is empty string");
+        }
+    }
 }
 
 
