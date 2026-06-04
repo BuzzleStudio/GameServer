@@ -97,7 +97,7 @@ interface AppState {
 const defaultItemRow = (): ItemSpecificAsset => ({
   BlueprintId: '',
   CurrentLevel: 1,
-  Rarity: Rarity.None,
+  Rarity: Rarity.Common,
   InitialLevel: 1,
   FromSource: '',
 })
@@ -215,14 +215,14 @@ function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
 
     let payoutAssetId: string
     if (isISA) {
-      const rows = d.itemRows ?? [defaultItemRow()]
-      payoutAssetId = JSON.stringify(rows.map((r) => ({
-        BlueprintId: r.BlueprintId,
-        CurrentLevel: r.CurrentLevel,
-        Rarity: r.Rarity,
-        InitialLevel: r.InitialLevel,
-        FromSource: r.FromSource,
-      })))
+      const row = d.itemRows?.[0] ?? defaultItemRow()
+      payoutAssetId = JSON.stringify({
+        BlueprintId: row.BlueprintId,
+        CurrentLevel: row.CurrentLevel,
+        Rarity: row.Rarity,
+        InitialLevel: row.InitialLevel,
+        FromSource: row.FromSource,
+      })
     } else {
       payoutAssetId = d.payoutAssetId.trim()
     }
@@ -241,19 +241,20 @@ function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
   return result.length > 0 ? result : null
 }
 
-function parseItemRows(payoutAssetId: string): ItemSpecificAsset[] {
+function parseItemRow(payoutAssetId: string): ItemSpecificAsset {
   try {
     const parsed = JSON.parse(payoutAssetId)
-    if (!Array.isArray(parsed)) return [defaultItemRow()]
-    return parsed.map((r: Record<string, unknown>) => ({
+    // Support both single object {} and legacy array [{...}]
+    const r: Record<string, unknown> = Array.isArray(parsed) ? (parsed[0] ?? {}) : (parsed ?? {})
+    return {
       BlueprintId: typeof r['BlueprintId'] === 'string' ? r['BlueprintId'] : '',
       CurrentLevel: typeof r['CurrentLevel'] === 'number' ? r['CurrentLevel'] : 1,
-      Rarity: (typeof r['Rarity'] === 'number' ? r['Rarity'] : 0) as RarityValue,
+      Rarity: (typeof r['Rarity'] === 'number' ? r['Rarity'] : Rarity.Common) as RarityValue,
       InitialLevel: typeof r['InitialLevel'] === 'number' ? r['InitialLevel'] : 1,
       FromSource: typeof r['FromSource'] === 'string' ? r['FromSource'] : '',
-    }))
+    }
   } catch {
-    return [defaultItemRow()]
+    return defaultItemRow()
   }
 }
 
@@ -266,7 +267,7 @@ function attachmentInfoToDraft(att: ReturnType<typeof mailAttachments>[number]):
     assetType,
     payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
     chance: att.Chance ?? att.chance ?? 1,
-    itemRows: isISA ? parseItemRows(payoutAssetId) : [defaultItemRow()],
+    itemRows: isISA ? [parseItemRow(payoutAssetId)] : [defaultItemRow()],
   }
 }
 
@@ -339,25 +340,19 @@ function raritySelectHtml(id: string, value: RarityValue): string {
   ).join('')}</select>`
 }
 
-// ─── Item rows editor HTML ────────────────────────────────────────────────────────
-function itemRowsHtml(prefix: string, attIdx: number, rows: ItemSpecificAsset[]): string {
-  const rowsHtml = rows.map((r, ri) => `
-    <tr>
-      <td><input type="text" id="${prefix}-att-${attIdx}-row-bp-${ri}" value="${esc(r.BlueprintId)}" placeholder="blueprint_id" /></td>
-      <td><input type="number" id="${prefix}-att-${attIdx}-row-cl-${ri}" value="${r.CurrentLevel}" min="1" /></td>
-      <td>${raritySelectHtml(`${prefix}-att-${attIdx}-row-rar-${ri}`, r.Rarity)}</td>
-      <td><input type="number" id="${prefix}-att-${attIdx}-row-il-${ri}" value="${r.InitialLevel}" min="1" /></td>
-      <td><input type="text" id="${prefix}-att-${attIdx}-row-fs-${ri}" value="${esc(r.FromSource)}" placeholder="source" /></td>
-      <td><button class="btn btn-danger btn-sm item-row-remove" data-prefix="${prefix}" data-att="${attIdx}" data-row="${ri}">✕</button></td>
-    </tr>`).join('')
+// ─── Single item row editor HTML (ItemSpecificAsset = one object, not a list) ─
+function itemRowHtml(prefix: string, attIdx: number, r: ItemSpecificAsset): string {
   return `
-    <div id="${prefix}-att-${attIdx}-rows">
-      <table class="item-rows-compact">
-        <thead><tr><th>BlueprintId</th><th>Lvl</th><th>Rarity</th><th>Init</th><th>Source</th><th></th></tr></thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-    </div>
-    <button class="btn btn-ghost btn-sm item-row-add" data-prefix="${prefix}" data-att="${attIdx}" style="margin-top:4px">+ Add Item Row</button>`
+    <table class="item-rows-compact">
+      <thead><tr><th>BlueprintId</th><th>Lvl</th><th>Rarity</th><th>Init</th><th>Source</th></tr></thead>
+      <tbody><tr>
+        <td><input type="text" id="${prefix}-att-${attIdx}-row-bp-0" value="${esc(r.BlueprintId)}" placeholder="blueprint_id" /></td>
+        <td><input type="number" id="${prefix}-att-${attIdx}-row-cl-0" value="${r.CurrentLevel}" min="1" /></td>
+        <td>${raritySelectHtml(`${prefix}-att-${attIdx}-row-rar-0`, r.Rarity)}</td>
+        <td><input type="number" id="${prefix}-att-${attIdx}-row-il-0" value="${r.InitialLevel}" min="1" /></td>
+        <td><input type="text" id="${prefix}-att-${attIdx}-row-fs-0" value="${esc(r.FromSource)}" placeholder="source" /></td>
+      </tr></tbody>
+    </table>`
 }
 
 // ─── Attachment editor ────────────────────────────────────────────────────────────
@@ -396,8 +391,8 @@ function renderAttachmentList(listId: string, prefix: string, drafts: Attachment
         </div>
       </div>
       <div id="${prefix}-att-item-${i}" ${!isISA ? 'style="display:none"' : ''}>
-        <div style="font-size:12px;font-weight:bold;margin:4px 0 2px">Item Rows (serialized as JSON)</div>
-        ${itemRowsHtml(prefix, i, rows)}
+        <div style="font-size:12px;font-weight:bold;margin:4px 0 2px">ItemSpecificAsset (serialized as JSON object)</div>
+        ${itemRowHtml(prefix, i, rows[0] ?? defaultItemRow())}
       </div>
     </div>`
   }).join('')
@@ -420,14 +415,14 @@ function renderAttachmentList(listId: string, prefix: string, drafts: Attachment
   })
 }
 
-function syncItemRowsFromDom(prefix: string, attIdx: number, rows: ItemSpecificAsset[]): ItemSpecificAsset[] {
-  return rows.map((r, ri) => ({
-    BlueprintId: val(`${prefix}-att-${attIdx}-row-bp-${ri}`),
-    CurrentLevel: parseInt(val(`${prefix}-att-${attIdx}-row-cl-${ri}`), 10) || r.CurrentLevel,
-    Rarity: (parseInt(val(`${prefix}-att-${attIdx}-row-rar-${ri}`), 10) || 0) as RarityValue,
-    InitialLevel: parseInt(val(`${prefix}-att-${attIdx}-row-il-${ri}`), 10) || r.InitialLevel,
-    FromSource: val(`${prefix}-att-${attIdx}-row-fs-${ri}`),
-  }))
+function syncItemRowFromDom(prefix: string, attIdx: number, fallback: ItemSpecificAsset): ItemSpecificAsset {
+  return {
+    BlueprintId: val(`${prefix}-att-${attIdx}-row-bp-0`),
+    CurrentLevel: parseInt(val(`${prefix}-att-${attIdx}-row-cl-0`), 10) || fallback.CurrentLevel,
+    Rarity: (parseInt(val(`${prefix}-att-${attIdx}-row-rar-0`), 10) || Rarity.Common) as RarityValue,
+    InitialLevel: parseInt(val(`${prefix}-att-${attIdx}-row-il-0`), 10) || fallback.InitialLevel,
+    FromSource: val(`${prefix}-att-${attIdx}-row-fs-0`),
+  }
 }
 
 function syncAttachmentsFromDom(prefix: string, drafts: AttachmentDraft[]): AttachmentDraft[] {
@@ -441,7 +436,7 @@ function syncAttachmentsFromDom(prefix: string, drafts: AttachmentDraft[]): Atta
       chance: parseFloat(
         (document.getElementById(`${prefix}-att-chance-${i}`) as HTMLInputElement | null)?.value ?? String(d.chance),
       ),
-      itemRows: isISA ? syncItemRowsFromDom(prefix, i, d.itemRows ?? []) : [defaultItemRow()],
+      itemRows: isISA ? [syncItemRowFromDom(prefix, i, d.itemRows?.[0] ?? defaultItemRow())] : [defaultItemRow()],
     }
   })
 }
@@ -587,7 +582,7 @@ function renderInlineAttachments(mail: MailRecord, idKey: string): string {
     : drafts.map((d, i) => {
         const isISA = isItemSpecificAssetType(d.assetType)
         const itemRows = d.itemRows ?? [defaultItemRow()]
-        const itemRowsHtmlStr = isISA ? itemRowsHtml(`mia-${idKey}`, i, itemRows) : ''
+        const itemRowsHtmlStr = isISA ? itemRowHtml(`mia-${idKey}`, i, itemRows[0] ?? defaultItemRow()) : ''
         return `
       <div class="inline-att-row" style="flex-direction:column;align-items:stretch">
         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
@@ -615,14 +610,9 @@ function syncInlineAttachmentsFromDom(mailIdValue: string, idKey: string): Attac
   state.inlineAttachments[mailIdValue] = drafts.map((d, i) => {
     const assetType = (document.getElementById(`mia-type-${idKey}-${i}`) as HTMLInputElement | null)?.value ?? d.assetType
     const isISA = isItemSpecificAssetType(assetType)
-    const rows = d.itemRows ?? []
-    const syncedRows: ItemSpecificAsset[] = isISA ? rows.map((r, ri) => ({
-      BlueprintId: val(`mia-${idKey}-att-${i}-row-bp-${ri}`),
-      CurrentLevel: parseInt(val(`mia-${idKey}-att-${i}-row-cl-${ri}`), 10) || r.CurrentLevel,
-      Rarity: (parseInt(val(`mia-${idKey}-att-${i}-row-rar-${ri}`), 10) || 0) as RarityValue,
-      InitialLevel: parseInt(val(`mia-${idKey}-att-${i}-row-il-${ri}`), 10) || r.InitialLevel,
-      FromSource: val(`mia-${idKey}-att-${i}-row-fs-${ri}`),
-    })) : [defaultItemRow()]
+    const syncedRows: ItemSpecificAsset[] = isISA
+      ? [syncItemRowFromDom(`mia-${idKey}`, i, d.itemRows?.[0] ?? defaultItemRow())]
+      : [defaultItemRow()]
     return {
       payoutAssetId: isISA ? '' : val(`mia-id-${idKey}-${i}`),
       assetType,
@@ -1133,25 +1123,10 @@ function attachMainListeners() {
     return (e: Event) => {
       const target = e.target as HTMLElement
       const removeBtn = target.closest<HTMLElement>('.att-remove')
-      const addRowBtn = target.closest<HTMLElement>('.item-row-add')
-      const removeRowBtn = target.closest<HTMLElement>('.item-row-remove')
       if (removeBtn && removeBtn.dataset['prefix'] === prefix) {
         const idx = parseInt(removeBtn.dataset['idx'] ?? '0', 10)
         const synced = syncAttachmentsFromDom(prefix, draftsRef())
         synced.splice(idx, 1)
-        setDrafts(synced)
-        renderAttachmentList(listId, prefix, draftsRef())
-      } else if (addRowBtn && addRowBtn.dataset['prefix'] === prefix) {
-        const attIdx = parseInt(addRowBtn.dataset['att'] ?? '0', 10)
-        const synced = syncAttachmentsFromDom(prefix, draftsRef())
-        if (synced[attIdx]) synced[attIdx].itemRows = [...(synced[attIdx].itemRows ?? []), defaultItemRow()]
-        setDrafts(synced)
-        renderAttachmentList(listId, prefix, draftsRef())
-      } else if (removeRowBtn && removeRowBtn.dataset['prefix'] === prefix) {
-        const attIdx = parseInt(removeRowBtn.dataset['att'] ?? '0', 10)
-        const rowIdx = parseInt(removeRowBtn.dataset['row'] ?? '0', 10)
-        const synced = syncAttachmentsFromDom(prefix, draftsRef())
-        if (synced[attIdx]?.itemRows) synced[attIdx].itemRows.splice(rowIdx, 1)
         setDrafts(synced)
         renderAttachmentList(listId, prefix, draftsRef())
       }
@@ -1220,8 +1195,6 @@ function attachMainListeners() {
     const saveBtn = target.closest<HTMLElement>('.save-mail')
     const addAttBtn = target.closest<HTMLElement>('.inline-att-add')
     const removeAttBtn = target.closest<HTMLElement>('.inline-att-remove')
-    const addRowBtn = target.closest<HTMLElement>('.item-row-add')
-    const removeRowBtn = target.closest<HTMLElement>('.item-row-remove')
     const expireBtn = target.closest<HTMLElement>('.expire-mail')
     const deleteBtn = target.closest<HTMLElement>('.del-mail')
     const setEtBtn  = target.closest<HTMLElement>('.set-et')
@@ -1240,35 +1213,6 @@ function attachMainListeners() {
       syncInlineAttachmentsFromDom(mId, idKey)
       state.inlineAttachments[mId].splice(idx, 1)
       refreshMainPanel()
-    }
-    else if (addRowBtn) {
-      // Item row add inside inline manage table
-      const prefix = addRowBtn.dataset['prefix'] ?? ''
-      const attIdx = parseInt(addRowBtn.dataset['att'] ?? '0', 10)
-      // prefix = "mia-{idKey}", extract mail context from parent elements
-      for (const [mId, drafts] of Object.entries(state.inlineAttachments)) {
-        const idKey = mId.replace(/[^a-z0-9]/gi, '_')
-        if (prefix === `mia-${idKey}` && drafts[attIdx]) {
-          syncInlineAttachmentsFromDom(mId, idKey)
-          drafts[attIdx].itemRows = [...(drafts[attIdx].itemRows ?? []), defaultItemRow()]
-          refreshMainPanel()
-          break
-        }
-      }
-    }
-    else if (removeRowBtn) {
-      const prefix = removeRowBtn.dataset['prefix'] ?? ''
-      const attIdx = parseInt(removeRowBtn.dataset['att'] ?? '0', 10)
-      const rowIdx = parseInt(removeRowBtn.dataset['row'] ?? '0', 10)
-      for (const [mId, drafts] of Object.entries(state.inlineAttachments)) {
-        const idKey = mId.replace(/[^a-z0-9]/gi, '_')
-        if (prefix === `mia-${idKey}` && drafts[attIdx]?.itemRows) {
-          syncInlineAttachmentsFromDom(mId, idKey)
-          drafts[attIdx].itemRows.splice(rowIdx, 1)
-          refreshMainPanel()
-          break
-        }
-      }
     }
     else if (expireBtn) run(() => doExpireMail(expireBtn.dataset['mailId'] ?? ''))
     else if (deleteBtn) run(() => doDeleteMail(deleteBtn.dataset['mailId'] ?? ''))
