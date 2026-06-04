@@ -87,6 +87,7 @@ interface AppState {
   inlineEndDate: Record<string, string>
   inlineEndTime: Record<string, string>
   inlineAttachments: Record<string, AttachmentDraft[]>
+  inlineTargetUserIds: Record<string, string[]>
   // Status
   busy:        boolean
   statusMsg:   string
@@ -151,6 +152,7 @@ const state: AppState = {
   inlineEndDate:  {},
   inlineEndTime:  {},
   inlineAttachments: {},
+  inlineTargetUserIds: {},
   busy:       false,
   statusMsg:  '',
   statusType: '',
@@ -624,10 +626,40 @@ function syncInlineAttachmentsFromDom(mailIdValue: string, idKey: string): Attac
   return state.inlineAttachments[mailIdValue]
 }
 
+// ─── Inline target user IDs editor ───────────────────────────────────────────────
+function ensureInlineTargetUserIds(mail: MailRecord): string[] {
+  const id = mailId(mail)
+  if (!state.inlineTargetUserIds[id]) {
+    const existing = mailTargetUsers(mail)
+    state.inlineTargetUserIds[id] = existing.length > 0 ? [...existing] : []
+  }
+  return state.inlineTargetUserIds[id]
+}
+
+function renderInlineTargetUserIds(mail: MailRecord, idKey: string): string {
+  const id = mailId(mail)
+  const uids = ensureInlineTargetUserIds(mail)
+  const rowsHtml = uids.length === 0
+    ? '<div style="font-size:11px;color:var(--text-dim);padding:2px">Global (all players)</div>'
+    : uids.map((uid, i) => `
+        <div style="display:flex;gap:3px;align-items:center;margin-bottom:2px">
+          <input type="text" id="mtu-${idKey}-${i}" value="${esc(uid)}" placeholder="Player ID" style="flex:1;font-size:11px;padding:3px 5px" />
+          <button class="btn btn-danger btn-sm inline-uid-remove" data-mail-id="${esc(id)}" data-id-key="${idKey}" data-idx="${i}" style="padding:1px 5px;font-size:10px" ${state.busy ? 'disabled' : ''}>✕</button>
+        </div>`).join('')
+  return `
+    <div id="mtu-list-${idKey}" style="min-width:140px">${rowsHtml}</div>
+    <button class="btn btn-ghost btn-sm inline-uid-add" data-mail-id="${esc(id)}" data-id-key="${idKey}" style="font-size:10px;padding:1px 6px;margin-top:2px" ${state.busy ? 'disabled' : ''}>+ User</button>`
+}
+
+function syncInlineTargetUserIdsFromDom(mailIdValue: string, idKey: string): string[] {
+  const uids = state.inlineTargetUserIds[mailIdValue] ?? []
+  state.inlineTargetUserIds[mailIdValue] = uids.map((_, i) => val(`mtu-${idKey}-${i}`))
+  return state.inlineTargetUserIds[mailIdValue]
+}
+
 // ─── Mail list table ──────────────────────────────────────────────────────────────
 function renderMailRow(m: MailRecord): string {
   const id    = mailId(m)
-  const targets = mailTargetUsers(m)
   const endT  = mailEndTime(m)
   const idKey = id.replace(/[^a-z0-9]/gi, '_')
   const ied   = state.inlineEndDate[id] ?? (endT ? endT.substring(0, 10) : '')
@@ -635,7 +667,7 @@ function renderMailRow(m: MailRecord): string {
 
   return `
   <tr>
-    <td><div class="mail-id">${esc(id)}</div>${targets.length > 0 ? `<span class="tag tag-targeted">targeted (${targets.length})</span>` : ''}</td>
+    <td><div class="mail-id">${esc(id)}</div></td>
     <td><input type="text" id="mt-${idKey}" value="${esc(mailTitle(m))}" maxlength="128" /></td>
     <td><textarea id="mc-${idKey}" maxlength="1024">${esc(mailContent(m))}</textarea></td>
     <td>${esc(mailStartTime(m))}</td>
@@ -647,6 +679,7 @@ function renderMailRow(m: MailRecord): string {
         <button class="btn btn-ghost btn-sm set-et" data-mail-id="${esc(id)}" data-id-key="${idKey}">✓</button>
       </div>
     </td>
+    <td>${renderInlineTargetUserIds(m, idKey)}</td>
     <td>${renderInlineAttachments(m, idKey)}</td>
     <td class="actions-cell">
       <button class="btn btn-secondary btn-sm save-mail" data-mail-id="${esc(id)}" data-id-key="${idKey}" ${!isConnected() || state.busy ? 'disabled' : ''}>Save</button>
@@ -676,7 +709,7 @@ function renderManageTab(): string {
       <table class="mail-table">
         <thead><tr>
           <th>Message ID</th><th>Title</th><th>Content</th>
-          <th>Start Time</th><th>End Time / Set New</th><th>Attachments</th><th>Actions</th>
+          <th>Start Time</th><th>End Time / Set New</th><th>Target Users</th><th>Attachments</th><th>Actions</th>
         </tr></thead>
         <tbody id="mail-tbody">${mails.map(renderMailRow).join('')}</tbody>
       </table>
@@ -988,6 +1021,7 @@ async function doLoadMails(resetPage = false, showStatus = true) {
   state.inlineEndDate = {}
   state.inlineEndTime = {}
   state.inlineAttachments = {}
+  state.inlineTargetUserIds = {}
   const maxPage = Math.max(0, Math.ceil(all.length / MAILS_PER_PAGE) - 1)
   if (state.mailPage > maxPage) state.mailPage = maxPage
   if (showStatus) {
@@ -1010,11 +1044,14 @@ async function doUpdateGlobalMail(mailIdArg: string, idKey: string) {
 
   const drafts = syncInlineAttachmentsFromDom(mId, idKey)
   const attachments = buildAttachments(drafts)
+  const syncedUids = syncInlineTargetUserIdsFromDom(mId, idKey)
+  const targetUserIds = syncedUids.map(s => s.trim()).filter(Boolean)
   const { data, rawResponse } = await apiUpdateGlobalMail(args, {
     mailId: mId,
     subject,
     body,
     attachments,
+    targetUserIds: targetUserIds.length > 0 ? targetUserIds : null,
     operatorId: state.operatorId,
     adminToken: null,
   })
@@ -1195,6 +1232,8 @@ function attachMainListeners() {
     const saveBtn = target.closest<HTMLElement>('.save-mail')
     const addAttBtn = target.closest<HTMLElement>('.inline-att-add')
     const removeAttBtn = target.closest<HTMLElement>('.inline-att-remove')
+    const addUidBtn = target.closest<HTMLElement>('.inline-uid-add')
+    const removeUidBtn = target.closest<HTMLElement>('.inline-uid-remove')
     const expireBtn = target.closest<HTMLElement>('.expire-mail')
     const deleteBtn = target.closest<HTMLElement>('.del-mail')
     const setEtBtn  = target.closest<HTMLElement>('.set-et')
@@ -1212,6 +1251,21 @@ function attachMainListeners() {
       const idx = parseInt(removeAttBtn.dataset['idx'] ?? '0', 10)
       syncInlineAttachmentsFromDom(mId, idKey)
       state.inlineAttachments[mId].splice(idx, 1)
+      refreshMainPanel()
+    }
+    else if (addUidBtn) {
+      const mId = addUidBtn.dataset['mailId'] ?? ''
+      const idKey = addUidBtn.dataset['idKey'] ?? ''
+      syncInlineTargetUserIdsFromDom(mId, idKey)
+      state.inlineTargetUserIds[mId].push('')
+      refreshMainPanel()
+    }
+    else if (removeUidBtn) {
+      const mId = removeUidBtn.dataset['mailId'] ?? ''
+      const idKey = removeUidBtn.dataset['idKey'] ?? ''
+      const idx = parseInt(removeUidBtn.dataset['idx'] ?? '0', 10)
+      syncInlineTargetUserIdsFromDom(mId, idKey)
+      state.inlineTargetUserIds[mId].splice(idx, 1)
       refreshMainPanel()
     }
     else if (expireBtn) run(() => doExpireMail(expireBtn.dataset['mailId'] ?? ''))
