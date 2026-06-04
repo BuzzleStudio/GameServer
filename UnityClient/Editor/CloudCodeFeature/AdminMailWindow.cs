@@ -30,7 +30,7 @@ namespace BackpackAdventures.CloudCode.Client.Editor
         {
             public string blueprintId = string.Empty;
             public int currentLevel = 1;
-            public Rarity rarity = Rarity.None;
+            public Rarity rarity = Rarity.Common;
             public int initialLevel = 1;
             public string fromSource = string.Empty;
         }
@@ -293,39 +293,28 @@ namespace BackpackAdventures.CloudCode.Client.Editor
 
                 if (draft.assetType == AssetTypeOption.ItemSpecificAsset)
                 {
-                    EditorGUILayout.LabelField("Item Rows (serialized to JSON array in PayoutAssetId)", EditorStyles.miniBoldLabel);
-                    if (draft.itemRows == null) draft.itemRows = new List<ItemRow>();
+                    EditorGUILayout.LabelField("ItemSpecificAsset (serialized as JSON object)", EditorStyles.miniBoldLabel);
+                    if (draft.itemRows == null || draft.itemRows.Count == 0)
+                        draft.itemRows = new List<ItemRow> { new ItemRow() };
 
-                    // Compact table header
+                    var row = draft.itemRows[0];
+
+                    // Compact header + single row
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.LabelField("BlueprintId", EditorStyles.miniLabel, GUILayout.MinWidth(80));
                     EditorGUILayout.LabelField("Lvl", EditorStyles.miniLabel, GUILayout.Width(35));
                     EditorGUILayout.LabelField("Rarity", EditorStyles.miniLabel, GUILayout.Width(80));
                     EditorGUILayout.LabelField("Init", EditorStyles.miniLabel, GUILayout.Width(35));
                     EditorGUILayout.LabelField("Source", EditorStyles.miniLabel, GUILayout.MinWidth(60));
-                    GUILayout.Space(28);
                     EditorGUILayout.EndHorizontal();
 
-                    int removeRow = -1;
-                    for (int r = 0; r < draft.itemRows.Count; r++)
-                    {
-                        var row = draft.itemRows[r];
-                        EditorGUILayout.BeginHorizontal();
-                        row.blueprintId = EditorGUILayout.TextField(row.blueprintId, GUILayout.MinWidth(80));
-                        row.currentLevel = EditorGUILayout.IntField(row.currentLevel, GUILayout.Width(35));
-                        row.rarity = (Rarity)EditorGUILayout.EnumPopup(row.rarity, GUILayout.Width(80));
-                        row.initialLevel = EditorGUILayout.IntField(row.initialLevel, GUILayout.Width(35));
-                        row.fromSource = EditorGUILayout.TextField(row.fromSource, GUILayout.MinWidth(60));
-                        if (GUILayout.Button("✕", GUILayout.Width(24)))
-                            removeRow = r;
-                        EditorGUILayout.EndHorizontal();
-                    }
-
-                    if (removeRow >= 0)
-                        draft.itemRows.RemoveAt(removeRow);
-
-                    if (GUILayout.Button("+ Add Item Row", GUILayout.Width(120)))
-                        draft.itemRows.Add(new ItemRow());
+                    EditorGUILayout.BeginHorizontal();
+                    row.blueprintId = EditorGUILayout.TextField(row.blueprintId, GUILayout.MinWidth(80));
+                    row.currentLevel = EditorGUILayout.IntField(row.currentLevel, GUILayout.Width(35));
+                    row.rarity = (Rarity)EditorGUILayout.EnumPopup(row.rarity, GUILayout.Width(80));
+                    row.initialLevel = EditorGUILayout.IntField(row.initialLevel, GUILayout.Width(35));
+                    row.fromSource = EditorGUILayout.TextField(row.fromSource, GUILayout.MinWidth(60));
+                    EditorGUILayout.EndHorizontal();
                 }
                 else
                 {
@@ -594,19 +583,17 @@ namespace BackpackAdventures.CloudCode.Client.Editor
                 string payoutAssetId;
                 if (isItemSpecific)
                 {
-                    var rows = draft.itemRows ?? new List<ItemRow>();
-                    var serialized = new JArray();
-                    foreach (var row in rows)
+                    var row = draft.itemRows != null && draft.itemRows.Count > 0
+                        ? draft.itemRows[0]
+                        : new ItemRow();
+                    var serialized = new JObject
                     {
-                        serialized.Add(new JObject
-                        {
-                            ["BlueprintId"] = row.blueprintId ?? string.Empty,
-                            ["CurrentLevel"] = row.currentLevel,
-                            ["Rarity"] = (int)row.rarity,
-                            ["InitialLevel"] = row.initialLevel,
-                            ["FromSource"] = row.fromSource ?? string.Empty,
-                        });
-                    }
+                        ["BlueprintId"] = row.blueprintId ?? string.Empty,
+                        ["CurrentLevel"] = row.currentLevel,
+                        ["Rarity"] = (int)row.rarity,
+                        ["InitialLevel"] = row.initialLevel,
+                        ["FromSource"] = row.fromSource ?? string.Empty,
+                    };
                     payoutAssetId = serialized.ToString(Formatting.None);
                 }
                 else
