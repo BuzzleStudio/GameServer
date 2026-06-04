@@ -165,7 +165,7 @@ MCP: `ai-game-developer` for Unity-side inspection/test runs when connectable.
   - Replaced `AttachmentRarityLevelSendTests.cs` → `ItemSpecificAssetSendTests` (2): JSON array in Item PayoutAssetId, Currency plain, no flat fields in stored Payout.
   - Removed 6 stale flat-field tests from `AttachmentTypeTests.cs`; kept `MapPayouts_PreservesCustomAssetTypeAndChance`.
 - **AdminWeb: `tsc --noEmit` exit 0, `vite build` exit 0** (QA-run).
-- **UnityClient EditMode: QA-reported 61 passed / 0 failed / 2 skipped.** Replaced P02B/P03B/P04B + fixed P03A (Item now JSON array not plain "ticket"); cleaned `FakeCloudCodeBackend.CreateMailItem`; added Newtonsoft.Json to test asmdef. Execution-method confirmation pending QA reply (EditMode needs Unity Editor / ai-game-developer MCP). Not re-run by team-lead in-session.
+- **UnityClient EditMode: 61 passed / 0 failed / 2 skipped** — executed in-session via ai-game-developer MCP `tests-run` (`testMode:EditMode, testNamespace:"BackpackAdventures.CloudCode.Client.Tests"`). MCP summary: `Status: Passed, TotalTests: 507, PassedTests: 61, FailedTests: 0, SkippedTests: 2, Duration: 00:00:19.66`. Replaced P02B/P03B/P04B + fixed P03A (Item now JSON array not plain "ticket"); cleaned `FakeCloudCodeBackend.CreateMailItem`; added Newtonsoft.Json to test asmdef. The 2 skips are pre-existing (`N11_DeleteMail_GlobalMail_Rejected`, `R04_EvictionPolicy_NeverDropUnclaimedReward_EXPLICIT`). Hermetic against `FakeCloudCodeBackend`, no live UGS.
 
 ### Repo / commit notes
 - UnityCloudCode is its OWN git repo (`dyCuong03/UnityCloudCode`, branch develop), separate from the parent Unity project repo.
