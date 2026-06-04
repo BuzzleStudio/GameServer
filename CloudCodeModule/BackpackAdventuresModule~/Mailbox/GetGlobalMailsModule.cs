@@ -39,17 +39,37 @@ public class GetGlobalMailsModule
         MailSchemaHelper.MigrateLegacyMetadata(state);
         var mails = mailsTask.Result?.Mails ?? new List<GlobalMailPayload>();
 
-        var allMails = mails.Count > 0
-            ? BuildDtosFromAllMails(mails, state, playerId)
-            : await BuildDtosFromV1LegacyAsync(state);
-
-        allMails.Sort((a, b) => string.Compare(b.MailInfo.StartTime, a.MailInfo.StartTime, StringComparison.Ordinal));
-
-        var totalCount = allMails.Count;
         var startIdx = request.Page * pageSize;
+
+        if (mails.Count == 0)
+        {
+            // V1 legacy fallback (rare/deprecated): build all, sort, then paginate.
+            var legacy = await BuildDtosFromV1LegacyAsync(state);
+            legacy.Sort((a, b) => string.Compare(b.MailInfo.StartTime, a.MailInfo.StartTime, StringComparison.Ordinal));
+            return Paginate(legacy, request.Page, pageSize, startIdx);
+        }
+
+        // V2: filter (cheap checks + O(1) metadata) → sort payloads → slice → build DTOs for the
+        // page ONLY. Sort key is identical to ToMailItemDto's MailInfo.StartTime (UTC round-trip
+        // "o"), so ordering matches building+sorting full DTOs — but we allocate ≤pageSize DTOs
+        // instead of one per mail in the whole collection (up to MaxGlobalMailsStored).
+        var visible = new List<(GlobalMailPayload Payload, MailMetadata? Meta, string SortKey)>();
+        foreach (var payload in mails)
+        {
+            if (payload?.Mail == null) continue;
+            if (!payload.Mail.IsAvailable) continue;
+            if (!MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId)) continue;
+            var metadata = MailSchemaHelper.FindMetadata(state, payload.Mail.MessageId);
+            if (metadata?.IsDelete == true) continue;
+            visible.Add((payload, metadata, payload.Mail.StartTime.ToUniversalTime().ToString("o")));
+        }
+
+        visible.Sort((a, b) => string.Compare(b.SortKey, a.SortKey, StringComparison.Ordinal));
+
+        var totalCount = visible.Count;
         var slice = new List<MailItemDto>();
         for (var i = startIdx; i < Math.Min(startIdx + pageSize, totalCount); i++)
-            slice.Add(allMails[i]);
+            slice.Add(MailSchemaHelper.ToMailItemDto(visible[i].Payload.Mail, visible[i].Meta));
 
         return ApiResponse<PagedMailResponse>.Ok(new PagedMailResponse
         {
@@ -61,20 +81,21 @@ public class GetGlobalMailsModule
         });
     }
 
-    private static List<MailItemDto> BuildDtosFromAllMails(List<GlobalMailPayload> mails, PlayerGlobalMailState state, string playerId)
+    private static ApiResponse<PagedMailResponse> Paginate(List<MailItemDto> all, int page, int pageSize, int startIdx)
     {
-        var dtos = new List<MailItemDto>();
-        foreach (var payload in mails)
-        {
-            if (payload?.Mail == null) continue;
-            if (!payload.Mail.IsAvailable) continue;
-            if (!MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId)) continue;
-            var metadata = MailSchemaHelper.FindMetadata(state, payload.Mail.MessageId);
-            if (metadata?.IsDelete == true) continue;
-            dtos.Add(MailSchemaHelper.ToMailItemDto(payload.Mail, metadata));
-        }
+        var totalCount = all.Count;
+        var slice = new List<MailItemDto>();
+        for (var i = startIdx; i < Math.Min(startIdx + pageSize, totalCount); i++)
+            slice.Add(all[i]);
 
-        return dtos;
+        return ApiResponse<PagedMailResponse>.Ok(new PagedMailResponse
+        {
+            Mails = slice,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            HasMore = (startIdx + pageSize) < totalCount
+        });
     }
 
     private async Task<List<MailItemDto>> BuildDtosFromV1LegacyAsync(PlayerGlobalMailState state)

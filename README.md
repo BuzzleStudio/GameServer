@@ -193,3 +193,61 @@ See [docs/MAILBOX_API_USAGE.md](docs/MAILBOX_API_USAGE.md) for full API document
 See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) for current limitations, unimplemented features, and known risks.
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed change history including design decisions and risk notes.
+
+---
+
+## Admin Web
+
+Browser-based admin dashboard mirroring the Unity Editor **CloudCode > Admin Mail** window.
+Operators can send global/targeted mail and manage (list / edit / expire / delete) global mails
+without opening the Unity Editor.
+
+### Live URL
+
+```
+Use the URL returned by the `deploy-adminweb.yml` Cloudflare Pages deploy step.
+```
+
+### One-time Cloudflare setup
+
+1. Run: `wrangler pages project create adminweb`
+   (or create the project in the Cloudflare dashboard under **Workers & Pages**).
+2. Set the production branch to `staging` in the Cloudflare dashboard.
+3. Ensure `CLOUDFLARE_API_TOKEN` has **Pages:Edit** permission.
+4. Set the required GitHub repo secrets. The workflow syncs UGS secrets into
+   Cloudflare Pages before each deploy.
+5. If the Cloudflare account has multiple Pages projects, set repo variable
+   `CLOUDFLARE_PAGES_PROJECT` to the existing project name, e.g. `adminweb-fza`.
+
+### Deploy trigger
+
+| Event | Condition |
+|---|---|
+| `push` to `staging` or `release/*` | Only when `AdminWeb/**` or the workflow file changes |
+| `workflow_dispatch` | Manual trigger from the Actions tab |
+
+Workflow file: `.github/workflows/deploy-adminweb.yml`
+
+### Build contract
+
+| Item | Value |
+|---|---|
+| Working directory | `AdminWeb/` |
+| Install | `npm ci` |
+| Build | `VITE_BASE=/ npm run build` |
+| Output | `AdminWeb/dist/` |
+| Vite base default | `./` (relative, for local dev) |
+| Vite base (Pages) | `/` — injected via `VITE_BASE` env var at CI build time |
+| API proxy | `/api/*` same-origin Cloudflare Pages Function |
+
+### Runtime credentials — security model
+
+The web app prompts the operator for the **Admin Proxy Token** on first use. The UGS service-account
+Key ID and Secret live only as Cloudflare Pages secrets and are never written into the SPA bundle.
+The operator token is stored in `sessionStorage` only and cleared when the browser tab is closed.
+
+This is an internal operator tool with the same trust model as the Unity Editor AdminMailWindow.
+The operator is responsible for keeping the proxy token secure.
+
+**`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are required** by the AdminWeb workflow.
+UGS Key/Secret are never in the SPA bundle — they live in the Pages Function only.

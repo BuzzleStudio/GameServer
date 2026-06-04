@@ -40,7 +40,7 @@ public class ExpireMailModule
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock, _logger);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
@@ -72,7 +72,7 @@ public class ExpireMailModule
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock, _logger);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
@@ -100,7 +100,7 @@ public class ExpireMailModule
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock, _logger);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
@@ -109,6 +109,39 @@ public class ExpireMailModule
         }
 
         return ApiResponse<DeleteMailResponse>.Ok(new DeleteMailResponse { MailId = request.MailId });
+    }
+
+    [CloudCodeFunction("UpdateGlobalMail")]
+    public async Task<ApiResponse<UpdateGlobalMailResponse>> UpdateGlobalMailAsync(UpdateGlobalMailRequest request)
+    {
+        await AdminAuth.RequireAdminToolAsync(_gameApiClient, _context, request.AdminToken, request.OperatorId, _logger);
+        if (string.IsNullOrWhiteSpace(request.MailId))
+            throw new ArgumentException(MailboxError.InvalidInput);
+        if (!request.MailId.StartsWith("gm_", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(MailboxError.InvalidInput);
+        MailSchemaHelper.ValidateEditableMailFields(request.Subject, request.Body, request.Attachments);
+
+        var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
+        collection ??= new GlobalMailCollection();
+        var payload = GlobalMailStore.FindById(collection.Mails, request.MailId);
+        if (payload?.Mail == null)
+            throw new InvalidOperationException(MailboxError.MailNotFound);
+
+        payload.Mail.Title = request.Subject.Trim();
+        payload.Mail.Content = request.Body.Trim();
+        payload.Mail.Attachments = MailSchemaHelper.MapPayouts(request.Attachments);
+
+        try
+        {
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock, _logger);
+        }
+        catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
+        {
+            _logger.LogWarning(ex, "UpdateGlobalMail conflict for {MailId}", request.MailId);
+            throw new InvalidOperationException(MailboxError.Conflict);
+        }
+
+        return ApiResponse<UpdateGlobalMailResponse>.Ok(new UpdateGlobalMailResponse { MailId = request.MailId });
     }
 
     private static DateTime? ResolveEndTime(string? endTime)

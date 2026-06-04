@@ -14,6 +14,9 @@ public static class MailboxConstants
     public const string KeyMeta = "mailbox_meta";
     public const string KeyIdemCache = "mailbox_idem_cache";
     public const string KeyPlayerWallet = "player_wallet";
+    // Global CustomData key holding the monotonic version of mails_all. Read fresh (no-cache) to
+    // validate whether a cached mails_all entry is still current across Cloud Code worker instances.
+    public const string KeyGlobalMailChangeLog = "global_mail_change_log";
     public const int MaxUserMailsStored = 200;
     public const int HardCapUserMailsStored = 250;
     public const int MaxGlobalMailsStored = 500;
@@ -24,6 +27,18 @@ public static class MailboxConstants
     public const int MaxGiftsPerDay = 5;
     public const int MaxSubjectLength = 128;
     public const int MaxBodyLength = 1024;
+    public const int MaxAttachmentAssetTypeLength = 64;
+}
+
+/// <summary>
+/// Version stamp for the global mails_all collection (CustomData key: global_mail_change_log).
+/// Bumped on every successful mails_all write; read fresh (no RAM cache) to validate cached mails_all.
+/// Intentionally minimal — no event list, no per-mail/per-reason fields.
+/// </summary>
+public sealed class GlobalMailChangeLog
+{
+    public long Version { get; set; }
+    public string LastChangedAt { get; set; } = "";
 }
 
 public enum MailType
@@ -59,6 +74,9 @@ public class MailAttachment
 
     [JsonPropertyName("quantity")]
     public int Quantity { get; set; }
+
+    [JsonPropertyName("chance")]
+    public double Chance { get; set; } = 1.0;
 }
 
 // Stored inside the `mails_all` array. Serializes as the bare Mail object (the
@@ -115,7 +133,28 @@ public class GlobalMailPayloadConverter : JsonConverter<GlobalMailPayload>
 [JsonConverter(typeof(GlobalMailCollectionConverter))]
 public class GlobalMailCollection
 {
-    public List<GlobalMailPayload> Mails { get; set; } = new();
+    private List<GlobalMailPayload> _mails = new();
+    private Dictionary<string, GlobalMailPayload>? _byId;
+
+    public List<GlobalMailPayload> Mails
+    {
+        get => _mails;
+        set { _mails = value ?? new(); _byId = null; }
+    }
+
+    public void InvalidateIndex() => _byId = null;
+
+    internal GlobalMailPayload? FindByIdInternal(string mailId)
+    {
+        if (_byId == null)
+        {
+            _byId = new Dictionary<string, GlobalMailPayload>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in _mails)
+                if (!string.IsNullOrEmpty(p.Mail?.MessageId))
+                    _byId[p.Mail.MessageId] = p;
+        }
+        return _byId.TryGetValue(mailId, out var r) ? r : null;
+    }
 }
 
 public class GlobalMailCollectionConverter : JsonConverter<GlobalMailCollection>
@@ -161,6 +200,9 @@ public class GlobalMailCollectionConverter : JsonConverter<GlobalMailCollection>
 
 public static class GlobalMailStore
 {
+    public static GlobalMailPayload? FindById(GlobalMailCollection? collection, string mailId)
+        => collection?.FindByIdInternal(mailId);
+
     public static GlobalMailPayload? FindById(List<GlobalMailPayload>? mails, string mailId)
     {
         return mails?.Find(m => string.Equals(m.Mail?.MessageId, mailId, StringComparison.OrdinalIgnoreCase));
@@ -204,11 +246,62 @@ public class PlayerGlobalMailState
     [JsonPropertyName("DeletedIds")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? LegacyDeletedIds { get; set; }
+
+    [JsonIgnore]
+    private Dictionary<string, MailMetadata>? _metaById;
+    private bool _migrated;
+
+    internal bool IsMigrated => _migrated;
+    internal void MarkMigrated() => _migrated = true;
+    public void InvalidateMetaIndex() => _metaById = null;
+
+    internal MailMetadata? FindMetadataById(string messageId)
+    {
+        _metaById ??= BuildMetaIndex();
+        return _metaById.TryGetValue(messageId, out var m) ? m : null;
+    }
+
+    internal MailMetadata GetOrCreateMetadataById(string messageId)
+    {
+        _metaById ??= BuildMetaIndex();
+        if (_metaById.TryGetValue(messageId, out var existing))
+            return existing;
+        var m = new MailMetadata { MessageId = messageId };
+        Mails.Add(m);
+        _metaById[messageId] = m;
+        return m;
+    }
+
+    private Dictionary<string, MailMetadata> BuildMetaIndex()
+    {
+        var d = new Dictionary<string, MailMetadata>(StringComparer.Ordinal);
+        foreach (var m in Mails)
+            if (!string.IsNullOrEmpty(m.MessageId))
+                d[m.MessageId] = m;
+        return d;
+    }
 }
 
 public class PlayerUserMailbox
 {
     public List<MailItemDto> Mails { get; set; } = new();
+
+    [JsonIgnore]
+    private Dictionary<string, MailItemDto>? _byId;
+
+    public void InvalidateIndex() => _byId = null;
+
+    internal MailItemDto? FindById(string mailId)
+    {
+        if (_byId == null)
+        {
+            _byId = new Dictionary<string, MailItemDto>(StringComparer.Ordinal);
+            foreach (var m in Mails)
+                if (!string.IsNullOrEmpty(m.MessageId))
+                    _byId[m.MessageId] = m;
+        }
+        return _byId.TryGetValue(mailId, out var r) ? r : null;
+    }
 }
 
 public class PlayerMailboxMeta
@@ -433,22 +526,19 @@ public static class MailSchemaHelper
     {
         state.Mails ??= new List<MailMetadata>();
         MigrateLegacyMetadata(state);
-        var metadata = state.Mails.Find(m => m.MessageId == mailId);
-        if (metadata != null) return metadata;
-        metadata = new MailMetadata { MessageId = mailId };
-        state.Mails.Add(metadata);
-        return metadata;
+        return state.GetOrCreateMetadataById(mailId);
     }
 
     public static MailMetadata? FindMetadata(PlayerGlobalMailState state, string mailId)
     {
         state.Mails ??= new List<MailMetadata>();
         MigrateLegacyMetadata(state);
-        return state.Mails.Find(m => m.MessageId == mailId);
+        return state.FindMetadataById(mailId);
     }
 
     public static void MigrateLegacyMetadata(PlayerGlobalMailState state)
     {
+        if (state.IsMigrated) return;
         state.Mails ??= new List<MailMetadata>();
         MergeLegacyMetadataList(state);
         NormalizeLegacyMetadataFields(state.Mails);
@@ -458,6 +548,8 @@ public static class MailSchemaHelper
         state.LegacyClaimedIds = null;
         state.LegacyReadIds = null;
         state.LegacyDeletedIds = null;
+        state.InvalidateMetaIndex();
+        state.MarkMigrated();
     }
 
     private static void MergeLegacyMetadataList(PlayerGlobalMailState state)
@@ -564,6 +656,7 @@ public static class MailSchemaHelper
             {
                 ItemId = attachment.PayoutAssetId,
                 Quantity = attachment.PayoutAmount,
+                Chance = attachment.Chance,
                 Type = NormalizeAssetTypeToStorage(attachment.AssetType)
             });
         }
@@ -580,6 +673,7 @@ public static class MailSchemaHelper
             {
                 ItemId = attachment.PayoutAssetId,
                 Quantity = attachment.PayoutAmount,
+                Chance = attachment.Chance,
                 Type = NormalizeAssetTypeToStorage(attachment.AssetType)
             });
         }
@@ -636,7 +730,7 @@ public static class MailSchemaHelper
             result.Add(new MailAttachmentDto
             {
                 PayoutAssetId = attachment.ItemId,
-                Chance = 1.0,
+                Chance = attachment.Chance,
                 AssetType = NormalizeAssetTypeForDto(attachment.Type),
                 PayoutAmount = attachment.Quantity
             });
@@ -653,7 +747,7 @@ public static class MailSchemaHelper
             result.Add(new Payout
             {
                 PayoutAssetId = attachment.ItemId,
-                Chance = 1.0,
+                Chance = attachment.Chance,
                 AssetType = NormalizeAssetTypeForDto(attachment.Type),
                 PayoutAmount = attachment.Quantity
             });
@@ -695,9 +789,30 @@ public static class MailSchemaHelper
             null);
     }
 
+    public static void ValidateEditableMailFields(string title, string content, List<MailAttachment>? attachments)
+    {
+        if (string.IsNullOrWhiteSpace(title) || title.Length > MailboxConstants.MaxSubjectLength)
+            throw new ArgumentException(MailboxError.InvalidInput);
+        if (string.IsNullOrWhiteSpace(content) || content.Length > MailboxConstants.MaxBodyLength)
+            throw new ArgumentException(MailboxError.InvalidInput);
+        if (attachments == null) return;
+        foreach (var att in attachments)
+        {
+            if (string.IsNullOrWhiteSpace(att.ItemId)
+                || string.IsNullOrWhiteSpace(att.Type)
+                || att.Type.Length > MailboxConstants.MaxAttachmentAssetTypeLength
+                || att.Quantity <= 0
+                || att.Chance <= 0)
+                throw new ArgumentException(MailboxError.InvalidInput);
+        }
+    }
+
     private static string NormalizeAssetTypeForDto(string assetType)
     {
         if (string.IsNullOrEmpty(assetType)) return string.Empty;
+        if (!assetType.Equals("currency", StringComparison.OrdinalIgnoreCase)
+            && !assetType.Equals("item", StringComparison.OrdinalIgnoreCase))
+            return assetType.Trim();
         if (assetType.Length == 1) return assetType.ToUpperInvariant();
         return char.ToUpperInvariant(assetType[0]) + assetType.Substring(1).ToLowerInvariant();
     }
@@ -705,7 +820,10 @@ public static class MailSchemaHelper
     private static string NormalizeAssetTypeToStorage(string assetType)
     {
         if (string.IsNullOrEmpty(assetType)) return string.Empty;
-        return assetType.Equals("Currency", StringComparison.OrdinalIgnoreCase) ? "currency" : "item";
+        var trimmed = assetType.Trim();
+        if (trimmed.Equals("Currency", StringComparison.OrdinalIgnoreCase)) return "currency";
+        if (trimmed.Equals("Item", StringComparison.OrdinalIgnoreCase)) return "item";
+        return trimmed;
     }
 }
 
@@ -879,6 +997,27 @@ public class SetMailEndTimeRequest
     public string OperatorId { get; set; } = string.Empty;
 }
 
+public class UpdateGlobalMailRequest
+{
+    [JsonPropertyName("mailId")]
+    public string MailId { get; set; } = string.Empty;
+
+    [JsonPropertyName("subject")]
+    public string Subject { get; set; } = string.Empty;
+
+    [JsonPropertyName("body")]
+    public string Body { get; set; } = string.Empty;
+
+    [JsonPropertyName("attachments")]
+    public List<MailAttachment>? Attachments { get; set; }
+
+    [JsonPropertyName("adminToken")]
+    public string AdminToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("operatorId")]
+    public string OperatorId { get; set; } = string.Empty;
+}
+
 public class AdminDeleteMailRequest
 {
     [JsonPropertyName("mailId")]
@@ -965,6 +1104,11 @@ public class SetMailEndTimeResponse
 {
     public string MailId { get; set; } = string.Empty;
     public string? EndTime { get; set; }
+}
+
+public class UpdateGlobalMailResponse
+{
+    public string MailId { get; set; } = string.Empty;
 }
 
 public class PurgeExpiredResponse

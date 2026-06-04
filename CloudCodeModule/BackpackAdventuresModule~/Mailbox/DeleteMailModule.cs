@@ -83,7 +83,7 @@ public class DeleteMailModule
             var (mailbox, writeLock) = await CloudSaveHelper.GetPlayerDataWithLockAsync<PlayerUserMailbox>(_gameApiClient, _context, playerId, MailboxConstants.KeyUserItems);
             mailbox ??= new PlayerUserMailbox();
 
-            var mail = mailbox.Mails.Find(m => m.MessageId == mailId);
+            var mail = mailbox.FindById(mailId);
             if (mail == null) throw new InvalidOperationException(MailboxError.MailNotFound);
             if (!mail.MailMetaData.IsClaimed && MailSchemaHelper.HasAttachments(mail))
                 throw new InvalidOperationException(MailboxError.CannotDeleteUnclaimedReward);

@@ -1,0 +1,289 @@
+# Deploy AdminWeb to Cloudflare Pages
+#
+# Single Cloudflare Pages project:
+#   - AdminWeb/dist      -> static SPA
+#   - AdminWeb/functions -> same-origin API proxy at /api/*
+#
+# Secrets are synced into Cloudflare Pages before each deploy and are available
+# only to Pages Functions via context.env. They are never injected into the SPA.
+#
+# Required GitHub repository secrets:
+#   CLOUDFLARE_API_TOKEN                  - Cloudflare API token with Pages:Edit
+#   CLOUDFLARE_ACCOUNT_ID                 - Cloudflare account ID
+#   UNITY_PROJECT_SERVICE_ACCOUNT_KEY     - UGS service-account key ID
+#   UNITY_PROJECT_SERVICE_ACCOUNT_SECRET  - UGS service-account secret
+#   ADMIN_PROXY_TOKEN                     - Gate token the SPA presents as Bearer
+#
+# Optional GitHub repository variables:
+#   CLOUDFLARE_PAGES_PROJECT              - Existing Pages project name, e.g. adminweb-fza
+#   CLOUDFLARE_PAGES_CUSTOM_DOMAIN        - Custom domain to attach, e.g. admin.archergame.mobi
+#
+# If CLOUDFLARE_PAGES_PROJECT is unset, the workflow auto-selects a Pages
+# project only when the account has exactly one AdminWeb-looking project.
+#
+# If CLOUDFLARE_PAGES_CUSTOM_DOMAIN is set, the workflow attaches that domain
+# to the Pages project on every deploy (idempotent — safe to re-run).
+
+name: Deploy AdminWeb to Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - staging
+      - "release/*"
+    paths:
+      - "AdminWeb/**"
+      - ".github/workflows/deploy-adminweb.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adminweb-pages-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and Deploy Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: AdminWeb/package-lock.json
+
+      - name: Install dependencies
+        working-directory: AdminWeb
+        run: npm ci
+
+      - name: Build SPA
+        working-directory: AdminWeb
+        env:
+          VITE_BASE: /
+        run: npm run build
+
+      - name: Resolve Cloudflare Pages project
+        working-directory: AdminWeb
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+        run: |
+          set -e
+          node <<'NODE'
+          ;(async () => {
+          const fs = require('fs')
+
+          const token = process.env.CLOUDFLARE_API_TOKEN
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
+          const configured = (process.env.CLOUDFLARE_PAGES_PROJECT || '').trim()
+
+          if (!token || !accountId) {
+            console.error('Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID.')
+            process.exit(1)
+          }
+
+          const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/pages/projects`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          const json = await res.json()
+          if (!res.ok || !json.success) {
+            console.error('Failed to list Cloudflare Pages projects.')
+            console.error(JSON.stringify(json, null, 2))
+            process.exit(1)
+          }
+
+          const projects = Array.isArray(json.result) ? json.result : []
+          const names = projects.map((p) => p.name).filter(Boolean)
+          const adminwebNames = names.filter((name) => /^adminweb($|-)/.test(name))
+
+          let projectName = configured
+          if (!projectName) {
+            if (adminwebNames.length === 1) {
+              projectName = adminwebNames[0]
+            } else if (names.length === 1) {
+              projectName = names[0]
+            } else if (adminwebNames.length === 0 && names.length === 0) {
+              projectName = 'adminweb'
+            } else {
+              console.error('Cannot auto-select Cloudflare Pages project.')
+              console.error(`Projects found: ${names.join(', ') || '(none)'}`)
+              console.error('Set GitHub repo variable CLOUDFLARE_PAGES_PROJECT to the existing project name, e.g. adminweb-fza.')
+              process.exit(1)
+            }
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `CF_PAGES_PROJECT=${projectName}\n`)
+          console.log(`Using Cloudflare Pages project: ${projectName}`)
+          })().catch((err) => {
+            console.error(err)
+            process.exit(1)
+          })
+          NODE
+
+      - name: Ensure Cloudflare Pages project
+        working-directory: AdminWeb
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+          echo "Ensuring Cloudflare Pages project '$CF_PAGES_PROJECT' exists."
+          set +e
+          npx wrangler@3.65.0 pages project create "$CF_PAGES_PROJECT" --production-branch=staging > create-project.log 2>&1
+          CREATE_EXIT=$?
+          set -e
+
+          cat create-project.log
+          if [ "$CREATE_EXIT" -eq 0 ]; then
+            echo "Cloudflare Pages project '$CF_PAGES_PROJECT' created."
+          elif grep -qi "already exists" create-project.log; then
+            echo "Cloudflare Pages project '$CF_PAGES_PROJECT' already exists."
+          else
+            echo "ERROR: failed to ensure Cloudflare Pages project '$CF_PAGES_PROJECT'."
+            exit "$CREATE_EXIT"
+          fi
+
+      - name: Attach custom domain
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_CUSTOM_DOMAIN: ${{ vars.CLOUDFLARE_PAGES_CUSTOM_DOMAIN }}
+        run: |
+          set -e
+          node <<'NODE'
+          ;(async () => {
+            const fs = require('fs')
+            const customDomain = (process.env.CLOUDFLARE_PAGES_CUSTOM_DOMAIN || '').trim()
+            if (!customDomain) {
+              console.log('CLOUDFLARE_PAGES_CUSTOM_DOMAIN not set — skipping custom domain attachment.')
+              return
+            }
+
+            const token = process.env.CLOUDFLARE_API_TOKEN
+            const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
+            const project = process.env.CF_PAGES_PROJECT
+
+            const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/pages/projects/${project}/domains`
+            const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+
+            // Check if already attached
+            const listRes = await fetch(base, { headers })
+            const listJson = await listRes.json()
+            const existing = Array.isArray(listJson.result) ? listJson.result.map(d => d.name) : []
+            if (existing.includes(customDomain)) {
+              console.log(`Custom domain '${customDomain}' already attached to '${project}'.`)
+              fs.appendFileSync(process.env.GITHUB_ENV, `CUSTOM_DOMAIN=${customDomain}\n`)
+              return
+            }
+
+            console.log(`Attaching custom domain '${customDomain}' to Pages project '${project}'.`)
+            const addRes = await fetch(base, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ name: customDomain }),
+            })
+            const addJson = await addRes.json()
+
+            if (!addRes.ok || !addJson.success) {
+              const errors = addJson.errors || []
+              const alreadyExists = errors.some(e => /already (exists|in use)/i.test(e.message || ''))
+              if (alreadyExists) {
+                console.log(`Custom domain '${customDomain}' already attached (confirmed via API error).`)
+                fs.appendFileSync(process.env.GITHUB_ENV, `CUSTOM_DOMAIN=${customDomain}\n`)
+                return
+              }
+              console.error('Failed to attach custom domain.')
+              console.error(JSON.stringify(addJson, null, 2))
+              process.exit(1)
+            }
+
+            console.log(`Custom domain '${customDomain}' attached successfully.`)
+            fs.appendFileSync(process.env.GITHUB_ENV, `CUSTOM_DOMAIN=${customDomain}\n`)
+          })().catch((err) => { console.error(err); process.exit(1) })
+          NODE
+
+      - name: Sync Pages secrets
+        working-directory: AdminWeb
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          UNITY_PROJECT_SERVICE_ACCOUNT_KEY: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_KEY }}
+          UNITY_PROJECT_SERVICE_ACCOUNT_SECRET: ${{ secrets.UNITY_PROJECT_SERVICE_ACCOUNT_SECRET }}
+          ADMIN_PROXY_TOKEN: ${{ secrets.ADMIN_PROXY_TOKEN }}
+        run: |
+          set -e
+          node -e "const fs=require('fs'); const keys=['UNITY_PROJECT_SERVICE_ACCOUNT_KEY','UNITY_PROJECT_SERVICE_ACCOUNT_SECRET','ADMIN_PROXY_TOKEN']; const out=Object.fromEntries(keys.map(k=>[k,process.env[k]||''])); for (const [k,v] of Object.entries(out)) { if (!v) { console.error('Missing secret: '+k); process.exit(1); } } fs.writeFileSync('.pages-secrets.json', JSON.stringify(out));"
+          npx wrangler@3.65.0 pages secret bulk .pages-secrets.json --project-name="$CF_PAGES_PROJECT" --env=production
+          npx wrangler@3.65.0 pages secret bulk .pages-secrets.json --project-name="$CF_PAGES_PROJECT" --env=preview
+          rm .pages-secrets.json
+
+      - name: Deploy SPA and API to Cloudflare Pages
+        id: deploy-pages
+        working-directory: AdminWeb
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+          npx wrangler@3.65.0 pages deploy dist --project-name="$CF_PAGES_PROJECT" --branch="${{ github.ref_name }}" 2>&1 | tee deploy.log
+          DEPLOYMENT_URL=$(node -e "const fs=require('fs'); const text=fs.readFileSync('deploy.log','utf8'); const urls=[...text.matchAll(/https:\\/\\/[^\\s]+/g)].map(m=>m[0].replace(/[),.]+$/,'')); const picked=urls.find(u=>u.includes('.pages.dev')) || urls[0] || ''; if (!picked) process.exit(1); console.log(picked)")
+          echo "DEPLOYMENT_URL=$DEPLOYMENT_URL" >> "$GITHUB_ENV"
+          echo "deployment-url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test same-origin API
+        run: |
+          set -e
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            echo "ERROR: wrangler-action did not return deployment-url."
+            exit 1
+          fi
+          BASE_URL="$DEPLOYMENT_URL"
+          HEALTH_URL="${BASE_URL%/}/api/health"
+          echo "Testing: $HEALTH_URL"
+
+          for i in 1 2 3 4 5 6; do
+            HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" "$HEALTH_URL" || true)
+            RESPONSE=$(cat response.json 2>/dev/null || true)
+            echo "Attempt $i: HTTP $HTTP_CODE"
+            echo "Response: $RESPONSE"
+
+            if [ "$HTTP_CODE" = "200" ] && echo "$RESPONSE" | grep -q '"ok":true'; then
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "ERROR: health check did not return HTTP 200 with {\"ok\":true}"
+          exit 1
+
+      - name: Write job summary
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then ICON="SUCCESS"; else ICON="FAILED"; fi
+          PAGES_URL="${DEPLOYMENT_URL:-Unavailable}"
+          {
+            echo "## AdminWeb Pages Deploy - $ICON"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| **Pages URL** | $PAGES_URL |"
+            if [ -n "$CUSTOM_DOMAIN" ]; then
+              echo "| **Custom Domain** | https://$CUSTOM_DOMAIN |"
+            fi
+            echo "| **API** | /api/* same-origin Pages Function |"
+            echo "| **Branch** | ${{ github.ref_name }} |"
+            echo "| **Commit** | ${{ github.sha }} |"
+            echo "| **Actor** | ${{ github.actor }} |"
+            echo "| **Status** | $STATUS |"
+          } >> "$GITHUB_STEP_SUMMARY"

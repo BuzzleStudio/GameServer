@@ -33,7 +33,7 @@ public class SendUserMailModule
         if (targetUserIds.Count == 0)
             throw new ArgumentException(MailboxError.InvalidInput);
 
-        ValidateRequest(request.Subject, request.Body, request.Attachments);
+        MailSchemaHelper.ValidateEditableMailFields(request.Subject, request.Body, request.Attachments);
 
         var (collection, writeLock) = await CloudSaveHelper.GetCustomDataWithLockAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
         collection ??= new GlobalMailCollection();
@@ -64,7 +64,7 @@ public class SendUserMailModule
 
         try
         {
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, collection, writeLock, _logger);
         }
         catch (Exception ex) when (CloudSaveHelper.IsWriteLockConflict(ex))
         {
@@ -76,24 +76,10 @@ public class SendUserMailModule
             if (freshExisting?.Mail != null)
                 return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = freshExisting.Mail.MessageId, SentAt = freshExisting.Mail.StartTime.ToUniversalTime().ToString("o") });
             freshMails.Add(new GlobalMailPayload { Mail = newMail });
-            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshCollection, freshLock);
+            await CloudSaveHelper.SetCustomDataWithLockAsync(_gameApiClient, _context, MailboxConstants.KeyMailsAll, freshCollection, freshLock, _logger);
         }
 
         return ApiResponse<SendUserMailResponse>.Ok(new SendUserMailResponse { MailId = mailId, SentAt = sentAt });
-    }
-
-    private static void ValidateRequest(string subject, string body, System.Collections.Generic.List<MailAttachment>? attachments)
-    {
-        if (string.IsNullOrWhiteSpace(subject) || subject.Length > MailboxConstants.MaxSubjectLength)
-            throw new ArgumentException(MailboxError.InvalidInput);
-        if (string.IsNullOrWhiteSpace(body) || body.Length > MailboxConstants.MaxBodyLength)
-            throw new ArgumentException(MailboxError.InvalidInput);
-        if (attachments == null) return;
-        foreach (var att in attachments)
-        {
-            if (string.IsNullOrEmpty(att.ItemId) || att.Quantity <= 0 || (att.Type != "currency" && att.Type != "item"))
-                throw new ArgumentException(MailboxError.InvalidInput);
-        }
     }
 
     private static List<string> ResolveTargetUserIds(SendUserMailRequest request)

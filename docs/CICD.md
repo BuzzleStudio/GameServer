@@ -11,6 +11,7 @@ This document covers the automated deployment pipeline that pushes the BackpackA
 3. [Setting Up GitHub Secrets](#3-setting-up-github-secrets)
 4. [Triggering a Deployment Manually](#4-triggering-a-deployment-manually)
 5. [Troubleshooting Common Issues](#5-troubleshooting-common-issues)
+6. [Admin Web (SPA + Proxy)](#6-admin-web-spa--proxy)
 
 ---
 
@@ -200,3 +201,79 @@ For local use: `echo "<SECRET>" | ugs login --service-key-id <KEY_ID> --secret-k
 **Symptom:** Deployment succeeds but `ugs cloud-code modules list` does not show the module.
 
 **Fix:** UGS may take a few seconds to propagate. Wait 30 seconds and re-check manually.
+
+---
+
+## 6. Admin Web (SPA + Pages Function)
+
+The Admin Web is a static browser dashboard for managing in-game mail without the Unity Editor. One workflow deploys a single Cloudflare Pages project: static SPA plus same-origin Pages Function API.
+
+### Workflow
+
+| Workflow | File | Deploy target |
+|---|---|---|
+| Deploy AdminWeb to Cloudflare Pages | `.github/workflows/deploy-adminweb.yml` | Cloudflare Pages deployment URL + `/api/*` Pages Function |
+
+The workflow runs these steps in one job:
+
+1. Install and build `AdminWeb/` with `VITE_BASE=/`.
+2. Sync UGS/proxy token secrets from GitHub secrets into Cloudflare Pages secrets.
+3. Deploy `AdminWeb/dist/` and `AdminWeb/functions/` to Cloudflare Pages project `adminweb`.
+4. Smoke-test `GET <deployment-url>/api/health`, using the URL returned by `wrangler-action`.
+
+### Triggers
+
+The AdminWeb workflow uses the same branch strategy as `deploy.yml` (Cloud Code):
+
+```yaml
+on:
+  push:
+    branches:
+      - staging
+      - 'release/*'
+    paths:
+      - 'AdminWeb/**'
+      - '.github/workflows/deploy-adminweb.yml'
+  workflow_dispatch:
+```
+
+**Note:** Both `staging` and `release/*` publish to the **same Cloudflare Pages project** (`adminweb`). Last deploy wins. This is intentional — the SPA is environment-agnostic; the operator selects the target environment at runtime by entering the environment name and proxy token in the browser.
+
+### Required Secrets and Variables
+
+#### Secrets (GitHub repo → Settings → Secrets and variables → Secrets)
+
+| Secret | Used by | Description |
+|---|---|---|
+| `UNITY_PROJECT_SERVICE_ACCOUNT_KEY` | `deploy-adminweb.yml` (Pages secret) | UGS service-account key ID — set as a **server-side** Pages Function secret; never in the SPA bundle |
+| `UNITY_PROJECT_SERVICE_ACCOUNT_SECRET` | `deploy-adminweb.yml` (Pages secret) | UGS service-account secret — server-side only |
+| `CLOUDFLARE_API_TOKEN` | `deploy-adminweb.yml` | Cloudflare API token with **Pages:Edit** permission |
+| `CLOUDFLARE_ACCOUNT_ID` | `deploy-adminweb.yml` | Cloudflare account ID |
+| `ADMIN_PROXY_TOKEN` | `deploy-adminweb.yml` (Pages secret) | Gate token the operator enters in the browser; the Pages Function validates it server-side |
+
+Optional repo variable:
+
+| Variable | Used by | Description |
+|---|---|---|
+| `CLOUDFLARE_PAGES_PROJECT` | `deploy-adminweb.yml` | Existing Cloudflare Pages project name, e.g. `adminweb-fza`. Required only when auto-select is ambiguous because the account has multiple Pages projects. |
+
+### One-Time Cloudflare Setup
+
+1. Run `wrangler pages project create adminweb`
+   (or create the project in the Cloudflare dashboard under **Workers & Pages**).
+2. Set the production branch to `staging` in the Cloudflare dashboard.
+3. Ensure `CLOUDFLARE_API_TOKEN` has **Pages:Edit** permission.
+4. Set the GitHub repository secrets listed above.
+5. If multiple Pages projects exist, set `CLOUDFLARE_PAGES_PROJECT` to the target project name.
+
+### First Deploy
+
+Push to `staging` or trigger `deploy-adminweb.yml` manually via **Actions → Run workflow**. The workflow syncs secrets, deploys the SPA + API, and smoke-tests `/api/health` in one run.
+
+### Security Model
+
+- **UGS Key/Secret:** held exclusively as Cloudflare Pages secrets — never written to the SPA bundle, never logged.
+- **Operator credential:** the operator enters only the `ADMIN_PROXY_TOKEN` gate token in the browser (memory-only, cleared on logout). The Pages Function validates it with a constant-time comparison before forwarding any request.
+- **Same-origin API:** the browser calls `/api/cloudcode` on the Pages domain, so no public proxy URL or CORS origin variable is needed.
+- **Error responses:** the Pages Function sanitises error messages before returning them to the browser — secrets are redacted even if they somehow appear in an error string.
+- The SPA bundle itself contains no credentials and no secrets — it is safe to inspect.
