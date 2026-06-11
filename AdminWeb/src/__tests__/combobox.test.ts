@@ -84,25 +84,19 @@ function activeOptionValue(): string | null {
 }
 
 /**
- * Opens the list via real DOM .focus() so happy-dom tracks focus state.
- * Subsequent input.focus() calls inside selectOption() are then no-ops.
- *
- * NOTE: implementation bug — openList() on focus uses input.value as filter
- * query (§4.3 says focus should show ALL options). Tests that need to navigate
- * all options use openAndShowAll() as a workaround.
+ * Opens the list via real DOM .focus() — shows ALL options (§4.3 compliant).
+ * Focus handler calls openList('') → no filter applied.
  */
 function openList(): void {
   getInput().focus()  // real DOM focus — sets focus state, fires focus event
 }
 
 /**
- * Opens list then explicitly clears the filter to show all options.
- * Workaround for implementation bug: focus handler passes input.value to
- * openList() instead of '' — violates design §4.3 "focus shows all options".
+ * Alias of openList() — kept for readability in tests that explicitly want
+ * to verify all options are visible after focus.
  */
 function openAndShowAll(): void {
-  getInput().focus()
-  typeInInput('')  // triggers input event → openList('') → renders all options
+  openList()
 }
 
 function keydown(key: string): void {
@@ -166,19 +160,17 @@ describe('mountCombobox — focus opens list', () => {
   })
 })
 
-// ─── BUG: focus filter (design §4.3 violation) ────────────────────────────────
+// ─── Focus shows all options (§4.3) ──────────────────────────────────────────
 
-describe('mountCombobox — [BUG] focus opens filtered list (violates §4.3)', () => {
-  it('[BUG] focus with initialValue set opens filtered list, not all options', () => {
-    // §4.3: focus should show ALL options (no filter applied)
-    // Current impl: openList() on focus uses input.value as query → filters
-    // This is the wrong behavior — fix: change focus handler to call openList('')
+describe('mountCombobox — focus shows full option list (§4.3)', () => {
+  it('focus with initialValue set opens full list, not filtered list', () => {
+    // §4.3: focus should show ALL options regardless of current input value
+    // Fix applied: focus handler calls openList('') → no filter
     mount(OPTIONS_ID_ONLY, 'gem')
     openList()
-    // BUG: shows only ['gem'] because query='gem'. Should show all 3.
     const visible = visibleOptions()
-    expect(visible).toHaveLength(1)  // documents the bug — should be 3
-    expect(visible).toEqual(['gem']) // documents the bug — should be all options
+    expect(visible).toHaveLength(3)            // all options shown
+    expect(visible).toEqual(['gem', 'gold', 'bp_point'])
   })
 })
 

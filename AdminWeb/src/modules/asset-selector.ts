@@ -150,7 +150,7 @@ export function mountCombobox(config: ComboboxConfig): ComboboxHandle {
   }
 
   // Event listeners
-  input.addEventListener('focus', () => { if (!isOpen) openList() })
+  input.addEventListener('focus', () => { if (!isOpen) openList('') })
 
   input.addEventListener('input', () => {
     openList(input.value)
