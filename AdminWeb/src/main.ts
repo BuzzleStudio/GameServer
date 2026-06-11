@@ -62,6 +62,8 @@ import type { ManageTabHandle } from './modules/mail-list'
 import type { ComboboxOption } from './modules/asset-selector'
 import { mountAttachmentEditor } from './modules/attachment-editor'
 import type { AttachmentEditorHandle } from './modules/attachment-editor'
+import { mountImportPanel } from './modules/json-import-dialog'
+import type { ImportPanelHandle } from './modules/json-import-dialog'
 
 // ─── App state ────────────────────────────────────────────────────────────────────
 interface AppState {
@@ -160,6 +162,10 @@ let _manageTabHandle: ManageTabHandle | null = null
 
 // ── Step 4: active send-form attachment editor handle (one at a time) ─────────
 let _sendAttHandle: AttachmentEditorHandle | null = null
+
+// ── Step 5: import panel handles for send forms ────────────────────────────────
+let _globalImportHandle: ImportPanelHandle | null = null
+let _userImportHandle:   ImportPanelHandle | null = null
 
 // ── Step 3: combobox options from generated lookup data ───────────────────────
 const CURRENCY_COMBOBOX_OPTIONS: ComboboxOption[] = CURRENCY_OPTIONS.map(o => ({
@@ -694,7 +700,7 @@ function renderSendGlobalTab(): string {
       </button>
     </div>
   </div>
-  ${importPanelHtml('g')}`
+  <div id="g-import-container"></div>`
 }
 
 // ─── Send Targeted tab ────────────────────────────────────────────────────────────
@@ -738,7 +744,7 @@ function renderSendTargetedTab(): string {
       </button>
     </div>
   </div>
-  ${importPanelHtml('u')}`
+  <div id="u-import-container"></div>`
 }
 
 function ensureInlineAttachmentDrafts(mail: MailRecord): AttachmentDraft[] {
@@ -1110,12 +1116,14 @@ function renderApp() {
     _manageTabHandle = null
     _sendAttHandle?.destroy()
     _sendAttHandle = null
+    _destroySendImportPanels()
     const mp = document.getElementById('manage-panel')
     if (mp) _manageTabHandle = mountManageTab(mp, _buildManageTabDeps())
   } else {
     if (state.activeSendSubTab === 'targeted') renderTargetUserIds()
     _sendAttHandle?.destroy()
     _sendAttHandle = _mountSendAttEditor()
+    _mountSendImportPanels()
   }
 }
 
@@ -1137,6 +1145,7 @@ function refreshMainPanel() {
     // Destroy old handles (drawer persists via manage tab, send att destroyed here)
     _sendAttHandle?.destroy()
     _sendAttHandle = null
+    _destroySendImportPanels()
     _manageTabHandle?.destroy()
     _manageTabHandle = null
     panel.innerHTML = `<div id="manage-panel"></div>`
@@ -1153,6 +1162,7 @@ function refreshMainPanel() {
 
   _sendAttHandle?.destroy()
   _sendAttHandle = null
+  _destroySendImportPanels()
 
   panel.innerHTML = `<div class="tabs">
       <button class="tab-btn ${state.activeSendSubTab === 'global'   ? 'active' : ''}" id="sub-global">Send Global</button>
@@ -1162,6 +1172,55 @@ function refreshMainPanel() {
   attachMainListeners()
   if (state.activeSendSubTab === 'targeted') renderTargetUserIds()
   _sendAttHandle = _mountSendAttEditor()
+  _mountSendImportPanels()
+}
+
+function _destroySendImportPanels() {
+  _globalImportHandle?.destroy(); _globalImportHandle = null
+  _userImportHandle?.destroy();   _userImportHandle   = null
+}
+
+function _mountSendImportPanels() {
+  _destroySendImportPanels()
+  if (state.activeSendSubTab === 'global') {
+    const gc = document.getElementById('g-import-container')
+    if (gc) {
+      _globalImportHandle = mountImportPanel(gc, {
+        prefix:      'g',
+        isConnected,
+        currencyIds: CURRENCY_IDS,
+        itemIds:     ITEM_IDS,
+        ticketIds:   TICKET_IDS,
+        onApply(draft, importWarnings) {
+          applyImportedDraft(draft, 'g')
+          refreshMainPanel()
+          setStatus(
+            `Import applied: "${draft.title}"${importWarnings.length > 0 ? ` (${importWarnings.length} warning(s))` : ''}`,
+            importWarnings.length > 0 ? 'warning' : 'success',
+          )
+        },
+      })
+    }
+  } else {
+    const uc = document.getElementById('u-import-container')
+    if (uc) {
+      _userImportHandle = mountImportPanel(uc, {
+        prefix:      'u',
+        isConnected,
+        currencyIds: CURRENCY_IDS,
+        itemIds:     ITEM_IDS,
+        ticketIds:   TICKET_IDS,
+        onApply(draft, importWarnings) {
+          applyImportedDraft(draft, 'u')
+          refreshMainPanel()
+          setStatus(
+            `Import applied: "${draft.title}"${importWarnings.length > 0 ? ` (${importWarnings.length} warning(s))` : ''}`,
+            importWarnings.length > 0 ? 'warning' : 'success',
+          )
+        },
+      })
+    }
+  }
 }
 
 function _mountSendAttEditor(): AttachmentEditorHandle | null {
@@ -1728,26 +1787,6 @@ function attachMainListeners() {
 
   // User mail lookup
   document.getElementById('m-lookup-user')?.addEventListener('click', () => run(doFetchUserMail))
-
-  // Import panel toggles
-  document.getElementById('g-import-toggle')?.addEventListener('click', () => {
-    state.globalImportExpanded = !state.globalImportExpanded
-    refreshMainPanel()
-  })
-  document.getElementById('u-import-toggle')?.addEventListener('click', () => {
-    state.userImportExpanded = !state.userImportExpanded
-    refreshMainPanel()
-  })
-
-  // Import apply buttons
-  document.getElementById('g-import-apply')?.addEventListener('click', () => {
-    state.globalImportText = (document.getElementById('g-import-textarea') as HTMLTextAreaElement | null)?.value ?? ''
-    doApplyImport('g')
-  })
-  document.getElementById('u-import-apply')?.addEventListener('click', () => {
-    state.userImportText = (document.getElementById('u-import-textarea') as HTMLTextAreaElement | null)?.value ?? ''
-    doApplyImport('u')
-  })
 
   // Pagination
   document.getElementById('pg-prev')?.addEventListener('click', () => {
