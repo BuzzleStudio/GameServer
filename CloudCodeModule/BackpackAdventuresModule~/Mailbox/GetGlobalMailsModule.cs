@@ -30,6 +30,19 @@ public class GetGlobalMailsModule
         if (request.Page < 0 || request.PageSize > MailboxConstants.MaxPageSize)
             throw new ArgumentException(MailboxError.InvalidInput);
 
+        // Admin mode: caller must be a service account. Bypass IsVisibleToPlayer filtering so
+        // targeted mails appear in the result (needed for admin inspection UI).
+        var adminMode = false;
+        if (request.AdminMode)
+        {
+            await AdminAuth.RequireAdminToolAsync(
+                _gameApiClient, _context,
+                request.AdminToken ?? string.Empty,
+                request.OperatorId ?? string.Empty,
+                _logger);
+            adminMode = true;
+        }
+
         var pageSize = request.PageSize <= 0 ? MailboxConstants.DefaultPageSize : request.PageSize;
         var stateTask = CloudSaveHelper.GetPlayerDataAsync<PlayerGlobalMailState>(_gameApiClient, _context, playerId, MailboxConstants.KeyGlobalState);
         var mailsTask = CloudSaveHelper.GetCustomDataAsync<GlobalMailCollection>(_gameApiClient, _context, MailboxConstants.KeyMailsAll);
@@ -58,7 +71,8 @@ public class GetGlobalMailsModule
         {
             if (payload?.Mail == null) continue;
             if (!payload.Mail.IsAvailable) continue;
-            if (!MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId)) continue;
+            // In admin mode skip visibility check so targeted mails are included.
+            if (!adminMode && !MailSchemaHelper.IsVisibleToPlayer(payload.Mail, playerId)) continue;
             var metadata = MailSchemaHelper.FindMetadata(state, payload.Mail.MessageId);
             if (metadata?.IsDelete == true) continue;
             visible.Add((payload, metadata, payload.Mail.StartTime.ToUniversalTime().ToString("o")));

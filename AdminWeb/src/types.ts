@@ -48,6 +48,10 @@ export interface AttachmentDraft {
   payoutAmount: number;
   chance: number;
   itemRows: ItemSpecificAsset[];
+  /** Set when a Ticket attachment's PayoutAssetId was a plain string (legacy format). UI-only, never serialised. */
+  _legacyWarning?: string;
+  /** Set after import if the ID is not in the known ID lists. UI-only, never serialised. */
+  _unknownIdWarning?: string;
 }
 
 // ── SendGlobalMail ────────────────────────────────────────────────────────────────
@@ -74,6 +78,40 @@ export interface SendGlobalMailResponse {
 export interface GetGlobalMailsRequest {
   page: number;
   pageSize: number;
+  /** When true, caller must be a service-account; targeted mails are included. */
+  adminMode?: boolean;
+  operatorId?: string;
+  adminToken?: string | null;
+}
+
+// ── GetUserMailsAdmin ─────────────────────────────────────────────────────────────
+export interface GetUserMailsAdminRequest {
+  targetPlayerId: string;
+  page: number;
+  pageSize: number;
+  operatorId: string;
+  adminToken: string;
+}
+
+// ── Mail scope (for display badges) ──────────────────────────────────────────────
+export type MailScope = 'Global' | 'Global-targeted' | 'User'
+
+// ── Export envelope (schemaVersion 1) ────────────────────────────────────────────
+export interface MailExportJson {
+  schemaVersion: 1;
+  scope: MailScope;
+  sourceEnv: string;
+  sourceMailId: string;   // server-generated ID — top-level metadata, not round-tripped into mail payload
+  exportedAt: string;
+  mail: {
+    title: string;
+    content: string;
+    endTime: string | null;
+    targetUserIds: string[];
+    attachments: MailAttachmentInfo[];
+    // startTime intentionally omitted — server re-stamps on every send
+    // messageId intentionally omitted — lives in sourceMailId above
+  };
 }
 
 // Cloud Save / server-side attachment info (Payout shape)

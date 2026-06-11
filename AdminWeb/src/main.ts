@@ -11,6 +11,7 @@ import {
   ApiError,
   apiSendGlobalMail,
   apiGetGlobalMails,
+  apiGetUserMailsAdmin,
   apiSetMailEndTime,
   apiUpdateGlobalMail,
   apiExpireMail,
@@ -38,8 +39,14 @@ import type {
   ItemSpecificAsset,
   MailRecord,
   MailAttachment,
+  MailScope,
   RarityValue,
 } from './types'
+
+import { CURRENCY_IDS, ITEM_IDS, TICKET_IDS } from './generated/lookup-data'
+import { buildMailExportJson } from './mail-export'
+import { validateAndImport } from './mail-import'
+import type { ImportedDraft } from './mail-import'
 
 // ─── App state ────────────────────────────────────────────────────────────────────
 interface AppState {
@@ -79,15 +86,29 @@ interface AppState {
   manageUseEndTime: boolean
   manageEndDate:    string
   manageEndTime:    string
-  // Mail list
+  // Mail list (global)
   mailList:       MailRecord[] | null
   mailPage:       number
   mailTotalCount: number
+  globalMailError: string
   // Inline end-time editing per mail row (by MessageId)
   inlineEndDate: Record<string, string>
   inlineEndTime: Record<string, string>
   inlineAttachments: Record<string, AttachmentDraft[]>
   inlineTargetUserIds: Record<string, string[]>
+  // User Mail Lookup
+  userMailLookupPlayerId: string
+  userMailList:  MailRecord[] | null
+  userMailError: string
+  // Import / paste panels (Send Global + Send Targeted tabs)
+  globalImportExpanded: boolean
+  globalImportText:     string
+  globalImportErrors:   string[]
+  globalImportWarnings: string[]
+  userImportExpanded:   boolean
+  userImportText:       string
+  userImportErrors:     string[]
+  userImportWarnings:   string[]
   // Status
   busy:        boolean
   statusMsg:   string
@@ -149,10 +170,22 @@ const state: AppState = {
   mailList:       null,
   mailPage:       0,
   mailTotalCount: 0,
+  globalMailError: '',
   inlineEndDate:  {},
   inlineEndTime:  {},
   inlineAttachments: {},
   inlineTargetUserIds: {},
+  userMailLookupPlayerId: '',
+  userMailList:  null,
+  userMailError: '',
+  globalImportExpanded: false,
+  globalImportText:     '',
+  globalImportErrors:   [],
+  globalImportWarnings: [],
+  userImportExpanded:   false,
+  userImportText:       '',
+  userImportErrors:     [],
+  userImportWarnings:   [],
   busy:       false,
   statusMsg:  '',
   statusType: '',
@@ -207,16 +240,25 @@ function isItemSpecificAssetType(assetType: string): boolean {
   return assetType.trim().toLowerCase() === 'itemspecificasset'
 }
 
+function isTicketType(assetType: string): boolean {
+  return assetType.trim().toLowerCase() === 'ticket'
+}
+
+/** Returns true for types that use a JSON object as PayoutAssetId (not a plain string). */
+function isJsonObjectType(assetType: string): boolean {
+  return isItemSpecificAssetType(assetType) || isTicketType(assetType)
+}
+
 function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
   const result: MailAttachment[] = []
   for (const d of drafts) {
-    const isISA = isItemSpecificAssetType(d.assetType)
-    if (!isISA && !d.payoutAssetId.trim()) continue
+    const isJsonObj = isJsonObjectType(d.assetType)
+    if (!isJsonObj && !d.payoutAssetId.trim()) continue
     if (d.payoutAmount <= 0) throw new Error(`Attachment: PayoutAmount must be > 0`)
     if (d.chance <= 0) throw new Error(`Attachment: Chance must be > 0`)
 
     let payoutAssetId: string
-    if (isISA) {
+    if (isJsonObj) {
       const row = d.itemRows?.[0] ?? defaultItemRow()
       payoutAssetId = JSON.stringify({
         BlueprintId: row.BlueprintId,
@@ -261,15 +303,44 @@ function parseItemRow(payoutAssetId: string): ItemSpecificAsset {
 }
 
 function attachmentInfoToDraft(att: ReturnType<typeof mailAttachments>[number]): AttachmentDraft {
-  const assetType = att.AssetType ?? att.assetType ?? 'Currency'
+  const assetType     = att.AssetType ?? att.assetType ?? 'Currency'
   const payoutAssetId = att.PayoutAssetId ?? att.payoutAssetId ?? ''
-  const isISA = isItemSpecificAssetType(assetType)
+  const isISA    = isItemSpecificAssetType(assetType)
+  const isTicket = isTicketType(assetType)
+
+  if (isISA || isTicket) {
+    // Attempt JSON parse; if it fails, show legacy marker for Ticket
+    try {
+      JSON.parse(payoutAssetId)  // validate before passing to parseItemRow
+      return {
+        payoutAssetId: '',
+        assetType,
+        payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
+        chance: att.Chance ?? att.chance ?? 1,
+        itemRows: [parseItemRow(payoutAssetId)],
+      }
+    } catch {
+      // Legacy plain-string Ticket: keep BlueprintId as the plain value
+      const legacyWarning = isTicket
+        ? `⚠ legacy format: plain-string PayoutAssetId "${payoutAssetId}"`
+        : undefined
+      return {
+        payoutAssetId: '',
+        assetType,
+        payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
+        chance: att.Chance ?? att.chance ?? 1,
+        itemRows: [{ ...defaultItemRow(), BlueprintId: payoutAssetId }],
+        _legacyWarning: legacyWarning,
+      }
+    }
+  }
+
   return {
-    payoutAssetId: isISA ? '' : payoutAssetId,
+    payoutAssetId,
     assetType,
     payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
     chance: att.Chance ?? att.chance ?? 1,
-    itemRows: isISA ? [parseItemRow(payoutAssetId)] : [defaultItemRow()],
+    itemRows: [defaultItemRow()],
   }
 }
 
@@ -342,13 +413,13 @@ function raritySelectHtml(id: string, value: RarityValue): string {
   ).join('')}</select>`
 }
 
-// ─── Single item row editor HTML (ItemSpecificAsset = one object, not a list) ─
-function itemRowHtml(prefix: string, attIdx: number, r: ItemSpecificAsset): string {
+// ─── Single item row editor HTML (ItemSpecificAsset / Ticket = one object, not a list) ─
+function itemRowHtml(prefix: string, attIdx: number, r: ItemSpecificAsset, bpDatalist: string): string {
   return `
     <table class="item-rows-compact">
       <thead><tr><th>BlueprintId</th><th>Lvl</th><th>Rarity</th><th>Init</th><th>Source</th></tr></thead>
       <tbody><tr>
-        <td><input type="text" id="${prefix}-att-${attIdx}-row-bp-0" value="${esc(r.BlueprintId)}" placeholder="blueprint_id" /></td>
+        <td><input type="text" id="${prefix}-att-${attIdx}-row-bp-0" value="${esc(r.BlueprintId)}" placeholder="blueprint_id" list="${bpDatalist}" /></td>
         <td><input type="number" id="${prefix}-att-${attIdx}-row-cl-0" value="${r.CurrentLevel}" min="1" /></td>
         <td>${raritySelectHtml(`${prefix}-att-${attIdx}-row-rar-0`, r.Rarity)}</td>
         <td><input type="number" id="${prefix}-att-${attIdx}-row-il-0" value="${r.InitialLevel}" min="1" /></td>
@@ -366,8 +437,28 @@ function renderAttachmentList(listId: string, prefix: string, drafts: Attachment
     return
   }
   container.innerHTML = drafts.map((d, i) => {
-    const isISA = isItemSpecificAssetType(d.assetType)
+    const isISA    = isItemSpecificAssetType(d.assetType)
+    const isTicket = isTicketType(d.assetType)
+    const isJsonObj = isISA || isTicket
     const rows = d.itemRows ?? [defaultItemRow()]
+
+    // Datalist for PayoutAssetId plain-string input
+    const plainDatalist = isTicketType(d.assetType)
+      ? '' // Ticket uses JSON object — no plain datalist
+      : d.assetType.toLowerCase() === 'currency' ? 'list="currency-ids-list"'
+      : d.assetType.toLowerCase() === 'item' ? 'list="item-ids-list"'
+      : ''
+
+    // Datalist for BlueprintId in JSON-object editor
+    const bpDatalist = isTicket ? 'ticket-ids-list' : 'item-ids-list'
+
+    const legacyBadge = d._legacyWarning
+      ? `<span style="color:orange;font-size:11px;margin-left:4px" title="${esc(d._legacyWarning)}">⚠ legacy format</span>`
+      : ''
+    const unknownBadge = d._unknownIdWarning
+      ? `<span style="color:orange;font-size:11px;margin-left:4px" title="${esc(d._unknownIdWarning)}">${esc(d._unknownIdWarning)}</span>`
+      : ''
+
     return `
     <div class="attachment-row" id="${prefix}-att-${i}" style="display:block">
       <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:8px">
@@ -386,20 +477,21 @@ function renderAttachmentList(listId: string, prefix: string, drafts: Attachment
         </div>
         <button class="btn btn-danger btn-sm att-remove" data-prefix="${prefix}" data-idx="${i}" style="margin-bottom:2px">Remove</button>
       </div>
-      <div id="${prefix}-att-plainid-${i}" ${isISA ? 'style="display:none"' : ''}>
+      ${legacyBadge}${unknownBadge}
+      <div id="${prefix}-att-plainid-${i}" ${isJsonObj ? 'style="display:none"' : ''}>
         <div class="form-group">
           <label>PayoutAssetId</label>
-          <input type="text" id="${prefix}-att-id-${i}" value="${esc(d.payoutAssetId)}" placeholder="e.g. mine_1" />
+          <input type="text" id="${prefix}-att-id-${i}" value="${esc(d.payoutAssetId)}" placeholder="e.g. mine_1" ${plainDatalist} />
         </div>
       </div>
-      <div id="${prefix}-att-item-${i}" ${!isISA ? 'style="display:none"' : ''}>
-        <div style="font-size:12px;font-weight:bold;margin:4px 0 2px">ItemSpecificAsset (serialized as JSON object)</div>
-        ${itemRowHtml(prefix, i, rows[0] ?? defaultItemRow())}
+      <div id="${prefix}-att-item-${i}" ${!isJsonObj ? 'style="display:none"' : ''}>
+        <div style="font-size:12px;font-weight:bold;margin:4px 0 2px">${isTicket ? 'Ticket (serialized as JSON object)' : 'ItemSpecificAsset (serialized as JSON object)'}</div>
+        ${itemRowHtml(prefix, i, rows[0] ?? defaultItemRow(), bpDatalist)}
       </div>
     </div>`
   }).join('')
 
-  drafts.forEach((_, i) => {
+  drafts.forEach((d, i) => {
     const slider = document.getElementById(`${prefix}-att-chance-${i}`) as HTMLInputElement
     const label  = document.getElementById(`${prefix}-att-chance-lbl-${i}`)
     if (slider && label) slider.oninput = () => { label.textContent = parseFloat(slider.value).toFixed(2) }
@@ -407,11 +499,20 @@ function renderAttachmentList(listId: string, prefix: string, drafts: Attachment
     const typeInput = document.getElementById(`${prefix}-att-type-${i}`) as HTMLInputElement | null
     if (typeInput) {
       typeInput.oninput = () => {
-        const isNowISA = isItemSpecificAssetType(typeInput.value)
+        const nowIsJson = isJsonObjectType(typeInput.value)
         const plainDiv = document.getElementById(`${prefix}-att-plainid-${i}`)
-        const itemDiv = document.getElementById(`${prefix}-att-item-${i}`)
-        if (plainDiv) plainDiv.style.display = isNowISA ? 'none' : ''
-        if (itemDiv) itemDiv.style.display = isNowISA ? '' : 'none'
+        const itemDiv  = document.getElementById(`${prefix}-att-item-${i}`)
+        if (plainDiv) plainDiv.style.display = nowIsJson ? 'none' : ''
+        if (itemDiv)  itemDiv.style.display  = nowIsJson ? '' : 'none'
+        // Update BlueprintId datalist when switching between Ticket and ISA
+        const bpInput = document.getElementById(`${prefix}-att-${i}-row-bp-0`) as HTMLInputElement | null
+        if (bpInput) bpInput.setAttribute('list', isTicketType(typeInput.value) ? 'ticket-ids-list' : 'item-ids-list')
+        // Update plain id datalist
+        const plainInput = document.getElementById(`${prefix}-att-id-${i}`) as HTMLInputElement | null
+        if (plainInput) {
+          const lt = typeInput.value.toLowerCase()
+          plainInput.setAttribute('list', lt === 'currency' ? 'currency-ids-list' : lt === 'item' ? 'item-ids-list' : '')
+        }
       }
     }
   })
@@ -430,15 +531,15 @@ function syncItemRowFromDom(prefix: string, attIdx: number, fallback: ItemSpecif
 function syncAttachmentsFromDom(prefix: string, drafts: AttachmentDraft[]): AttachmentDraft[] {
   return drafts.map((d, i) => {
     const assetType = (document.getElementById(`${prefix}-att-type-${i}`) as HTMLInputElement | null)?.value ?? d.assetType
-    const isISA = isItemSpecificAssetType(assetType)
+    const isJsonObj = isJsonObjectType(assetType)
     return {
-      payoutAssetId: isISA ? '' : val(`${prefix}-att-id-${i}`),
+      payoutAssetId: isJsonObj ? '' : val(`${prefix}-att-id-${i}`),
       assetType,
       payoutAmount: parseInt(val(`${prefix}-att-amt-${i}`), 10) || d.payoutAmount,
       chance: parseFloat(
         (document.getElementById(`${prefix}-att-chance-${i}`) as HTMLInputElement | null)?.value ?? String(d.chance),
       ),
-      itemRows: isISA ? [syncItemRowFromDom(prefix, i, d.itemRows?.[0] ?? defaultItemRow())] : [defaultItemRow()],
+      itemRows: isJsonObj ? [syncItemRowFromDom(prefix, i, d.itemRows?.[0] ?? defaultItemRow())] : [defaultItemRow()],
     }
   })
 }
@@ -485,6 +586,41 @@ function endTimeEditorHtml(prefix: string, useEndTime: boolean, endDate: string,
   </div>`
 }
 
+// ─── Import / paste panel ─────────────────────────────────────────────────────────
+function importPanelHtml(prefix: 'g' | 'u'): string {
+  const expanded = prefix === 'g' ? state.globalImportExpanded : state.userImportExpanded
+  const text     = prefix === 'g' ? state.globalImportText     : state.userImportText
+  const errors   = prefix === 'g' ? state.globalImportErrors   : state.userImportErrors
+  const warnings = prefix === 'g' ? state.globalImportWarnings : state.userImportWarnings
+
+  const errorHtml = errors.length > 0
+    ? `<div class="alert alert-error" style="margin-top:6px;font-size:12px">${errors.map(e => esc(e)).join('<br>')}</div>`
+    : ''
+  const warnHtml = warnings.length > 0
+    ? `<div class="alert alert-warning" style="margin-top:4px;font-size:12px">${warnings.map(w => esc(w)).join('<br>')}</div>`
+    : ''
+
+  return `
+  <div class="card" style="margin-top:8px">
+    <div style="display:flex;align-items:center;gap:8px;cursor:pointer" id="${prefix}-import-toggle">
+      <span style="font-size:13px;font-weight:bold">${expanded ? '▼' : '►'} 📋 Paste from JSON (import draft)</span>
+    </div>
+    ${expanded ? `
+    <div style="margin-top:8px">
+      <textarea id="${prefix}-import-textarea" rows="6"
+        style="width:100%;font-size:11px;font-family:monospace;resize:vertical"
+        placeholder='Paste exported mail JSON here ({"schemaVersion":1,"mail":{...}})'>${esc(text)}</textarea>
+      ${errorHtml}${warnHtml}
+      <div class="btn-row" style="margin-top:6px">
+        <button class="btn btn-secondary btn-sm" id="${prefix}-import-apply" ${!isConnected() ? 'disabled' : ''}>
+          Apply as Draft
+        </button>
+        <small style="color:var(--text-dim);font-size:11px">Import fills the form only — does NOT send automatically.</small>
+      </div>
+    </div>` : ''}
+  </div>`
+}
+
 // ─── Send Global tab ──────────────────────────────────────────────────────────────
 function renderSendGlobalTab(): string {
   return `
@@ -521,7 +657,8 @@ function renderSendGlobalTab(): string {
         ${state.busy ? '<span class="spinner"></span>' : ''} Send Global Mail
       </button>
     </div>
-  </div>`
+  </div>
+  ${importPanelHtml('g')}`
 }
 
 // ─── Send Targeted tab ────────────────────────────────────────────────────────────
@@ -565,7 +702,8 @@ function renderSendTargetedTab(): string {
         ${state.busy ? '<span class="spinner"></span>' : ''} Send Targeted Mail
       </button>
     </div>
-  </div>`
+  </div>
+  ${importPanelHtml('u')}`
 }
 
 function ensureInlineAttachmentDrafts(mail: MailRecord): AttachmentDraft[] {
@@ -582,21 +720,28 @@ function renderInlineAttachments(mail: MailRecord, idKey: string): string {
   const rows = drafts.length === 0
     ? '<div class="empty" style="padding:8px">No attachments.</div>'
     : drafts.map((d, i) => {
-        const isISA = isItemSpecificAssetType(d.assetType)
+        const isISA    = isItemSpecificAssetType(d.assetType)
+        const isTicket = isTicketType(d.assetType)
+        const isJsonObj = isISA || isTicket
         const itemRows = d.itemRows ?? [defaultItemRow()]
-        const itemRowsHtmlStr = isISA ? itemRowHtml(`mia-${idKey}`, i, itemRows[0] ?? defaultItemRow()) : ''
+        const bpDatalist = isTicket ? 'ticket-ids-list' : 'item-ids-list'
+        const itemRowsHtmlStr = isJsonObj ? itemRowHtml(`mia-${idKey}`, i, itemRows[0] ?? defaultItemRow(), bpDatalist) : ''
+        const legacyBadge = d._legacyWarning
+          ? `<span style="color:orange;font-size:10px" title="${esc(d._legacyWarning)}">⚠ legacy</span>`
+          : ''
         return `
       <div class="inline-att-row" style="flex-direction:column;align-items:stretch">
         <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
           <input type="text" id="mia-type-${idKey}-${i}" list="asset-type-list" value="${esc(d.assetType)}" style="width:130px" placeholder="AssetType" />
           <input type="number" id="mia-amt-${idKey}-${i}" value="${d.payoutAmount}" min="1" title="Amount" style="width:56px" />
           <input type="number" id="mia-chance-${idKey}-${i}" value="${d.chance}" min="0.01" max="1" step="0.01" title="Chance" style="width:56px" />
+          ${legacyBadge}
           <button class="btn btn-danger btn-sm inline-att-remove" data-mail-id="${esc(id)}" data-id-key="${idKey}" data-idx="${i}" ${state.busy ? 'disabled' : ''}>✕</button>
         </div>
-        <div id="mia-plainid-${idKey}-${i}" ${isISA ? 'style="display:none"' : ''}>
+        <div id="mia-plainid-${idKey}-${i}" ${isJsonObj ? 'style="display:none"' : ''}>
           <input type="text" id="mia-id-${idKey}-${i}" value="${esc(d.payoutAssetId)}" placeholder="asset id" style="width:100%;margin-top:4px" />
         </div>
-        <div id="mia-item-${idKey}-${i}" ${!isISA ? 'style="display:none"' : ''}>
+        <div id="mia-item-${idKey}-${i}" ${!isJsonObj ? 'style="display:none"' : ''}>
           ${itemRowsHtmlStr}
         </div>
       </div>`
@@ -611,12 +756,12 @@ function syncInlineAttachmentsFromDom(mailIdValue: string, idKey: string): Attac
   const drafts = state.inlineAttachments[mailIdValue] ?? []
   state.inlineAttachments[mailIdValue] = drafts.map((d, i) => {
     const assetType = (document.getElementById(`mia-type-${idKey}-${i}`) as HTMLInputElement | null)?.value ?? d.assetType
-    const isISA = isItemSpecificAssetType(assetType)
-    const syncedRows: ItemSpecificAsset[] = isISA
+    const isJsonObj = isJsonObjectType(assetType)
+    const syncedRows: ItemSpecificAsset[] = isJsonObj
       ? [syncItemRowFromDom(`mia-${idKey}`, i, d.itemRows?.[0] ?? defaultItemRow())]
       : [defaultItemRow()]
     return {
-      payoutAssetId: isISA ? '' : val(`mia-id-${idKey}-${i}`),
+      payoutAssetId: isJsonObj ? '' : val(`mia-id-${idKey}-${i}`),
       assetType,
       payoutAmount: parseInt(val(`mia-amt-${idKey}-${i}`), 10) || d.payoutAmount,
       chance: parseFloat(val(`mia-chance-${idKey}-${i}`)) || d.chance,
@@ -657,17 +802,51 @@ function syncInlineTargetUserIdsFromDom(mailIdValue: string, idKey: string): str
   return state.inlineTargetUserIds[mailIdValue]
 }
 
+// ─── Scope badge ──────────────────────────────────────────────────────────────────
+function getScopeLabel(m: MailRecord, source: 'global' | 'user'): MailScope {
+  if (source === 'user') return 'User'
+  const targets = mailTargetUsers(m)
+  return targets.length > 0 ? 'Global-targeted' : 'Global'
+}
+
+function scopeBadgeHtml(scope: MailScope): string {
+  const colors: Record<MailScope, string> = {
+    'Global':          'background:#2d6a4f;color:#fff',
+    'Global-targeted': 'background:#b5451b;color:#fff',
+    'User':            'background:#5a3e85;color:#fff',
+  }
+  return `<span style="${colors[scope]};padding:2px 6px;border-radius:3px;font-size:10px;white-space:nowrap">${scope}</span>`
+}
+
 // ─── Mail list table ──────────────────────────────────────────────────────────────
-function renderMailRow(m: MailRecord): string {
+function renderMailRow(m: MailRecord, source: 'global' | 'user' = 'global', readOnly = false): string {
   const id    = mailId(m)
   const endT  = mailEndTime(m)
   const idKey = id.replace(/[^a-z0-9]/gi, '_')
   const ied   = state.inlineEndDate[id] ?? (endT ? endT.substring(0, 10) : '')
   const iet   = state.inlineEndTime[id] ?? (endT ? endT.substring(11, 16) : '')
+  const scope = getScopeLabel(m, source)
+
+  if (readOnly) {
+    // Read-only row for user mail lookup (no edit actions)
+    return `
+  <tr>
+    <td><div class="mail-id">${esc(id)}</div></td>
+    <td>${scopeBadgeHtml(scope)}</td>
+    <td>${esc(mailTitle(m))}</td>
+    <td>${esc(mailContent(m))}</td>
+    <td>${esc(mailStartTime(m))}</td>
+    <td>${esc(endT ?? 'none')}</td>
+    <td class="actions-cell">
+      <button class="btn btn-ghost btn-sm copy-mail-json" data-mail-id="${esc(id)}" data-source="${source}" title="Copy as JSON">📋 Copy</button>
+    </td>
+  </tr>`
+  }
 
   return `
   <tr>
     <td><div class="mail-id">${esc(id)}</div></td>
+    <td>${scopeBadgeHtml(scope)}</td>
     <td><input type="text" id="mt-${idKey}" value="${esc(mailTitle(m))}" maxlength="128" /></td>
     <td><textarea id="mc-${idKey}" maxlength="1024">${esc(mailContent(m))}</textarea></td>
     <td>${esc(mailStartTime(m))}</td>
@@ -682,6 +861,7 @@ function renderMailRow(m: MailRecord): string {
     <td>${renderInlineTargetUserIds(m, idKey)}</td>
     <td>${renderInlineAttachments(m, idKey)}</td>
     <td class="actions-cell">
+      <button class="btn btn-ghost btn-sm copy-mail-json" data-mail-id="${esc(id)}" data-source="${source}" title="Copy as JSON">📋</button>
       <button class="btn btn-secondary btn-sm save-mail" data-mail-id="${esc(id)}" data-id-key="${idKey}" ${!isConnected() || state.busy ? 'disabled' : ''}>Save</button>
       <button class="btn btn-ghost btn-sm expire-mail" data-mail-id="${esc(id)}" ${!isConnected() || state.busy ? 'disabled' : ''}>Expire</button>
       <button class="btn btn-danger btn-sm del-mail"   data-mail-id="${esc(id)}" ${!isConnected() || state.busy ? 'disabled' : ''}>Delete</button>
@@ -700,7 +880,10 @@ function renderManageTab(): string {
 
   let tableHtml = ''
   if (mails === null) {
-    tableHtml = '<div class="empty">Click "Load Mails" to fetch global mails.</div>'
+    tableHtml = `<div class="empty">Click "Load All Global Mails" to fetch.</div>`
+    if (state.globalMailError) {
+      tableHtml += `<div class="alert alert-error" style="margin-top:8px">${esc(state.globalMailError)}</div>`
+    }
   } else if (mails.length === 0) {
     tableHtml = '<div class="empty">No mails found.</div>'
   } else {
@@ -708,10 +891,10 @@ function renderManageTab(): string {
     <div class="mail-table-wrap">
       <table class="mail-table">
         <thead><tr>
-          <th>Message ID</th><th>Title</th><th>Content</th>
+          <th>Message ID</th><th>Scope</th><th>Title</th><th>Content</th>
           <th>Start Time</th><th>End Time / Set New</th><th>Target Users</th><th>Attachments</th><th>Actions</th>
         </tr></thead>
-        <tbody id="mail-tbody">${mails.map(renderMailRow).join('')}</tbody>
+        <tbody id="mail-tbody">${mails.map(m => renderMailRow(m, 'global')).join('')}</tbody>
       </table>
     </div>
     <div class="pager">
@@ -721,15 +904,49 @@ function renderManageTab(): string {
     </div>`
   }
 
+  // ── User Mail Lookup ──────────────────────────────────────────────────────────
+  let userMailHtml = ''
+  if (state.userMailError) {
+    userMailHtml = `<div class="alert alert-error" style="margin-top:8px">${esc(state.userMailError)}</div>`
+  } else if (state.userMailList === null) {
+    userMailHtml = '<div class="empty" style="font-size:12px">Enter a Player ID above and click Fetch.</div>'
+  } else if (state.userMailList.length === 0) {
+    userMailHtml = '<div class="empty">No user mails found for this player.</div>'
+  } else {
+    userMailHtml = `
+    <div class="mail-table-wrap" style="margin-top:8px">
+      <table class="mail-table">
+        <thead><tr>
+          <th>Message ID</th><th>Scope</th><th>Title</th><th>Content</th><th>Start Time</th><th>End Time</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="user-mail-tbody">${state.userMailList.map(m => renderMailRow(m, 'user', true)).join('')}</tbody>
+      </table>
+    </div>`
+  }
+
   return `
   <div class="card">
-    <div class="card-title">📋 Get Global Mails</div>
+    <div class="card-title">📋 Load All Global Mails (admin mode)</div>
     <div style="display:flex;gap:8px;align-items:flex-end">
       <button class="btn btn-secondary" id="m-load" ${!isConnected() || state.busy ? 'disabled' : ''}>
-        ${state.busy ? '<span class="spinner"></span>' : '🔄'} Load All Mails
+        ${state.busy ? '<span class="spinner"></span>' : '🔄'} Load All Global Mails
       </button>
     </div>
     <div style="margin-top:12px">${tableHtml}</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🔍 User Mail Lookup</div>
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <div class="form-group" style="flex:1;margin-bottom:0">
+        <label>Player ID</label>
+        <input type="text" id="user-lookup-id" value="${esc(state.userMailLookupPlayerId)}" placeholder="player UUID" />
+      </div>
+      <button class="btn btn-secondary" id="m-lookup-user" ${!isConnected() || state.busy ? 'disabled' : ''}>
+        ${state.busy ? '<span class="spinner"></span>' : '🔍'} Fetch User Mail
+      </button>
+    </div>
+    <div style="margin-top:8px">${userMailHtml}</div>
   </div>
 
   <div class="card">
@@ -818,6 +1035,11 @@ function renderApp() {
       ${sendTabHtml}`
     : renderManageTab()
 
+  // Build ID datalist options (rendered once per page)
+  const currencyOptions = CURRENCY_IDS.map(id => `<option value="${esc(id)}"></option>`).join('')
+  const itemOptions     = ITEM_IDS.map(id => `<option value="${esc(id)}"></option>`).join('')
+  const ticketOptions   = TICKET_IDS.map(id => `<option value="${esc(id)}"></option>`).join('')
+
   el<HTMLDivElement>('app').innerHTML = `
   <datalist id="asset-type-list">
     <option value="Currency"></option>
@@ -825,6 +1047,9 @@ function renderApp() {
     <option value="Ticket"></option>
     <option value="ItemSpecificAsset"></option>
   </datalist>
+  <datalist id="currency-ids-list">${currencyOptions}</datalist>
+  <datalist id="item-ids-list">${itemOptions}</datalist>
+  <datalist id="ticket-ids-list">${ticketOptions}</datalist>
   <header class="app-header">
     <span id="conn-dot" class="status-dot"></span>
     <h1>Admin Mail</h1>
@@ -999,6 +1224,7 @@ async function doSendGlobalMail(targeted = false) {
 async function doLoadMails(resetPage = false, showStatus = true) {
   const args = resolveProxyArgs()
   if (resetPage) state.mailPage = 0
+  state.globalMailError = ''
   const all: MailRecord[] = []
   let page = 0
   let hasMore = true
@@ -1006,7 +1232,11 @@ async function doLoadMails(resetPage = false, showStatus = true) {
 
   while (hasMore) {
     const { data, rawResponse } = await apiGetGlobalMails(args, {
-      page, pageSize: FETCH_PAGE_SIZE,
+      page,
+      pageSize: FETCH_PAGE_SIZE,
+      adminMode: true,
+      operatorId: state.operatorId,
+      adminToken: null,
     })
     const mails = data.Mails ?? data.mails ?? []
     all.push(...mails)
@@ -1031,6 +1261,41 @@ async function doLoadMails(resetPage = false, showStatus = true) {
 
 async function refreshLoadedMails() {
   if (state.mailList !== null) await doLoadMails(false, false)
+}
+
+async function doFetchUserMail() {
+  const args      = resolveProxyArgs()
+  const playerId  = (document.getElementById('user-lookup-id') as HTMLInputElement | null)?.value?.trim() ?? ''
+  state.userMailLookupPlayerId = playerId
+
+  if (!playerId) throw new Error('Player ID is required for user mail lookup.')
+
+  state.userMailList  = null
+  state.userMailError = ''
+
+  const all: MailRecord[] = []
+  let page = 0
+  let hasMore = true
+  let lastRawResponse = ''
+
+  while (hasMore) {
+    const { data, rawResponse } = await apiGetUserMailsAdmin(args, {
+      targetPlayerId: playerId,
+      page,
+      pageSize: FETCH_PAGE_SIZE,
+      operatorId: state.operatorId,
+      adminToken: '',
+    })
+    const mails = data.Mails ?? data.mails ?? []
+    all.push(...mails)
+    hasMore = data.HasMore ?? data.hasMore ?? false
+    lastRawResponse = rawResponse
+    page++
+    if (page >= MAX_FETCH_PAGES) break
+  }
+
+  state.userMailList = all
+  setStatus(`GetUserMailsAdmin: loaded ${all.length} user mails for ${playerId}`, 'success', lastRawResponse)
 }
 
 async function doUpdateGlobalMail(mailIdArg: string, idKey: string) {
@@ -1113,6 +1378,117 @@ async function doPurgeExpired() {
   })
   setStatus(`PurgeExpired: purgedCount=${data.purgedCount ?? 0} at ${data.purgedAt ?? '-'}`, 'success', rawResponse)
   await refreshLoadedMails()
+}
+
+// ─── Copy mail as JSON ────────────────────────────────────────────────────────────
+function findMailById(mailIdValue: string, source: 'global' | 'user'): MailRecord | undefined {
+  const list = source === 'user' ? state.userMailList : state.mailList
+  return list?.find(m => mailId(m) === mailIdValue)
+}
+
+async function doCopyMailAsJson(mailIdValue: string, source: 'global' | 'user') {
+  const m = findMailById(mailIdValue, source)
+  if (!m) throw new Error(`Mail not found: ${mailIdValue}`)
+
+  const scope: MailScope = getScopeLabel(m, source)
+  const exported = buildMailExportJson(m, scope, state.environment, new Date().toISOString())
+  const json = JSON.stringify(exported, null, 2)
+
+  try {
+    await navigator.clipboard.writeText(json)
+    setStatus(`Copied mail ${mailIdValue} to clipboard (schemaVersion:1)`, 'success')
+  } catch {
+    // Fallback: show in status bar for manual copy
+    setStatus(`Clipboard unavailable — copy the JSON below manually`, 'warning', json)
+  }
+}
+
+// ─── Import (paste) panel actions ────────────────────────────────────────────────
+function doApplyImport(prefix: 'g' | 'u') {
+  const textarea = document.getElementById(`${prefix}-import-textarea`) as HTMLTextAreaElement | null
+  const raw = textarea?.value?.trim() ?? ''
+
+  // Size limit before parsing
+  const maxBytes = 256 * 1024
+  if (raw.length > maxBytes) {
+    if (prefix === 'g') {
+      state.globalImportErrors = [`Import too large: ${raw.length} bytes (max ${maxBytes})`]
+      state.globalImportWarnings = []
+    } else {
+      state.userImportErrors = [`Import too large: ${raw.length} bytes (max ${maxBytes})`]
+      state.userImportWarnings = []
+    }
+    refreshMainPanel()
+    return
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    if (prefix === 'g') {
+      state.globalImportErrors = ['Invalid JSON: ' + (raw.length < 100 ? raw : raw.substring(0, 100) + '…')]
+      state.globalImportWarnings = []
+    } else {
+      state.userImportErrors = ['Invalid JSON: ' + (raw.length < 100 ? raw : raw.substring(0, 100) + '…')]
+      state.userImportWarnings = []
+    }
+    refreshMainPanel()
+    return
+  }
+
+  const result = validateAndImport(parsed, CURRENCY_IDS, ITEM_IDS, TICKET_IDS, raw, maxBytes)
+
+  if (prefix === 'g') {
+    state.globalImportErrors   = result.errors
+    state.globalImportWarnings = result.warnings
+    state.globalImportText     = raw
+  } else {
+    state.userImportErrors   = result.errors
+    state.userImportWarnings = result.warnings
+    state.userImportText     = raw
+  }
+
+  if (!result.ok || !result.draft) {
+    refreshMainPanel()
+    return
+  }
+
+  // Apply to form — NEVER touch: proxyToken, environment, projectId, operatorId, targetUserIds (for global)
+  applyImportedDraft(result.draft, prefix)
+  refreshMainPanel()
+  setStatus(`Import applied: "${result.draft.title}"${result.warnings.length > 0 ? ` (${result.warnings.length} warning(s))` : ''}`, result.warnings.length > 0 ? 'warning' : 'success')
+}
+
+function applyImportedDraft(draft: ImportedDraft, prefix: 'g' | 'u') {
+  // Safety: never overwrite the protected fields
+  // FORBIDDEN from import: targetUserIds (for Global — it's broadcast), env, projectId, proxyToken
+  if (prefix === 'g') {
+    state.globalSubject    = draft.title
+    state.globalBody       = draft.content
+    state.globalUseEndTime = !!draft.endTime
+    if (draft.endTime) {
+      const d = new Date(draft.endTime)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      state.globalEndDate = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
+      state.globalEndTime = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+    }
+    state.globalAttachments = draft.attachments.length > 0 ? draft.attachments : [defaultAttachment()]
+    // NOTE: targetUserIds NOT applied for global tab — it's broadcast
+  } else {
+    state.userSubject    = draft.title
+    state.userBody       = draft.content
+    state.userUseEndTime = !!draft.endTime
+    if (draft.endTime) {
+      const d = new Date(draft.endTime)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      state.userEndDate = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
+      state.userEndTime = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+    }
+    state.userAttachments = draft.attachments.length > 0 ? draft.attachments : [defaultAttachment()]
+    // NOTE: targetUserIds from import is informational only — NOT applied to state.targetUserIds
+    // (operator must manually enter target users to avoid accidental mass-sends)
+  }
 }
 
 // ─── Event listeners ──────────────────────────────────────────────────────────────
@@ -1212,6 +1588,30 @@ function attachMainListeners() {
   document.getElementById('m-delete')?.addEventListener('click', () => run(() => doDeleteMail()))
   document.getElementById('m-purge')?.addEventListener('click',  () => run(doPurgeExpired))
 
+  // User mail lookup
+  document.getElementById('m-lookup-user')?.addEventListener('click', () => run(doFetchUserMail))
+
+  // Import panel toggles
+  document.getElementById('g-import-toggle')?.addEventListener('click', () => {
+    state.globalImportExpanded = !state.globalImportExpanded
+    refreshMainPanel()
+  })
+  document.getElementById('u-import-toggle')?.addEventListener('click', () => {
+    state.userImportExpanded = !state.userImportExpanded
+    refreshMainPanel()
+  })
+
+  // Import apply buttons
+  document.getElementById('g-import-apply')?.addEventListener('click', () => {
+    state.globalImportText = (document.getElementById('g-import-textarea') as HTMLTextAreaElement | null)?.value ?? ''
+    doApplyImport('g')
+  })
+  document.getElementById('u-import-apply')?.addEventListener('click', () => {
+    state.userImportText = (document.getElementById('u-import-textarea') as HTMLTextAreaElement | null)?.value ?? ''
+    doApplyImport('u')
+  })
+
+  // Pagination
   document.getElementById('pg-prev')?.addEventListener('click', () => {
     if (state.mailPage > 0) {
       state.mailPage--
@@ -1227,9 +1627,10 @@ function attachMainListeners() {
     }
   })
 
+  // Global mail table click handler
   document.getElementById('mail-tbody')?.addEventListener('click', (e) => {
-    const target   = e.target as HTMLElement
-    const saveBtn = target.closest<HTMLElement>('.save-mail')
+    const target    = e.target as HTMLElement
+    const saveBtn   = target.closest<HTMLElement>('.save-mail')
     const addAttBtn = target.closest<HTMLElement>('.inline-att-add')
     const removeAttBtn = target.closest<HTMLElement>('.inline-att-remove')
     const addUidBtn = target.closest<HTMLElement>('.inline-uid-add')
@@ -1237,7 +1638,14 @@ function attachMainListeners() {
     const expireBtn = target.closest<HTMLElement>('.expire-mail')
     const deleteBtn = target.closest<HTMLElement>('.del-mail')
     const setEtBtn  = target.closest<HTMLElement>('.set-et')
-    if (saveBtn) run(() => doUpdateGlobalMail(saveBtn.dataset['mailId'] ?? '', saveBtn.dataset['idKey'] ?? ''))
+    const copyBtn   = target.closest<HTMLElement>('.copy-mail-json')
+
+    if (copyBtn) {
+      const mId    = copyBtn.dataset['mailId'] ?? ''
+      const source = (copyBtn.dataset['source'] ?? 'global') as 'global' | 'user'
+      run(() => doCopyMailAsJson(mId, source))
+    }
+    else if (saveBtn) run(() => doUpdateGlobalMail(saveBtn.dataset['mailId'] ?? '', saveBtn.dataset['idKey'] ?? ''))
     else if (addAttBtn) {
       const mId = addAttBtn.dataset['mailId'] ?? ''
       const idKey = addAttBtn.dataset['idKey'] ?? ''
@@ -1271,6 +1679,17 @@ function attachMainListeners() {
     else if (expireBtn) run(() => doExpireMail(expireBtn.dataset['mailId'] ?? ''))
     else if (deleteBtn) run(() => doDeleteMail(deleteBtn.dataset['mailId'] ?? ''))
     else if (setEtBtn)  run(() => doSetMailEndTime(setEtBtn.dataset['mailId'] ?? '', setEtBtn.dataset['idKey'] ?? ''))
+  })
+
+  // User mail tbody click (read-only, only Copy)
+  document.getElementById('user-mail-tbody')?.addEventListener('click', (e) => {
+    const target  = e.target as HTMLElement
+    const copyBtn = target.closest<HTMLElement>('.copy-mail-json')
+    if (copyBtn) {
+      const mId    = copyBtn.dataset['mailId'] ?? ''
+      const source = (copyBtn.dataset['source'] ?? 'user') as 'global' | 'user'
+      run(() => doCopyMailAsJson(mId, source))
+    }
   })
 }
 

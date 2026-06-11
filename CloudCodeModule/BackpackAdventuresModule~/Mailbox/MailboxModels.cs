@@ -983,6 +983,42 @@ public class GetMailsRequest
 
     [JsonPropertyName("pageSize")]
     public int PageSize { get; set; } = MailboxConstants.DefaultPageSize;
+
+    /// <summary>
+    /// When true the caller must be a service-account; IsVisibleToPlayer filtering is bypassed
+    /// so all global mails (including targeted ones) are returned.
+    /// </summary>
+    [JsonPropertyName("adminMode")]
+    public bool AdminMode { get; set; } = false;
+
+    [JsonPropertyName("operatorId")]
+    public string? OperatorId { get; set; }
+
+    [JsonPropertyName("adminToken")]
+    public string? AdminToken { get; set; }
+}
+
+/// <summary>
+/// Request for admin-only GetUserMailsAdmin endpoint.
+/// Reads another player's personal mailbox (mailbox_user_items).
+/// Must be called from a service-account context.
+/// </summary>
+public class GetUserMailsAdminRequest
+{
+    [JsonPropertyName("targetPlayerId")]
+    public string TargetPlayerId { get; set; } = string.Empty;
+
+    [JsonPropertyName("page")]
+    public int Page { get; set; }
+
+    [JsonPropertyName("pageSize")]
+    public int PageSize { get; set; } = MailboxConstants.DefaultPageSize;
+
+    [JsonPropertyName("operatorId")]
+    public string OperatorId { get; set; } = string.Empty;
+
+    [JsonPropertyName("adminToken")]
+    public string AdminToken { get; set; } = string.Empty;
 }
 
 public class MarkMailReadRequest

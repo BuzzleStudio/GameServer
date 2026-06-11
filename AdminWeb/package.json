@@ -5,11 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "gen:ids": "node scripts/gen-payout-ids.mjs",
+    "build": "npm run gen:ids && tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
-    "vite": "^5.1.0"
+    "vite": "^5.1.0",
+    "vitest": "^1.4.0"
   }
 }
