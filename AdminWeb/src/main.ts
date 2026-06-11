@@ -43,10 +43,23 @@ import type {
   RarityValue,
 } from './types'
 
-import { CURRENCY_IDS, ITEM_IDS, TICKET_IDS } from './generated/lookup-data'
+import { CURRENCY_IDS, ITEM_IDS, TICKET_IDS, CURRENCY_OPTIONS } from './generated/lookup-data'
 import { buildMailExportJson } from './mail-export'
 import { validateAndImport } from './mail-import'
 import type { ImportedDraft } from './mail-import'
+import {
+  defaultConnectionState,
+  defaultSendFormState,
+  defaultManageTabState,
+} from './state'
+import type {
+  ConnectionState,
+  SendFormState,
+  ManageTabState,
+} from './state'
+import { mountManageTab } from './modules/mail-list'
+import type { ManageTabHandle } from './modules/mail-list'
+import type { ComboboxOption } from './modules/asset-selector'
 
 // ─── App state ────────────────────────────────────────────────────────────────────
 interface AppState {
@@ -114,6 +127,10 @@ interface AppState {
   statusMsg:   string
   statusType:  'success' | 'error' | 'warning' | 'info' | ''
   rawJson:     string
+  // ── Step 1: new typed sub-state objects (canonical data in Steps 3–4) ──────────
+  connection:  ConnectionState
+  sendForm:    SendFormState
+  manageTab:   ManageTabState
 }
 
 const defaultItemRow = (): ItemSpecificAsset => ({
@@ -135,6 +152,17 @@ const defaultAttachment = (): AttachmentDraft => ({
 const MAILS_PER_PAGE = 5
 const FETCH_PAGE_SIZE = 50
 const MAX_FETCH_PAGES = 20
+
+// ── Step 3: active manage-tab handle (drawer persists across refreshMainPanel) ──
+let _manageTabHandle: ManageTabHandle | null = null
+
+// ── Step 3: combobox options from generated lookup data ───────────────────────
+const CURRENCY_COMBOBOX_OPTIONS: ComboboxOption[] = CURRENCY_OPTIONS.map(o => ({
+  id:    o.id,
+  label: `${o.name} — ${o.id}`,
+}))
+const ITEM_COMBOBOX_OPTIONS: ComboboxOption[]     = ITEM_IDS.map(id => ({ id }))
+const TICKET_COMBOBOX_OPTIONS: ComboboxOption[]   = TICKET_IDS.map(id => ({ id }))
 
 const state: AppState = {
   projectId:   '',
@@ -190,6 +218,10 @@ const state: AppState = {
   statusMsg:  '',
   statusType: '',
   rawJson:    '',
+  // Step 1: new sub-state objects (old flat fields above are compatibility shims deleted in Step 4)
+  connection:  defaultConnectionState(),
+  sendForm:    defaultSendFormState(),
+  manageTab:   defaultManageTabState(),
 }
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────────
@@ -1026,14 +1058,14 @@ function renderApp() {
     ? renderSendGlobalTab()
     : renderSendTargetedTab()
 
-  const mainContent = state.activeTab === 'send'
-    ? `
-      <div class="tabs">
+  const isManage = state.activeTab === 'manage'
+  const mainContent = isManage
+    ? `<div id="manage-panel"></div>`
+    : `<div class="tabs">
         <button class="tab-btn ${state.activeSendSubTab === 'global'   ? 'active' : ''}" id="sub-global">Send Global</button>
         <button class="tab-btn ${state.activeSendSubTab === 'targeted' ? 'active' : ''}" id="sub-targeted">Send Targeted</button>
-      </div>
-      ${sendTabHtml}`
-    : renderManageTab()
+       </div>
+       ${sendTabHtml}`
 
   // Build ID datalist options (rendered once per page)
   const currencyOptions = CURRENCY_IDS.map(id => `<option value="${esc(id)}"></option>`).join('')
@@ -1070,7 +1102,12 @@ function renderApp() {
   renderConnectionDot()
   renderStatus()
   attachAllListeners()
-  if (state.activeTab === 'send') {
+  if (isManage) {
+    _manageTabHandle?.destroy()
+    _manageTabHandle = null
+    const mp = document.getElementById('manage-panel')
+    if (mp) _manageTabHandle = mountManageTab(mp, _buildManageTabDeps())
+  } else {
     if (state.activeSendSubTab === 'global') {
       renderAttachmentList('global-att-list', 'g', state.globalAttachments)
     } else {
@@ -1094,24 +1131,117 @@ function refreshMainPanel() {
   const panel = document.getElementById('main-panel')
   if (!panel) { renderApp(); return }
 
+  if (state.activeTab === 'manage') {
+    // Destroy old handle (also destroys its drawer)
+    _manageTabHandle?.destroy()
+    _manageTabHandle = null
+    panel.innerHTML = `<div id="manage-panel"></div>`
+    attachMainListeners()
+    const mp = document.getElementById('manage-panel')
+    if (mp) {
+      _manageTabHandle = mountManageTab(mp, _buildManageTabDeps())
+    }
+    return
+  }
+
   const sendTabHtml = state.activeSendSubTab === 'global'
     ? renderSendGlobalTab() : renderSendTargetedTab()
 
-  panel.innerHTML = state.activeTab === 'send'
-    ? `<div class="tabs">
-        <button class="tab-btn ${state.activeSendSubTab === 'global'   ? 'active' : ''}" id="sub-global">Send Global</button>
-        <button class="tab-btn ${state.activeSendSubTab === 'targeted' ? 'active' : ''}" id="sub-targeted">Send Targeted</button>
-       </div>${sendTabHtml}`
-    : renderManageTab()
+  panel.innerHTML = `<div class="tabs">
+      <button class="tab-btn ${state.activeSendSubTab === 'global'   ? 'active' : ''}" id="sub-global">Send Global</button>
+      <button class="tab-btn ${state.activeSendSubTab === 'targeted' ? 'active' : ''}" id="sub-targeted">Send Targeted</button>
+     </div>${sendTabHtml}`
 
   attachMainListeners()
-  if (state.activeTab === 'send') {
-    if (state.activeSendSubTab === 'global') {
-      renderAttachmentList('global-att-list', 'g', state.globalAttachments)
-    } else {
-      renderTargetUserIds()
-      renderAttachmentList('user-att-list', 'u', state.userAttachments)
-    }
+  if (state.activeSendSubTab === 'global') {
+    renderAttachmentList('global-att-list', 'g', state.globalAttachments)
+  } else {
+    renderTargetUserIds()
+    renderAttachmentList('user-att-list', 'u', state.userAttachments)
+  }
+}
+
+function _buildManageTabDeps() {
+  return {
+    getMails:              () => state.mailList,
+    getUserMails:          () => state.userMailList,
+    getMailPage:           () => state.mailPage,
+    getMailTotalCount:     () => state.mailTotalCount,
+    getMailError:          () => state.globalMailError,
+    getUserMailError:      () => state.userMailError,
+    getUserLookupPlayerId: () => state.userMailLookupPlayerId,
+    isBusy:                () => state.busy,
+    isConnected,
+    getEnv:                () => state.environment,
+    currencyOptions:       CURRENCY_COMBOBOX_OPTIONS,
+    itemOptions:           ITEM_COMBOBOX_OPTIONS,
+    ticketOptions:         TICKET_COMBOBOX_OPTIONS,
+    onLoad() { void run(() => doLoadMails(true, true)) },
+    onLookupUser(pid: string) {
+      state.userMailLookupPlayerId = pid
+      void run(() => _doFetchUserMailById(pid))
+    },
+    onSave(mId: string, subject: string, body: string, drafts: AttachmentDraft[], targetUserIds: string[] | null, expiresAt: string | null) {
+      void run(async () => {
+        const args = resolveProxyArgs()
+        const atts = buildAttachments(drafts)
+        const { data, rawResponse } = await apiUpdateGlobalMail(args, {
+          mailId: mId, subject, body, attachments: atts,
+          targetUserIds: targetUserIds ?? null,
+          operatorId: state.operatorId, adminToken: null,
+        })
+        // If expiresAt differs from current, also set end time
+        const curr = state.mailList?.find(m => mailId(m) === mId)
+        const currEnd = curr ? mailEndTime(curr) : null
+        if (expiresAt !== currEnd) {
+          await apiSetMailEndTime(args, {
+            mailId: mId, endTime: expiresAt, operatorId: state.operatorId, adminToken: null,
+          })
+        }
+        setStatus(`Updated: mailId=${data.mailId ?? mId}`, 'success', rawResponse)
+        await refreshLoadedMails()
+      })
+    },
+    onExpire(mId: string) {
+      void run(async () => {
+        if (!window.confirm(`Expire mail ${mId}? Sets expiry to now.`)) return
+        const args = resolveProxyArgs()
+        const { data, rawResponse } = await apiExpireMail(args, {
+          mailId: mId, operatorId: state.operatorId, adminToken: null,
+        })
+        setStatus(`ExpireMail: mailId=${data.mailId ?? mId} expiredAt=${data.expiredAt ?? '-'}`, 'success', rawResponse)
+        await refreshLoadedMails()
+      })
+    },
+    onDelete(mId: string) {
+      void run(async () => {
+        if (!window.confirm(`Delete mail ${mId}? Irreversible.`)) return
+        const args = resolveProxyArgs()
+        const { data, rawResponse } = await apiDeleteGlobalMail(args, {
+          mailId: mId, operatorId: state.operatorId, adminToken: null,
+        })
+        setStatus(`DeleteGlobalMail: mailId=${data.mailId ?? mId}`, 'success', rawResponse)
+        await refreshLoadedMails()
+      })
+    },
+    onCopyJson(mId: string, source: 'global' | 'user') {
+      void run(() => doCopyMailAsJson(mId, source))
+    },
+    onPurge() { void run(doPurgeExpired) },
+    onPageChange(delta: number) {
+      state.mailPage = Math.max(0, state.mailPage + delta)
+      refreshMainPanel()
+    },
+    onSetEndTime(mId: string, endTime: string | null) {
+      void run(async () => {
+        const args = resolveProxyArgs()
+        const { data, rawResponse } = await apiSetMailEndTime(args, {
+          mailId: mId, endTime, operatorId: state.operatorId, adminToken: null,
+        })
+        setStatus(`SetMailEndTime: mailId=${data.mailId ?? mId} endTime=${data.endTime ?? 'null'}`, 'success', rawResponse)
+        await refreshLoadedMails()
+      })
+    },
   }
 }
 
@@ -1296,6 +1426,28 @@ async function doFetchUserMail() {
 
   state.userMailList = all
   setStatus(`GetUserMailsAdmin: loaded ${all.length} user mails for ${playerId}`, 'success', lastRawResponse)
+}
+
+// Step 3: player-id-as-argument variant used by the new manage tab deps
+async function _doFetchUserMailById(playerId: string) {
+  if (!playerId) throw new Error('Player ID is required.')
+  const args = resolveProxyArgs()
+  state.userMailList  = null
+  state.userMailError = ''
+  const all: MailRecord[] = []
+  let page = 0; let hasMore = true; let lastRaw = ''
+  while (hasMore) {
+    const { data, rawResponse } = await apiGetUserMailsAdmin(args, {
+      targetPlayerId: playerId, page, pageSize: FETCH_PAGE_SIZE,
+      operatorId: state.operatorId, adminToken: '',
+    })
+    all.push(...(data.Mails ?? data.mails ?? []))
+    hasMore = data.HasMore ?? data.hasMore ?? false
+    lastRaw = rawResponse; page++
+    if (page >= MAX_FETCH_PAGES) break
+  }
+  state.userMailList = all
+  setStatus(`GetUserMailsAdmin: loaded ${all.length} user mails for ${playerId}`, 'success', lastRaw)
 }
 
 async function doUpdateGlobalMail(mailIdArg: string, idKey: string) {
