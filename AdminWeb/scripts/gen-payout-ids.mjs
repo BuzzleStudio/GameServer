@@ -3,13 +3,29 @@
 // Run via: node scripts/gen-payout-ids.mjs
 // Called automatically by: npm run build
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const projectRoot = resolve(__dirname, '..')
-const blueprintRoot = resolve(__dirname, '../../../../Assets/Resources/BlueprintData')
+const blueprintRoot = process.env.BLUEPRINT_CSV_DIR
+  ? resolve(process.env.BLUEPRINT_CSV_DIR)
+  : resolve(__dirname, '../../../../Assets/Resources/BlueprintData')
+const outPath = resolve(projectRoot, 'src/generated/lookup-data.ts')
+
+// CI / standalone checkouts of UnityCloudCode do not contain the game CSVs
+// (they live in the parent BackpackAdventures repo). The generated file is
+// committed, so when CSVs are absent we keep the committed data and skip.
+if (!existsSync(resolve(blueprintRoot, 'Resource.csv'))) {
+  if (existsSync(outPath)) {
+    console.log(`gen-payout-ids: CSVs not found at ${blueprintRoot} — using committed lookup-data.ts (skip regeneration)`)
+    process.exit(0)
+  }
+  console.error(`gen-payout-ids: CSVs not found at ${blueprintRoot} and no committed src/generated/lookup-data.ts exists.`)
+  console.error('Set BLUEPRINT_CSV_DIR to the BlueprintData directory or commit the generated file.')
+  process.exit(1)
+}
 
 function readCsv(filePath) {
   const text = readFileSync(filePath, 'utf8')
@@ -55,7 +71,6 @@ export const ITEM_IDS: string[] = ${toTsArray(itemIds)}
 export const TICKET_IDS: string[] = ${toTsArray(ticketIds)}
 `
 
-const outPath = resolve(projectRoot, 'src/generated/lookup-data.ts')
 mkdirSync(dirname(outPath), { recursive: true })
 writeFileSync(outPath, output, 'utf8')
 console.log(`gen-payout-ids: wrote ${outPath}`)
