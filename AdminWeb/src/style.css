@@ -118,7 +118,6 @@ details > summary:hover { color: var(--text); }
 .mail-table tr:hover td { background: rgba(255,255,255,0.03); }
 .mail-id { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
 .mail-title { font-weight: 500; }
-.mail-body { color: var(--text-dim); max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mail-table input[type="text"],
 .mail-table input[type="number"],
 .mail-table textarea {
@@ -129,8 +128,6 @@ details > summary:hover { color: var(--text); }
   min-height: 74px;
   min-width: 220px;
 }
-.tag { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 10px; background: var(--accent2); color: #ddd; margin-right: 2px; }
-.tag-targeted { background: #1e3a2a; color: #86efac; }
 .actions-cell { white-space: nowrap; }
 .actions-cell .btn { margin-bottom: 2px; }
 .pager { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
@@ -219,7 +216,7 @@ details > summary:hover { color: var(--text); }
   transition: transform 0.25s ease;
 }
 .drawer[hidden] { display: none; }
-@media (max-width: 767px) { .drawer { width: 100vw; } }
+@media (max-width: 767px) { .drawer { width: 100vw; height: 100dvh; } }
 
 .drawer-backdrop {
   position: fixed; inset: 0;
@@ -229,7 +226,7 @@ details > summary:hover { color: var(--text); }
 }
 .drawer-backdrop[hidden] { display: none; }
 
-body.drawer-open { overflow: hidden; }
+body.drawer-open, body.body-noscroll { overflow: hidden; }
 
 .drawer-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -288,3 +285,27 @@ body.drawer-open { overflow: hidden; }
 .meta-pill { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 10px; background: var(--accent2); color: #ddd; margin-right: 3px; }
 .meta-dim  { font-size: 10px; color: var(--text-dim); }
 .toolbar   { display: flex; gap: 8px; align-items: center; }
+
+/* ── Step 6: Focus-visible accessibility ─────────────────────────────────────── */
+/* Remove default outline, replace with visible ring via :focus-visible only     */
+:focus { outline: none; }
+
+.btn:focus-visible,
+.tab-btn:focus-visible,
+.combobox-input:focus-visible,
+.combobox-toggle:focus-visible,
+.combobox-option:focus-visible,
+.mail-row:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+details > summary:focus-visible {
+  outline: 2px solid var(--accent2);
+  outline-offset: 2px;
+}
+
+/* Drawer close / icon buttons get the same ring */
+.drawer-close:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
+/* Combobox option keyboard navigation highlight */
+.combobox-option:focus { background: var(--surface2); }
