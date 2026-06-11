@@ -60,6 +60,8 @@ import type {
 import { mountManageTab } from './modules/mail-list'
 import type { ManageTabHandle } from './modules/mail-list'
 import type { ComboboxOption } from './modules/asset-selector'
+import { mountAttachmentEditor } from './modules/attachment-editor'
+import type { AttachmentEditorHandle } from './modules/attachment-editor'
 
 // ─── App state ────────────────────────────────────────────────────────────────────
 interface AppState {
@@ -155,6 +157,9 @@ const MAX_FETCH_PAGES = 20
 
 // ── Step 3: active manage-tab handle (drawer persists across refreshMainPanel) ──
 let _manageTabHandle: ManageTabHandle | null = null
+
+// ── Step 4: active send-form attachment editor handle (one at a time) ─────────
+let _sendAttHandle: AttachmentEditorHandle | null = null
 
 // ── Step 3: combobox options from generated lookup data ───────────────────────
 const CURRENCY_COMBOBOX_OPTIONS: ComboboxOption[] = CURRENCY_OPTIONS.map(o => ({
@@ -683,7 +688,6 @@ function renderSendGlobalTab(): string {
     </div>
     <div class="card-title" style="margin-top:12px">📎 Attachments</div>
     <div id="global-att-list"></div>
-    <button class="btn btn-ghost btn-sm" id="g-att-add" style="margin-top:6px">+ Add Attachment</button>
     <div class="btn-row" style="margin-top:16px">
       <button class="btn btn-primary" id="g-send" ${!isConnected() || state.busy ? 'disabled' : ''}>
         ${state.busy ? '<span class="spinner"></span>' : ''} Send Global Mail
@@ -728,7 +732,6 @@ function renderSendTargetedTab(): string {
     </div>
     <div class="card-title" style="margin-top:12px">📎 Attachments</div>
     <div id="user-att-list"></div>
-    <button class="btn btn-ghost btn-sm" id="u-att-add" style="margin-top:6px">+ Add Attachment</button>
     <div class="btn-row" style="margin-top:16px">
       <button class="btn btn-primary" id="u-send" ${!isConnected() || state.busy ? 'disabled' : ''}>
         ${state.busy ? '<span class="spinner"></span>' : ''} Send Targeted Mail
@@ -1105,15 +1108,14 @@ function renderApp() {
   if (isManage) {
     _manageTabHandle?.destroy()
     _manageTabHandle = null
+    _sendAttHandle?.destroy()
+    _sendAttHandle = null
     const mp = document.getElementById('manage-panel')
     if (mp) _manageTabHandle = mountManageTab(mp, _buildManageTabDeps())
   } else {
-    if (state.activeSendSubTab === 'global') {
-      renderAttachmentList('global-att-list', 'g', state.globalAttachments)
-    } else {
-      renderTargetUserIds()
-      renderAttachmentList('user-att-list', 'u', state.userAttachments)
-    }
+    if (state.activeSendSubTab === 'targeted') renderTargetUserIds()
+    _sendAttHandle?.destroy()
+    _sendAttHandle = _mountSendAttEditor()
   }
 }
 
@@ -1132,7 +1134,9 @@ function refreshMainPanel() {
   if (!panel) { renderApp(); return }
 
   if (state.activeTab === 'manage') {
-    // Destroy old handle (also destroys its drawer)
+    // Destroy old handles (drawer persists via manage tab, send att destroyed here)
+    _sendAttHandle?.destroy()
+    _sendAttHandle = null
     _manageTabHandle?.destroy()
     _manageTabHandle = null
     panel.innerHTML = `<div id="manage-panel"></div>`
@@ -1147,18 +1151,39 @@ function refreshMainPanel() {
   const sendTabHtml = state.activeSendSubTab === 'global'
     ? renderSendGlobalTab() : renderSendTargetedTab()
 
+  _sendAttHandle?.destroy()
+  _sendAttHandle = null
+
   panel.innerHTML = `<div class="tabs">
       <button class="tab-btn ${state.activeSendSubTab === 'global'   ? 'active' : ''}" id="sub-global">Send Global</button>
       <button class="tab-btn ${state.activeSendSubTab === 'targeted' ? 'active' : ''}" id="sub-targeted">Send Targeted</button>
      </div>${sendTabHtml}`
 
   attachMainListeners()
-  if (state.activeSendSubTab === 'global') {
-    renderAttachmentList('global-att-list', 'g', state.globalAttachments)
-  } else {
-    renderTargetUserIds()
-    renderAttachmentList('user-att-list', 'u', state.userAttachments)
-  }
+  if (state.activeSendSubTab === 'targeted') renderTargetUserIds()
+  _sendAttHandle = _mountSendAttEditor()
+}
+
+function _mountSendAttEditor(): AttachmentEditorHandle | null {
+  const prefix  = state.activeSendSubTab === 'global' ? 'g' : 'u'
+  const listId  = prefix === 'g' ? 'global-att-list' : 'user-att-list'
+  const drafts  = prefix === 'g' ? state.globalAttachments : state.userAttachments
+  const container = document.getElementById(listId)
+  if (!container) return null
+  return mountAttachmentEditor(
+    container, drafts,
+    {
+      prefix,
+      currencyOptions: CURRENCY_COMBOBOX_OPTIONS,
+      itemOptions:     ITEM_COMBOBOX_OPTIONS,
+      ticketOptions:   TICKET_COMBOBOX_OPTIONS,
+      disabled: state.busy || !isConnected(),
+    },
+    (updated) => {
+      if (prefix === 'g') state.globalAttachments = updated
+      else                state.userAttachments   = updated
+    },
+  )
 }
 
 function _buildManageTabDeps() {
@@ -1322,8 +1347,7 @@ async function doSendGlobalMail(targeted = false) {
   if (!body || body.length > 1024)     throw new Error('Content must be 1-1024 characters.')
 
   const expiresAt   = buildEndTimeIso(useEndTime, endDate, endTime)
-  const drafts      = targeted ? state.userAttachments : state.globalAttachments
-  const synced      = syncAttachmentsFromDom(prefix, drafts)
+  const synced      = _sendAttHandle?.getDrafts() ?? (targeted ? state.userAttachments : state.globalAttachments)
   const attachments = buildAttachments(synced)
 
   let targetUserIds: string[] | null = null
@@ -1626,6 +1650,7 @@ function applyImportedDraft(draft: ImportedDraft, prefix: 'g' | 'u') {
       state.globalEndTime = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
     }
     state.globalAttachments = draft.attachments.length > 0 ? draft.attachments : [defaultAttachment()]
+    _sendAttHandle?.setDrafts(state.globalAttachments)
     // NOTE: targetUserIds NOT applied for global tab — it's broadcast
   } else {
     state.userSubject    = draft.title
@@ -1638,6 +1663,7 @@ function applyImportedDraft(draft: ImportedDraft, prefix: 'g' | 'u') {
       state.userEndTime = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
     }
     state.userAttachments = draft.attachments.length > 0 ? draft.attachments : [defaultAttachment()]
+    _sendAttHandle?.setDrafts(state.userAttachments)
     // NOTE: targetUserIds from import is informational only — NOT applied to state.targetUserIds
     // (operator must manually enter target users to avoid accidental mass-sends)
   }
@@ -1683,46 +1709,6 @@ function attachMainListeners() {
       setEndTimePreset(days, `${prefix}-end-date`, `${prefix}-end-time`)
     })
   })
-
-  function handleAttListClick(prefix: string, draftsRef: () => AttachmentDraft[], setDrafts: (d: AttachmentDraft[]) => void, listId: string) {
-    return (e: Event) => {
-      const target = e.target as HTMLElement
-      const removeBtn = target.closest<HTMLElement>('.att-remove')
-      if (removeBtn && removeBtn.dataset['prefix'] === prefix) {
-        const idx = parseInt(removeBtn.dataset['idx'] ?? '0', 10)
-        const synced = syncAttachmentsFromDom(prefix, draftsRef())
-        synced.splice(idx, 1)
-        setDrafts(synced)
-        renderAttachmentList(listId, prefix, draftsRef())
-      }
-    }
-  }
-
-  // Global attachments
-  document.getElementById('g-att-add')?.addEventListener('click', () => {
-    state.globalAttachments = syncAttachmentsFromDom('g', state.globalAttachments)
-    state.globalAttachments.push(defaultAttachment())
-    renderAttachmentList('global-att-list', 'g', state.globalAttachments)
-  })
-  document.getElementById('global-att-list')?.addEventListener('click', handleAttListClick(
-    'g',
-    () => state.globalAttachments,
-    (d) => { state.globalAttachments = d },
-    'global-att-list',
-  ))
-
-  // User attachments
-  document.getElementById('u-att-add')?.addEventListener('click', () => {
-    state.userAttachments = syncAttachmentsFromDom('u', state.userAttachments)
-    state.userAttachments.push(defaultAttachment())
-    renderAttachmentList('user-att-list', 'u', state.userAttachments)
-  })
-  document.getElementById('user-att-list')?.addEventListener('click', handleAttListClick(
-    'u',
-    () => state.userAttachments,
-    (d) => { state.userAttachments = d },
-    'user-att-list',
-  ))
 
   // Target user IDs
   document.getElementById('uid-add')?.addEventListener('click', () => {
