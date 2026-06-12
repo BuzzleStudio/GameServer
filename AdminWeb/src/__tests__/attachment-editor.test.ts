@@ -833,3 +833,56 @@ describe('mountAttachmentEditor — Ticket sub-section label', () => {
     expect(itemDiv?.textContent).toContain('Ticket configuration')
   })
 })
+
+// ─── Inline validation error display (CE-60–CE-61) ───────────────────────────
+//
+// _runValidation runs an initial pass on mount (attachment-editor.ts:540).
+// Invalid initial drafts trigger error span population immediately.
+
+describe('mountAttachmentEditor — inline validation error display (CE-60/CE-61)', () => {
+  it('[CE-60] payoutAmount=0: #test-att-err-amt-0 shows error text', () => {
+    const invalidDraft: AttachmentDraft = { ...CURRENCY_DRAFT, payoutAmount: 0 }
+    handle = mount([invalidDraft])
+    const errEl = document.getElementById('test-att-err-amt-0')
+    expect(errEl?.textContent?.trim().length).toBeGreaterThan(0)
+  })
+
+  it('[CE-60b] payoutAmount=0: card gets att-card-invalid class', () => {
+    const invalidDraft: AttachmentDraft = { ...CURRENCY_DRAFT, payoutAmount: 0 }
+    handle = mount([invalidDraft])
+    // att-card-invalid is toggled on #test-att-card-0 (the outer .att-card div)
+    const card = document.getElementById('test-att-card-0')
+    expect(card?.classList.contains('att-card-invalid')).toBe(true)
+  })
+
+  it('[CE-60c] payoutAmount=0: err-marker is visible (not hidden)', () => {
+    const invalidDraft: AttachmentDraft = { ...CURRENCY_DRAFT, payoutAmount: 0 }
+    handle = mount([invalidDraft])
+    const marker = document.getElementById('test-att-err-marker-0') as HTMLElement | null
+    expect(marker?.hidden).toBe(false)
+  })
+
+  it('[CE-61] chance=0: #test-att-err-chance-0 shows error text', () => {
+    const invalidDraft: AttachmentDraft = { ...CURRENCY_DRAFT, chance: 0 }
+    handle = mount([invalidDraft])
+    const errEl = document.getElementById('test-att-err-chance-0')
+    expect(errEl?.textContent?.trim().length).toBeGreaterThan(0)
+  })
+
+  it('[CE-61b] chance>1: #test-att-err-chance-0 shows error text', () => {
+    const invalidDraft: AttachmentDraft = { ...CURRENCY_DRAFT, chance: 1.5 }
+    handle = mount([invalidDraft])
+    const errEl = document.getElementById('test-att-err-chance-0')
+    expect(errEl?.textContent?.trim().length).toBeGreaterThan(0)
+  })
+
+  it('[CE-60/61 negative] valid amount/chance: no amount or chance error text', () => {
+    // CURRENCY_DRAFT has valid payoutAmount=10 and chance=1.
+    // Scoped to amount+chance errors only — not card class (ID validation also runs).
+    handle = mount([CURRENCY_DRAFT])
+    const amtErr    = document.getElementById('test-att-err-amt-0')
+    const chanceErr = document.getElementById('test-att-err-chance-0')
+    expect(amtErr?.textContent?.trim()).toBe('')
+    expect(chanceErr?.textContent?.trim()).toBe('')
+  })
+})
