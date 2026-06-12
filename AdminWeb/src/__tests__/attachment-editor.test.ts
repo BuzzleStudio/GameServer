@@ -797,7 +797,12 @@ describe('mountAttachmentEditor — Blueprint ID combobox (§5.2)', () => {
   it('ISA getDrafts() reads BlueprintId from bp combobox value', () => {
     handle = mount([ISA_DRAFT])
     const bpInput = document.getElementById('test-att-bp-0') as HTMLInputElement | null
-    if (bpInput) bpInput.value = 'bp_new'
+    if (bpInput) {
+      // Simulate user typing: set value, fire input (opens list), then Tab to commit
+      bpInput.value = 'bp_new'
+      bpInput.dispatchEvent(new Event('input', { bubbles: true }))
+      bpInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    }
     const drafts = handle.getDrafts()
     expect(drafts[0].itemRows[0].BlueprintId).toBe('bp_new')
   })

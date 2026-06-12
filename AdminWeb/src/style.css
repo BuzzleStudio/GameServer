@@ -264,15 +264,111 @@ body.drawer-open, body.body-noscroll { overflow: hidden; }
 .tus-dup   { color: #fcd34d; }
 
 /* ── Step 3: Attachment editor (attachment-editor.ts) ────────────────────────── */
+/* Legacy classes preserved for backward compat */
 .att-row-controls { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
-.att-type-field   { min-width: 130px; flex: 0 0 130px; }
-.att-amount-field { min-width: 80px;  flex: 0 0 80px; }
-.att-chance-field { min-width: 110px; flex: 1; }
+.att-type-field   { min-width: 130px; }
+.att-amount-field { min-width: 80px; max-width: 100px; }
+.att-chance-field { min-width: 120px; }
+.att-id-field     { flex: 1; min-width: 120px; }
 .att-remove-btn   { flex-shrink: 0; align-self: flex-end; }
 .att-isa-label    { font-size: 11px; color: var(--text-dim); margin: 6px 0 4px; font-style: italic; }
-.att-isa-fields   { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.att-isa-fields   { display: grid; grid-template-columns: 1fr 80px 100px 80px 1fr; gap: 8px; align-items: start; }
 .att-legacy-warn  { font-size: 11px; color: var(--warning); margin-top: 4px; display: block; }
 .char-limit       { font-size: 11px; color: var(--text-dim); font-weight: 400; }
+
+/* ── Redesign: Collapsible attachment cards (§4, §10) ───────────────────────── */
+.att-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.att-card-invalid {
+  border-left: 3px solid var(--color-error, #c0392b);
+}
+.att-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 8px 10px;
+  background: var(--surface2);
+  list-style: none;
+  user-select: none;
+}
+.att-card-header::-webkit-details-marker { display: none; }
+.att-card-summary-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.att-card-err-marker { color: var(--color-error, #c0392b); font-weight: 700; flex-shrink: 0; }
+.att-card-actions { flex-shrink: 0; display: flex; gap: 4px; }
+.att-card-body {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* Common fields responsive grid (§10.1) */
+.att-common-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 80px 140px;
+  gap: 8px;
+  align-items: start;
+}
+@media (max-width: 639px) {
+  .att-common-row {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+  }
+  .att-type-field   { grid-column: 1; grid-row: 1; }
+  .att-id-field     { grid-column: 2; grid-row: 1; }
+  .att-amount-field { grid-column: 1; grid-row: 2; }
+  .att-chance-field { grid-column: 2; grid-row: 2; }
+}
+@media (max-width: 399px) {
+  .att-common-row { grid-template-columns: 1fr; grid-template-rows: repeat(4, auto); }
+  .att-type-field, .att-id-field, .att-amount-field, .att-chance-field { grid-column: 1; grid-row: auto; }
+}
+
+/* ISA/Ticket sub-section responsive grid (§10.2) */
+.att-subsection {
+  margin-top: 12px;
+  padding: 10px;
+  background: rgba(0,0,0,0.15);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.att-subsection-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+@media (max-width: 639px) {
+  .att-isa-fields { grid-template-columns: 1fr 80px; }
+}
+@media (max-width: 399px) {
+  .att-isa-fields { grid-template-columns: 1fr; }
+}
+
+/* Add group (§8.3) */
+.att-add-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.att-add-label { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+
+/* Field-level validation error (§7.2) */
+.field-error { display: block; font-size: 11px; color: var(--color-error, #c0392b); margin-top: 2px; min-height: 14px; }
 
 /* ── Step 3: Mail list table enhancements ────────────────────────────────────── */
 .mail-row { cursor: pointer; }
