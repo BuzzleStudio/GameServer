@@ -28,6 +28,8 @@ export interface AttachmentEditorOptions {
 export interface AttachmentEditorHandle {
   getDrafts(): AttachmentDraft[]
   setDrafts(drafts: AttachmentDraft[]): void
+  /** Add a new blank draft of the given type (defaults to 'Currency'). */
+  addDraft(assetType?: string): void
   destroy(): void
 }
 
@@ -515,6 +517,17 @@ function _readDrafts(
   })
 }
 
+// ─── Public helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Render an "Add:" button group HTML string.
+ * Callers can embed this above the editor container to provide a header-level
+ * add shortcut; clicks should be forwarded to AttachmentEditorHandle.addDraft().
+ */
+export function renderAttachmentAddGroup(prefix: string, disabled: boolean): string {
+  return _renderAddGroup(prefix, disabled ? 'disabled' : '')
+}
+
 // ─── Mount (public entry point) ───────────────────────────────────────────────
 
 export function mountAttachmentEditor(
@@ -596,6 +609,12 @@ export function mountAttachmentEditor(
   return {
     getDrafts:  () => _readDrafts(prefix, drafts, comboboxes),
     setDrafts:  (d) => { drafts = [...d]; render() },
+    addDraft:   (assetType = 'Currency') => {
+      drafts = _readDrafts(prefix, drafts, comboboxes)
+      drafts.push(_defaultDraft(assetType))
+      onChange(drafts)
+      render()
+    },
     destroy:    () => {
       comboboxes.forEach(h => h.destroy())
       comboboxes.clear()

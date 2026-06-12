@@ -4,7 +4,7 @@
 
 import { renderScheduleEditor, readScheduleEditor, attachScheduleListeners } from './schedule-editor'
 import type { ScheduleEditorState } from './schedule-editor'
-import { mountAttachmentEditor } from './attachment-editor'
+import { mountAttachmentEditor, renderAttachmentAddGroup } from './attachment-editor'
 import type { AttachmentEditorHandle } from './attachment-editor'
 import { mountImportPanel } from './json-import-dialog'
 import type { ImportedDraft } from './json-import-dialog'
@@ -175,6 +175,7 @@ export function mountSendForm(
       </div>
     </details>
     <div class="card-title" style="margin-top:12px">📎 Attachments</div>
+    <div id="sf-att-hdr-add">${renderAttachmentAddGroup('sf', dis)}</div>
     <div id="sf-att-list"></div>
     <div class="btn-row" style="margin-top:16px">
       <button class="btn btn-primary" id="sf-send" ${disAttr}>
@@ -202,6 +203,12 @@ export function mountSendForm(
         (updated) => { _attachments = updated },
       )
     }
+
+    // Header add-group delegates to editor's addDraft (same code path as footer group)
+    container.querySelector<HTMLElement>('#sf-att-hdr-add')?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-action="att-add"]')
+      if (btn) _attHandle?.addDraft(btn.dataset['assettype'])
+    })
 
     const importEl = container.querySelector<HTMLElement>('#sf-import-container')
     if (importEl) {
