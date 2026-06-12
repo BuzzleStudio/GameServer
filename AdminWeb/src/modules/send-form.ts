@@ -231,6 +231,14 @@ export function mountSendForm(
         s.recipientMode = r.value as 'global' | 'targeted'
         const sec = container.querySelector<HTMLElement>('#sf-target-section')
         if (sec) sec.hidden = s.recipientMode !== 'targeted'
+        // §18 fix: update send button label immediately on mode switch
+        const sendBtn = container.querySelector<HTMLButtonElement>('#sf-send')
+        if (sendBtn) {
+          const label = s.recipientMode === 'targeted' ? 'Send Targeted Mail' : 'Send Global Mail'
+          const spinner = sendBtn.querySelector('.spinner')
+          sendBtn.textContent = label
+          if (spinner) sendBtn.prepend(spinner)
+        }
       }))
 
     const subjectEl  = container.querySelector<HTMLInputElement>('#sf-subject')
