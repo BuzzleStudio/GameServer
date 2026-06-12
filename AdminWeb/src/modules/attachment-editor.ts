@@ -143,34 +143,35 @@ function _renderCard(prefix: string, i: number, d: AttachmentDraft, disabled: bo
   // Common fields row (§4.3)
   const typeField = `
 <div class="form-group att-type-field">
-  <label>Type</label>
+  <label for="${prefix}-att-type-${i}">Type</label>
   <div id="${prefix}-att-type-wrap-${i}" class="combobox-container"></div>
   <span class="field-error" id="${prefix}-att-err-type-${i}"></span>
 </div>`
 
   const idField = cfg.showIdCombobox ? `
 <div class="form-group att-id-field" id="${prefix}-att-plainid-${i}">
-  <label>${_esc(cfg.idLabel || 'Asset ID')}</label>
+  <label for="${prefix}-att-id-${i}">${_esc(cfg.idLabel || 'Asset ID')}</label>
   <div id="${prefix}-att-id-wrap-${i}" class="combobox-container"></div>
   <span class="field-error" id="${prefix}-att-err-id-${i}"></span>
 </div>` : `<div class="form-group att-id-field" id="${prefix}-att-plainid-${i}" hidden>
-  <label>${_esc(cfg.idLabel || 'Asset ID')}</label>
+  <label for="${prefix}-att-id-${i}">${_esc(cfg.idLabel || 'Asset ID')}</label>
   <div id="${prefix}-att-id-wrap-${i}" class="combobox-container"></div>
   <span class="field-error" id="${prefix}-att-err-id-${i}"></span>
 </div>`
 
   const amountField = `
 <div class="form-group att-amount-field">
-  <label>Amount</label>
+  <label for="${prefix}-att-amt-${i}">Amount</label>
   <input type="number" id="${prefix}-att-amt-${i}" value="${d.payoutAmount}" min="1" ${dis} />
   <span class="field-error" id="${prefix}-att-err-amt-${i}"></span>
 </div>`
 
   const chanceField = `
 <div class="form-group att-chance-field">
-  <label>Chance</label>
+  <label for="${prefix}-att-chance-num-${i}">Chance</label>
   <input type="number" id="${prefix}-att-chance-num-${i}" min="0.01" max="1" step="0.01" value="${d.chance.toFixed(2)}" ${dis} />
-  <input type="range"  id="${prefix}-att-chance-${i}"     min="0.01" max="1" step="0.01" value="${d.chance}" ${dis} style="width:100%;margin-top:4px" />
+  <input type="range"  id="${prefix}-att-chance-${i}"     min="0.01" max="1" step="0.01" value="${d.chance}" ${dis}
+    style="width:100%;margin-top:4px" aria-label="Chance slider (0.01–1.00)" />
   <small style="color:var(--text-dim);font-size:11px">0–1, where 1.00 = 100%</small>
   <span class="field-error" id="${prefix}-att-err-chance-${i}"></span>
 </div>`
@@ -181,26 +182,26 @@ function _renderCard(prefix: string, i: number, d: AttachmentDraft, disabled: bo
   <div class="att-subsection-label">${_esc(cfg.subSectionLabel ?? '')}</div>
   <div class="att-isa-fields">
     <div class="form-group">
-      <label>Blueprint ID</label>
+      <label for="${prefix}-att-bp-${i}">Blueprint ID</label>
       <div id="${prefix}-att-bp-wrap-${i}" class="combobox-container"></div>
       <span class="field-error" id="${prefix}-att-err-bp-${i}"></span>
     </div>
     <div class="form-group" style="min-width:70px;max-width:80px">
-      <label>Level</label>
+      <label for="${prefix}-att-cl-${i}">Level</label>
       <input type="number" id="${prefix}-att-cl-${i}" value="${itemRow.CurrentLevel}" min="1" ${dis} />
       <span class="field-error" id="${prefix}-att-err-cl-${i}"></span>
     </div>
     <div class="form-group" style="min-width:90px">
-      <label>Rarity</label>
+      <label for="${prefix}-att-rar-${i}">Rarity</label>
       <select id="${prefix}-att-rar-${i}" ${dis}>${_rarityOpts(itemRow.Rarity)}</select>
     </div>
     <div class="form-group" style="min-width:70px;max-width:90px">
-      <label>Initial Level</label>
+      <label for="${prefix}-att-il-${i}">Initial Level</label>
       <input type="number" id="${prefix}-att-il-${i}" value="${itemRow.InitialLevel}" min="1" ${dis} />
       <span class="field-error" id="${prefix}-att-err-il-${i}"></span>
     </div>
     <div class="form-group" style="min-width:100px">
-      <label>Source</label>
+      <label for="${prefix}-att-fs-${i}">Source</label>
       <input type="text" id="${prefix}-att-fs-${i}" value="${_esc(itemRow.FromSource)}" placeholder="source" ${dis} />
     </div>
   </div>
