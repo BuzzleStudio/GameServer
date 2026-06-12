@@ -170,7 +170,7 @@ let _userImportHandle:   ImportPanelHandle | null = null
 // ── Step 3: combobox options from generated lookup data ───────────────────────
 const CURRENCY_COMBOBOX_OPTIONS: ComboboxOption[] = CURRENCY_OPTIONS.map(o => ({
   id:    o.id,
-  label: `${o.name} — ${o.id}`,
+  label: o.name,
 }))
 const ITEM_COMBOBOX_OPTIONS: ComboboxOption[]     = ITEM_IDS.map(id => ({ id }))
 const TICKET_COMBOBOX_OPTIONS: ComboboxOption[]   = TICKET_IDS.map(id => ({ id }))

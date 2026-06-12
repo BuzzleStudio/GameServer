@@ -195,9 +195,10 @@ export function mountCombobox(config: ComboboxConfig): ComboboxHandle {
     openList('')
   })
 
-  document.addEventListener('mousedown', (e) => {
+  const _outsideClick = (e: MouseEvent) => {
     if (isOpen && !container.contains(e.target as Node)) closeList(true)
-  })
+  }
+  document.addEventListener('mousedown', _outsideClick)
 
   // Initial state
   updateBadge()
@@ -209,7 +210,10 @@ export function mountCombobox(config: ComboboxConfig): ComboboxHandle {
       input.value = v
       updateBadge()
     },
-    destroy: () => { container.innerHTML = '' },
+    destroy: () => {
+      document.removeEventListener('mousedown', _outsideClick)
+      container.innerHTML = ''
+    },
   }
 }
 

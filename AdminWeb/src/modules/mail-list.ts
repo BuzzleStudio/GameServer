@@ -184,7 +184,7 @@ function _renderMailTable(deps: ManageTabDeps): string {
   if (all === null) {
     const err = deps.getMailError()
     return `
-<div class="empty">Click "Load All Global Mails" to fetch.</div>
+<div class="empty">Click "Refresh mails" to fetch.</div>
 ${err ? `<div class="alert alert-error" style="margin-top:8px">${_esc(err)}</div>` : ''}`
   }
 
@@ -258,7 +258,7 @@ function _renderContent(deps: ManageTabDeps): string {
   <div class="card-title">📋 Global Mail List (admin mode)</div>
   <div class="toolbar">
     <button type="button" class="btn btn-secondary" data-action="load-mails" ${dis}>
-      ${isBusy ? '<span class="spinner"></span>' : '🔄'} Load All Global Mails
+      ${isBusy ? '<span class="spinner"></span>' : '🔄'} Refresh mails
     </button>
   </div>
   <div id="ml-table-area" style="margin-top:12px">${_renderMailTable(deps)}</div>
