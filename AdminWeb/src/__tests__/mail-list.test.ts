@@ -17,14 +17,13 @@ import type { MailRecord } from '../types'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-function makeMailRecord(id: string, title: string, expireTime: string | null = null, targetUsers: string[] = []): MailRecord {
+function makeMailRecord(id: string, title: string, expireTime?: string, targetUsers: string[] = []): MailRecord {
   return {
     MessageId: id,
     TargetUserIds: targetUsers,
     MailInfo: {
       Title: title,
       Content: `Body of ${id}`,
-      StartTime: undefined,
       ExpireTime: expireTime,
       Attachment: [],
     },
@@ -33,7 +32,7 @@ function makeMailRecord(id: string, title: string, expireTime: string | null = n
 
 const MAIL_A = makeMailRecord('msg-aaa', 'Alpha Mail')
 const MAIL_B = makeMailRecord('msg-bbb', 'Beta Mail', '2099-12-31T23:59:00.000Z')
-const MAIL_TARGETED = makeMailRecord('msg-tgt', 'Targeted Mail', null, ['uuid-player-1'])
+const MAIL_TARGETED = makeMailRecord('msg-tgt', 'Targeted Mail', undefined, ['uuid-player-1'])
 
 function makeDeps(overrides: Partial<ManageTabDeps> = {}): ManageTabDeps {
   return {
