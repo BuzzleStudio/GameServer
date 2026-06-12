@@ -102,10 +102,6 @@ select option { background: #0d1b2a; }
 details > summary { cursor: pointer; color: var(--text-dim); font-size: 12px; margin-top: 8px; user-select: none; }
 details > summary:hover { color: var(--text); }
 
-/* ── Attachment rows ─────────────────────────────────────────────────────────── */
-.attachment-row { background: #0d1b2a; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 8px; display: grid; grid-template-columns: 1fr 120px 100px 1fr auto; gap: 8px; align-items: end; }
-@media (max-width: 900px) { .attachment-row { grid-template-columns: 1fr 1fr; } }
-
 /* ── Target user IDs ─────────────────────────────────────────────────────────── */
 .user-id-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .user-id-row input { flex: 1; }
@@ -155,10 +151,6 @@ details > summary:hover { color: var(--text); }
 /* ── Inline-edit end-time in mail table ──────────────────────────────────────── */
 .mail-endtime-edit { display: flex; gap: 4px; align-items: center; margin-top: 4px; }
 .mail-endtime-edit input { width: 100px; font-size: 11px; padding: 3px 6px; }
-.inline-att-list { display: flex; flex-direction: column; gap: 4px; min-width: 360px; margin-bottom: 6px; }
-.inline-att-row { display: grid; grid-template-columns: 1.2fr 1fr 70px 70px auto; gap: 4px; align-items: center; }
-.inline-att-row input { min-width: 0; }
-
 /* ── Compact item-rows table ────────────────────────────────────────────────── */
 .item-rows-compact { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0; }
 .item-rows-compact th { padding: 3px 4px; text-align: left; color: var(--text-dim); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -177,7 +169,7 @@ details > summary:hover { color: var(--text); }
 .combobox-input:focus { outline: none; border-color: var(--accent2); }
 .combobox-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px 4px; font-size: 11px; }
 .combobox-toggle:hover { color: var(--text); }
-.combobox-listbox { position: absolute; z-index: 200; background: #0d1b2a; border: 1px solid var(--border); border-radius: var(--radius); width: 100%; max-height: 220px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.5); margin-top: 2px; list-style: none; }
+.combobox-listbox { position: fixed; z-index: 400; background: #0d1b2a; border: 1px solid var(--border); border-radius: var(--radius); max-height: 240px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.5); margin-top: 2px; list-style: none; }
 .combobox-listbox[hidden] { display: none; }
 .combobox-option { padding: 7px 10px; cursor: pointer; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .combobox-option:hover, .combobox-option[aria-selected="true"] { background: var(--surface2); }
@@ -263,9 +255,9 @@ body.drawer-open, body.body-noscroll { overflow: hidden; }
 .tus-valid { color: #86efac; }
 .tus-dup   { color: #fcd34d; }
 
-/* ── Step 3: Attachment editor (attachment-editor.ts) ────────────────────────── */
-/* Legacy classes preserved for backward compat */
-.att-row-controls { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+/* ── Attachment components (attachment-list.ts, attachment-modal.ts) ─────────── */
+
+/* Sizing helpers reused in modal form grid */
 .att-type-field   { min-width: 130px; }
 .att-amount-field { min-width: 80px; max-width: 100px; }
 .att-chance-field { min-width: 120px; }
@@ -276,99 +268,183 @@ body.drawer-open, body.body-noscroll { overflow: hidden; }
 .att-legacy-warn  { font-size: 11px; color: var(--warning); margin-top: 4px; display: block; }
 .char-limit       { font-size: 11px; color: var(--text-dim); font-weight: 400; }
 
-/* ── Redesign: Collapsible attachment cards (§4, §10) ───────────────────────── */
-.att-card {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  margin-bottom: 8px;
-  overflow: hidden;
-}
-.att-card-invalid {
-  border-left: 3px solid var(--color-error, #c0392b);
-}
-.att-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 8px 10px;
-  background: var(--surface2);
-  list-style: none;
-  user-select: none;
-}
-.att-card-header::-webkit-details-marker { display: none; }
-.att-card-summary-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-}
-.att-card-err-marker { color: var(--color-error, #c0392b); font-weight: 700; flex-shrink: 0; }
-.att-card-actions { flex-shrink: 0; display: flex; gap: 4px; }
-.att-card-body {
-  padding: 12px;
-  border-top: 1px solid var(--border);
-}
-
-/* Common fields responsive grid (§10.1) */
+/* Common fields responsive grid (reused in modal form) */
 .att-common-row {
   display: grid;
-  grid-template-columns: 160px 1fr 80px 140px;
+  grid-template-columns: 160px 1fr;
   gap: 8px;
   align-items: start;
-}
-@media (max-width: 639px) {
-  .att-common-row {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto;
-  }
-  .att-type-field   { grid-column: 1; grid-row: 1; }
-  .att-id-field     { grid-column: 2; grid-row: 1; }
-  .att-amount-field { grid-column: 1; grid-row: 2; }
-  .att-chance-field { grid-column: 2; grid-row: 2; }
-}
-@media (max-width: 399px) {
-  .att-common-row { grid-template-columns: 1fr; grid-template-rows: repeat(4, auto); }
-  .att-type-field, .att-id-field, .att-amount-field, .att-chance-field { grid-column: 1; grid-row: auto; }
+  margin-top: 8px;
 }
 
-/* ISA/Ticket sub-section responsive grid (§10.2) */
-.att-subsection {
-  margin-top: 12px;
-  padding: 10px;
-  background: rgba(0,0,0,0.15);
-  border-radius: 4px;
-  border: 1px solid var(--border);
-}
-.att-subsection-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-  margin-bottom: 8px;
-}
-@media (max-width: 639px) {
-  .att-isa-fields { grid-template-columns: 1fr 80px; }
-}
-@media (max-width: 399px) {
-  .att-isa-fields { grid-template-columns: 1fr; }
-}
+/* ISA/Ticket sub-section in modal */
+.att-form-section         { margin-bottom: 16px; }
+.att-form-section-label   { font-size: 11px; font-weight: 600; text-transform: uppercase;
+                            letter-spacing: 0.05em; color: var(--text-dim); margin-bottom: 8px; }
 
-/* Add group (§8.3) */
-.att-add-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 4px;
-}
-.att-add-label { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
-
-/* Field-level validation error (§7.2) */
+/* Field-level validation error */
 .field-error { display: block; font-size: 11px; color: var(--color-error, #c0392b); margin-top: 2px; min-height: 14px; }
+
+/* ── Attachment compact list (attachment-list.ts) ────────────────────────────── */
+.att-list-add-row { margin-bottom: 8px; }
+
+.att-list-table { display: flex; flex-direction: column; gap: 4px; }
+
+.att-list-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 100px 40px 50px 22px auto;
+  gap: 6px;
+  align-items: center;
+  background: #0d1b2a;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.1s;
+}
+.att-list-row:hover  { background: var(--surface2); }
+.att-list-row:focus  { outline: 2px solid var(--accent2); outline-offset: -2px; }
+.att-list-row-invalid { border-left: 3px solid var(--error); }
+
+.att-list-type   { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.att-list-name   { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.att-list-id     { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-list-amount { white-space: nowrap; font-size: 12px; }
+.att-list-chance { white-space: nowrap; font-size: 12px; color: var(--text-dim); }
+.att-list-invalid { color: var(--warning); font-size: 13px; cursor: pointer; }
+.att-list-invalid[hidden] { display: none; }
+.att-list-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.att-list-empty { font-size: 12px; color: var(--text-dim); padding: 8px 0; }
+
+@media (max-width: 599px) {
+  .att-list-row { grid-template-columns: 70px 1fr 40px 50px 22px auto; }
+  .att-list-id  { display: none; }
+}
+@media (max-width: 399px) {
+  .att-list-row { grid-template-columns: 1fr auto; }
+  .att-list-type, .att-list-id, .att-list-amount { display: none; }
+}
+
+/* ── Modal shell (modal-shell.ts) ────────────────────────────────────────────── */
+/* Native <dialog> — no z-index needed; showModal() uses top-layer */
+
+.modal-shell {
+  width:      min(720px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 48px));
+  padding:    0;
+  border:     1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color:      var(--text);
+  /* CRITICAL: NO transform/filter/will-change/opacity — must NOT create stacking context */
+  overflow:   visible;
+}
+
+.modal-shell::backdrop {
+  background:      rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+}
+
+.modal-inner {
+  display:    flex;
+  flex-direction: column;
+  max-height: min(760px, calc(100vh - 48px));
+  overflow:   visible;
+}
+
+.modal-header {
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  padding:         14px 16px 12px;
+  border-bottom:   1px solid var(--border);
+  flex-shrink:     0;
+  background:      var(--surface2);
+  border-radius:   8px 8px 0 0;
+}
+
+.modal-title { font-size: 15px; font-weight: 600; }
+
+.modal-body {
+  flex:       1;
+  padding:    16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* combobox listboxes use position:fixed (see §8) — overflow:auto here is safe */
+}
+
+.modal-footer {
+  display:         flex;
+  justify-content: flex-end;
+  gap:             8px;
+  padding:         12px 16px;
+  border-top:      1px solid var(--border);
+  flex-shrink:     0;
+  background:      var(--surface2);
+  border-radius:   0 0 8px 8px;
+}
+
+@media (max-width: 599px) {
+  .modal-shell {
+    width:         100vw;
+    max-width:     100vw;
+    max-height:    100dvh;
+    border-radius: 12px 12px 0 0;
+    margin:        auto auto 0;
+  }
+  .modal-header {
+    position:   sticky;
+    top:        0;
+    z-index:    1;
+    border-radius: 12px 12px 0 0;
+  }
+  .modal-footer {
+    position:   sticky;
+    bottom:     0;
+    z-index:    1;
+  }
+}
+
+/* ── Confirm dialog (openConfirmDialog) ──────────────────────────────────────── */
+.confirm-dialog {
+  width:         min(400px, calc(100vw - 32px));
+  padding:       20px 24px;
+  border-radius: 8px;
+  border:        1px solid var(--border);
+  background:    var(--surface);
+  color:         var(--text);
+}
+.confirm-dialog::backdrop { background: rgba(0,0,0,0.4); }
+.confirm-dialog-title   { font-weight: 600; margin-bottom: 8px; font-size: 15px; }
+.confirm-dialog-message { color: var(--text-dim); margin-bottom: 16px; font-size: 14px; }
+.confirm-dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ── Type-select cards ────────────────────────────────────────────────────────── */
+.att-type-select      { padding: 8px 0; }
+.att-type-select-hint { font-size: 13px; color: var(--text-dim); margin-bottom: 16px; }
+.att-type-cards       { display: flex; gap: 12px; flex-wrap: wrap; }
+.att-type-card {
+  display:       flex;
+  flex-direction: column;
+  align-items:   center;
+  gap:           8px;
+  padding:       16px 24px;
+  border:        1px solid var(--border);
+  border-radius: 8px;
+  background:    #0d1b2a;
+  cursor:        pointer;
+  font-family:   var(--font);
+  color:         var(--text);
+  transition:    background 0.15s, border-color 0.15s;
+  min-width:     100px;
+}
+.att-type-card:hover  { background: var(--surface2); border-color: var(--accent2); }
+.att-type-card:focus  { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.att-type-card-icon   { font-size: 24px; line-height: 1; }
+.att-type-card-label  { font-size: 13px; font-weight: 500; }
 
 /* ── Step 3: Mail list table enhancements ────────────────────────────────────── */
 .mail-row { cursor: pointer; }

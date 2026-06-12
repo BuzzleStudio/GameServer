@@ -219,6 +219,7 @@ export function validateAndImport(
     }
 
     attachments.push({
+      _id:           crypto.randomUUID(),
       payoutAssetId: (isISA || isTicket) ? '' : payoutAssetId,
       assetType,
       payoutAmount:      payoutAmount || 1,

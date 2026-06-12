@@ -12,11 +12,11 @@ import {
   readTargetUserEditor,
   attachTargetUserListeners,
 } from './target-user-editor'
-import {
-  mountAttachmentEditor,
-  renderAttachmentAddGroup,
-} from './attachment-editor'
-import type { AttachmentEditorHandle } from './attachment-editor'
+import { mountAttachmentList } from './attachment-list'
+import type { AttachmentListHandle } from './attachment-list'
+import { mountAttachmentModal } from './attachment-modal'
+import type { AttachmentModalHandle } from './attachment-modal'
+import { deserializeAttachmentToForm } from './attachment-serde'
 import type { ComboboxOption } from './asset-selector'
 import { createUnsavedGuard } from './unsaved-guard'
 import { isoToEditInputs, formatDateUtc } from './date-format'
@@ -30,8 +30,7 @@ import {
   mailTargetUsers,
   mailAttachments,
 } from '../types'
-import type { MailRecord, AttachmentDraft, MailAttachmentInfo, ItemSpecificAsset, RarityValue } from '../types'
-import { Rarity } from '../types'
+import type { MailRecord, AttachmentDraft, MailAttachmentInfo } from '../types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,8 +64,9 @@ export interface MailEditorDrawerHandle {
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle {
-  const guard  = createUnsavedGuard()
-  let attEditor: AttachmentEditorHandle | null = null
+  const guard    = createUnsavedGuard()
+  let listHandle: AttachmentListHandle  | null = null
+  let modalHandle: AttachmentModalHandle | null = null
   let currentMail: MailRecord | null = null
   let _open = false
 
@@ -118,7 +118,8 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
   }
 
   function _destroySubcomponents(): void {
-    if (attEditor) { attEditor.destroy(); attEditor = null }
+    if (listHandle)  { listHandle.destroy();  listHandle  = null }
+    if (modalHandle) { modalHandle.destroy(); modalHandle = null }
     guard.clearDirty()
   }
 
@@ -141,7 +142,7 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
       targetMode:  targets.length > 0 ? 'specific' as const : 'all' as const,
       targetText:  targets.join('\n'),
     }
-    const attDrafts = mailAttachments(mail).map(_attInfoToDraft)
+    const attDrafts = mailAttachments(mail).map(deserializeAttachmentToForm)
 
     const isBusy = deps.isBusy()
     const connected = deps.isConnected()
@@ -185,7 +186,6 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
 
   <div class="form-group">
     <label class="section-label">Attachments</label>
-    <div id="drawer-att-hdr-add">${renderAttachmentAddGroup('drawer', isBusy || !connected)}</div>
     <div id="drawer-att-container"></div>
   </div>
 </div>
@@ -199,27 +199,55 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
   </div>
 </div>`
 
-    // Mount attachment editor
+    // Mount modal (singleton — create once if not already created)
+    if (!modalHandle) {
+      modalHandle = mountAttachmentModal({
+        currencyOptions: deps.currencyOptions,
+        itemOptions:     deps.itemOptions,
+        ticketOptions:   deps.ticketOptions,
+        onCommit(draft, mode, sourceUid) {
+          if (!listHandle) return
+          if (mode === 'edit' && sourceUid) {
+            listHandle.replaceDraft(sourceUid, draft)
+          } else {
+            listHandle.addDraft(draft)
+          }
+          guard.markDirty()
+        },
+      })
+    }
+
+    // Mount attachment list
     const attContainer = document.getElementById('drawer-att-container')
     if (attContainer) {
-      attEditor = mountAttachmentEditor(
+      listHandle = mountAttachmentList(
         attContainer, attDrafts,
         {
-          prefix: 'drawer',
           currencyOptions: deps.currencyOptions,
           itemOptions:     deps.itemOptions,
           ticketOptions:   deps.ticketOptions,
           disabled: isBusy || !connected,
+          onOpenAdd() {
+            modalHandle?.openAdd(attContainer.querySelector<HTMLElement>('[data-action="att-list-add"]') ?? null)
+          },
+          onOpenEdit(uid) {
+            const draft = listHandle?.getDrafts().find(d => d._id === uid)
+            if (!draft) return
+            const rowEl = attContainer.querySelector<HTMLElement>(`[data-uid="${uid}"]`)
+            modalHandle?.openEdit(draft, rowEl)
+          },
+          onOpenDuplicate(uid) {
+            const draft = listHandle?.getDrafts().find(d => d._id === uid)
+            if (!draft) return
+            const rowEl = attContainer.querySelector<HTMLElement>(`[data-uid="${uid}"]`)
+            modalHandle?.openDuplicate(draft, rowEl)
+          },
+          onDeleteConfirm() {
+            guard.markDirty()
+          },
         },
-        () => guard.markDirty(),
       )
     }
-
-    // Header add-group delegates to editor's addDraft (same code path as footer group)
-    document.getElementById('drawer-att-hdr-add')?.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-action="att-add"]')
-      if (btn) attEditor?.addDraft(btn.dataset['assettype'])
-    })
 
     // Attach schedule / target listeners
     attachScheduleListeners('drawer', () => guard.markDirty())
@@ -268,7 +296,7 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
 
     const sched  = readScheduleEditor('drawer')
     const target = readTargetUserEditor('drawer')
-    const drafts = attEditor ? attEditor.getDrafts() : []
+    const drafts = listHandle ? listHandle.getDrafts() : []
 
     // Build expiry ISO (null = clear)
     let expiresAt: string | null = null
@@ -324,55 +352,3 @@ function _mailMeta(mail: MailRecord): string {
     : ''
 }
 
-function _defaultItemRow(): ItemSpecificAsset {
-  return { BlueprintId: '', CurrentLevel: 1, Rarity: Rarity.Common, InitialLevel: 1, FromSource: '' }
-}
-
-function _isJsonObjType(t: string): boolean {
-  const l = t.trim().toLowerCase()
-  return l === 'itemspecificasset' || l === 'ticket'
-}
-
-function _attInfoToDraft(att: MailAttachmentInfo): AttachmentDraft {
-  const assetType     = att.AssetType ?? att.assetType ?? 'Currency'
-  const payoutAssetId = att.PayoutAssetId ?? att.payoutAssetId ?? ''
-  const isJson = _isJsonObjType(assetType)
-
-  if (isJson) {
-    try {
-      const parsed = JSON.parse(payoutAssetId)
-      const r: Record<string, unknown> = Array.isArray(parsed) ? (parsed[0] ?? {}) : (parsed ?? {})
-      return {
-        payoutAssetId: '',
-        assetType,
-        payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
-        chance:       att.Chance       ?? att.chance       ?? 1,
-        itemRows: [{
-          BlueprintId:  typeof r['BlueprintId']  === 'string' ? r['BlueprintId']  as string : '',
-          CurrentLevel: typeof r['CurrentLevel'] === 'number' ? r['CurrentLevel'] as number : 1,
-          Rarity:       (typeof r['Rarity']       === 'number' ? r['Rarity']       as number : Rarity.Common) as RarityValue,
-          InitialLevel: typeof r['InitialLevel'] === 'number' ? r['InitialLevel'] as number : 1,
-          FromSource:   typeof r['FromSource']   === 'string' ? r['FromSource']   as string : '',
-        }],
-      }
-    } catch {
-      const legacyWarning = `⚠ legacy format: plain-string PayoutAssetId "${payoutAssetId}"`
-      return {
-        payoutAssetId: '',
-        assetType,
-        payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
-        chance:       att.Chance       ?? att.chance       ?? 1,
-        itemRows:     [{ ..._defaultItemRow(), BlueprintId: payoutAssetId }],
-        _legacyWarning: legacyWarning,
-      }
-    }
-  }
-
-  return {
-    payoutAssetId,
-    assetType,
-    payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
-    chance:       att.Chance       ?? att.chance       ?? 1,
-    itemRows:     [_defaultItemRow()],
-  }
-}

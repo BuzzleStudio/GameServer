@@ -48,6 +48,8 @@ export interface AttachmentDraft {
   payoutAmount: number;
   chance: number;
   itemRows: ItemSpecificAsset[];
+  /** UI-only stable identity for list operations. Never serialized. */
+  _id?: string;
   /** Set when a Ticket attachment's PayoutAssetId was a plain string (legacy format). UI-only, never serialised. */
   _legacyWarning?: string;
   /** Set after import if the ID is not in the known ID lists. UI-only, never serialised. */

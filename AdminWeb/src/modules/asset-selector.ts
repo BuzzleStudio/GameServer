@@ -21,6 +21,7 @@ export interface ComboboxConfig {
 export interface ComboboxHandle {
   getValue(): string
   setValue(v: string): void
+  isOpen(): boolean  // whether the dropdown listbox is currently visible
   destroy(): void    // removes DOM and all listeners
 }
 
@@ -107,9 +108,29 @@ export function mountCombobox(config: ComboboxConfig): ComboboxHandle {
     }
   }
 
+  function _positionListbox(): void {
+    const rect       = container!.getBoundingClientRect()
+    const viewportH  = window.innerHeight
+    const spaceBelow = viewportH - rect.bottom
+    const spaceAbove = rect.top
+    const estimatedH = Math.min(240, filteredOptions.length * 36 + 8)
+
+    listbox.style.left  = `${rect.left}px`
+    listbox.style.width = `${rect.width}px`
+
+    if (spaceBelow >= estimatedH || spaceBelow >= spaceAbove) {
+      listbox.style.top    = `${rect.bottom}px`
+      listbox.style.bottom = 'auto'
+    } else {
+      listbox.style.top    = 'auto'
+      listbox.style.bottom = `${viewportH - rect.top}px`
+    }
+  }
+
   function openList(filterQuery?: string): void {
     const q = filterQuery ?? input.value
     renderOptions(filterOptions(config.options, q))
+    _positionListbox()
     listbox.hidden = false
     input.setAttribute('aria-expanded', 'true')
     isOpen = true
@@ -204,10 +225,11 @@ export function mountCombobox(config: ComboboxConfig): ComboboxHandle {
   updateBadge()
 
   return {
-    getValue: () => currentValue,
+    getValue:  () => currentValue,
+    isOpen:    () => isOpen,
     setValue: (v) => {
       currentValue = v
-      input.value = v
+      input.value  = v
       updateBadge()
     },
     destroy: () => {
