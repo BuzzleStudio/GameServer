@@ -23,7 +23,6 @@ import type { ProxyCallArgs } from './api'
 
 import {
   CATEGORY_OPTIONS,
-  Rarity,
   mailId,
   mailEndTime,
   mailTargetUsers,
@@ -31,12 +30,11 @@ import {
 
 import type {
   AttachmentDraft,
-  ItemSpecificAsset,
   MailRecord,
-  MailAttachment,
   MailScope,
-  RarityValue,
 } from './types'
+
+import { buildAttachments } from './modules/build-attachments'
 
 import { CURRENCY_IDS, ITEM_IDS, TICKET_IDS, CURRENCY_OPTIONS } from './generated/lookup-data'
 import { buildMailExportJson } from './mail-export'
@@ -51,14 +49,6 @@ import { mountSendForm } from './modules/send-form'
 import type { SendFormHandle, SendFormPayload } from './modules/send-form'
 
 // ─── Constants ────────────────────────────────────────────────────────────────────
-
-const defaultItemRow = (): ItemSpecificAsset => ({
-  BlueprintId: '',
-  CurrentLevel: 1,
-  Rarity: Rarity.Common,
-  InitialLevel: 1,
-  FromSource: '',
-})
 
 const MAILS_PER_PAGE = 5
 const FETCH_PAGE_SIZE = 50
@@ -100,56 +90,6 @@ function el<T extends HTMLElement>(id: string): T {
 
 function val(id: string): string {
   return (document.getElementById(id) as HTMLInputElement | null)?.value ?? ''
-}
-
-// ─── Attachment helpers ───────────────────────────────────────────────────────────
-
-function isItemSpecificAssetType(assetType: string): boolean {
-  return assetType.trim().toLowerCase() === 'itemspecificasset'
-}
-
-function isTicketType(assetType: string): boolean {
-  return assetType.trim().toLowerCase() === 'ticket'
-}
-
-function isJsonObjectType(assetType: string): boolean {
-  return isItemSpecificAssetType(assetType) || isTicketType(assetType)
-}
-
-function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
-  const result: MailAttachment[] = []
-  for (const d of drafts) {
-    const isJsonObj = isJsonObjectType(d.assetType)
-    if (!isJsonObj && !d.payoutAssetId.trim()) continue
-    if (d.payoutAmount <= 0) throw new Error(`Attachment: PayoutAmount must be > 0`)
-    if (d.chance <= 0) throw new Error(`Attachment: Chance must be > 0`)
-
-    let payoutAssetId: string
-    if (isJsonObj) {
-      const row = d.itemRows?.[0] ?? defaultItemRow()
-      payoutAssetId = JSON.stringify({
-        BlueprintId: row.BlueprintId,
-        CurrentLevel: row.CurrentLevel,
-        Rarity: row.Rarity,
-        InitialLevel: row.InitialLevel,
-        FromSource: row.FromSource,
-      })
-    } else {
-      payoutAssetId = d.payoutAssetId.trim()
-    }
-
-    const typeStr = d.assetType.trim() || 'Currency'
-
-    result.push({
-      type:     typeStr,
-      id:       payoutAssetId,
-      itemId:   payoutAssetId,
-      amount:   d.payoutAmount,
-      quantity: d.payoutAmount,
-      chance:   d.chance,
-    })
-  }
-  return result.length > 0 ? result : null
 }
 
 // ─── Connection ───────────────────────────────────────────────────────────────────

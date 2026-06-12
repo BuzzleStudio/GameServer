@@ -213,4 +213,108 @@ describe('validateAndImport', () => {
       expect(result.draft?.targetUserIds).toEqual(['user-a', 'user-b'])
     })
   })
+
+  // ─── SR-40: copy-paste round-trip ──────────────────────────────────────────
+  // Simulate user copy-pasting the export JSON back in through the import path.
+  // No dependency on buildAttachments — construct the export-shaped JSON directly.
+
+  describe('copy-paste round-trip (SR-40)', () => {
+    it('[SR-40] Currency attachment survives export-format round-trip', () => {
+      const exportShaped = {
+        schemaVersion: 1,
+        scope: 'Global',
+        sourceEnv: 'production',
+        exportedAt: '2024-06-01T00:00:00.000Z',
+        mail: {
+          messageId: 'mail-001',
+          title: 'Round-trip Test',
+          content: 'Body text',
+          endTime: null,
+          targetUserIds: [],
+          attachments: [
+            { AssetType: 'Currency', PayoutAssetId: 'gold', PayoutAmount: 200, Chance: 0.5 },
+          ],
+        },
+      }
+      const result = validateAndImport(exportShaped, KNOWN_CURRENCIES, KNOWN_ITEMS, KNOWN_TICKETS)
+      expect(result.ok).toBe(true)
+      expect(result.errors).toHaveLength(0)
+      expect(result.draft?.title).toBe('Round-trip Test')
+      expect(result.draft?.attachments[0].payoutAssetId).toBe('gold')
+      expect(result.draft?.attachments[0].payoutAmount).toBe(200)
+      expect(result.draft?.attachments[0].chance).toBe(0.5)
+    })
+
+    it('[SR-40b] Ticket JSON-object attachment survives round-trip with itemRows intact', () => {
+      const ticketJson = JSON.stringify({
+        BlueprintId: 'expedition_map_ticket_forest',
+        CurrentLevel: 2,
+        Rarity: 1,
+        InitialLevel: 1,
+        FromSource: 'quest',
+      })
+      const exportShaped = {
+        schemaVersion: 1,
+        scope: 'Global',
+        sourceEnv: 'testing',
+        exportedAt: '2024-06-01T00:00:00.000Z',
+        mail: {
+          title: 'Ticket RT',
+          content: 'Body',
+          endTime: null,
+          targetUserIds: [],
+          attachments: [
+            { AssetType: 'Ticket', PayoutAssetId: ticketJson, PayoutAmount: 1, Chance: 1 },
+          ],
+        },
+      }
+      const result = validateAndImport(exportShaped, KNOWN_CURRENCIES, KNOWN_ITEMS, KNOWN_TICKETS)
+      expect(result.ok).toBe(true)
+      const row = result.draft?.attachments[0].itemRows[0]
+      expect(row?.BlueprintId).toBe('expedition_map_ticket_forest')
+      expect(row?.CurrentLevel).toBe(2)
+      expect(row?.Rarity).toBe(1)
+    })
+  })
+
+  // ─── SR-52: ISA JSON-object PayoutAssetId extraction ──────────────────────
+
+  describe('ISA JSON-object PayoutAssetId extraction (SR-52)', () => {
+    it('[SR-52] ISA with JSON-object PayoutAssetId: BlueprintId extracted correctly', () => {
+      const isaJson = JSON.stringify({
+        BlueprintId: 'W_Dagger',
+        CurrentLevel: 3,
+        Rarity: 1,
+        InitialLevel: 2,
+        FromSource: 'quest',
+      })
+      const parsed = makeParsed({
+        mail: {
+          title: 'T', content: 'C', endTime: null, targetUserIds: [],
+          attachments: [{ AssetType: 'ItemSpecificAsset', PayoutAssetId: isaJson, PayoutAmount: 1, Chance: 1 }],
+        },
+      })
+      const result = validateAndImport(parsed, KNOWN_CURRENCIES, KNOWN_ITEMS, KNOWN_TICKETS)
+      expect(result.ok).toBe(true)
+      const row = result.draft?.attachments[0].itemRows[0]
+      expect(row?.BlueprintId).toBe('W_Dagger')
+      expect(row?.CurrentLevel).toBe(3)
+      expect(row?.InitialLevel).toBe(2)
+      expect(row?.FromSource).toBe('quest')
+    })
+
+    it('[SR-52b] ISA with JSON-object PayoutAssetId: payoutAssetId set to empty string', () => {
+      const isaJson = JSON.stringify({ BlueprintId: 'W_Bow', CurrentLevel: 1, Rarity: 0, InitialLevel: 1, FromSource: '' })
+      const parsed = makeParsed({
+        mail: {
+          title: 'T', content: 'C', endTime: null, targetUserIds: [],
+          attachments: [{ AssetType: 'ItemSpecificAsset', PayoutAssetId: isaJson, PayoutAmount: 1, Chance: 1 }],
+        },
+      })
+      const result = validateAndImport(parsed, KNOWN_CURRENCIES, KNOWN_ITEMS, KNOWN_TICKETS)
+      expect(result.ok).toBe(true)
+      expect(result.draft?.attachments[0].payoutAssetId).toBe('')
+    })
+  })
+
 })

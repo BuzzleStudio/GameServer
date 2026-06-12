@@ -319,3 +319,68 @@ describe('createMailEditorDrawer — status badge', () => {
     expect(badge.textContent).toContain('No expiry')
   })
 })
+
+// ─── SR-50/SR-51: _legacyWarning via _attInfoToDraft in drawer path ───────────
+//
+// _legacyWarning is set by _attInfoToDraft (mail-editor-drawer.ts:350–358) when
+// JSON.parse(payoutAssetId) fails for a Ticket/ISA type (plain-string legacy format).
+// mail-import.ts does NOT and SHOULD NOT set this flag (FROZEN by design).
+// Flag surfaces as <span class="att-legacy-warn"> inside the attachment-editor.
+//
+// Design ref: §6.3 (Ticket/ISA as JSON object; plain-string = legacy)
+
+describe('createMailEditorDrawer — _legacyWarning via drawer path (SR-50/SR-51)', () => {
+  it('[SR-50] Ticket with plain-string PayoutAssetId: .att-legacy-warn span rendered', () => {
+    const mail: MailRecord = {
+      MessageId: 'msg-legacy-ticket',
+      MailInfo: {
+        Title: 'Legacy Ticket Mail',
+        Content: 'Body',
+        Attachment: [{ AssetType: 'Ticket', PayoutAssetId: 'expedition_map_ticket_grass', PayoutAmount: 1, Chance: 1 }],
+      },
+    }
+    drawer.open(mail)
+    expect(document.body.querySelector('.att-legacy-warn')).not.toBeNull()
+  })
+
+  it('[SR-50b] Ticket plain-string: legacy warn span has non-empty text', () => {
+    const mail: MailRecord = {
+      MessageId: 'msg-legacy-ticket-b',
+      MailInfo: {
+        Title: 'Legacy Ticket Mail B',
+        Content: 'Body',
+        Attachment: [{ AssetType: 'Ticket', PayoutAssetId: 'expedition_map_ticket_forest', PayoutAmount: 1, Chance: 1 }],
+      },
+    }
+    drawer.open(mail)
+    const warn = document.body.querySelector('.att-legacy-warn')
+    expect(warn?.textContent?.trim().length).toBeGreaterThan(0)
+  })
+
+  it('[SR-51] ISA with plain-string PayoutAssetId: .att-legacy-warn span rendered', () => {
+    const mail: MailRecord = {
+      MessageId: 'msg-legacy-isa',
+      MailInfo: {
+        Title: 'Legacy ISA Mail',
+        Content: 'Body',
+        Attachment: [{ AssetType: 'ItemSpecificAsset', PayoutAssetId: 'some_legacy_asset_id', PayoutAmount: 1, Chance: 1 }],
+      },
+    }
+    drawer.open(mail)
+    expect(document.body.querySelector('.att-legacy-warn')).not.toBeNull()
+  })
+
+  it('[SR-50/51 negative] Ticket with JSON-object PayoutAssetId: NO .att-legacy-warn span', () => {
+    const ticketJson = JSON.stringify({ BlueprintId: 'expedition_map_ticket_grass', CurrentLevel: 1, Rarity: 0, InitialLevel: 1, FromSource: '' })
+    const mail: MailRecord = {
+      MessageId: 'msg-modern-ticket',
+      MailInfo: {
+        Title: 'Modern Ticket Mail',
+        Content: 'Body',
+        Attachment: [{ AssetType: 'Ticket', PayoutAssetId: ticketJson, PayoutAmount: 1, Chance: 1 }],
+      },
+    }
+    drawer.open(mail)
+    expect(document.body.querySelector('.att-legacy-warn')).toBeNull()
+  })
+})

@@ -14,6 +14,7 @@ import {
 } from './target-user-editor'
 import {
   mountAttachmentEditor,
+  renderAttachmentAddGroup,
 } from './attachment-editor'
 import type { AttachmentEditorHandle } from './attachment-editor'
 import type { ComboboxOption } from './asset-selector'
@@ -184,6 +185,7 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
 
   <div class="form-group">
     <label class="section-label">Attachments</label>
+    <div id="drawer-att-hdr-add">${renderAttachmentAddGroup('drawer', isBusy || !connected)}</div>
     <div id="drawer-att-container"></div>
   </div>
 </div>
@@ -212,6 +214,12 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
         () => guard.markDirty(),
       )
     }
+
+    // Header add-group delegates to editor's addDraft (same code path as footer group)
+    document.getElementById('drawer-att-hdr-add')?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-action="att-add"]')
+      if (btn) attEditor?.addDraft(btn.dataset['assettype'])
+    })
 
     // Attach schedule / target listeners
     attachScheduleListeners('drawer', () => guard.markDirty())

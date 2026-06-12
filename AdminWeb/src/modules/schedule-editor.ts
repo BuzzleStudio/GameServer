@@ -31,11 +31,11 @@ export function renderScheduleEditor(
   <div id="${prefix}-schedule-inputs" ${none ? 'hidden' : ''} class="schedule-inputs">
     <div class="input-row">
       <div class="form-group">
-        <label>Date (UTC)</label>
+        <label for="${prefix}-exp-date">Date (UTC)</label>
         <input type="date" id="${prefix}-exp-date" value="${_esc(state.expiryDate)}" ${dis} />
       </div>
       <div class="form-group">
-        <label>Time (UTC)</label>
+        <label for="${prefix}-exp-time">Time (UTC)</label>
         <input type="time" id="${prefix}-exp-time" value="${_esc(state.expiryTime)}" ${dis} />
       </div>
     </div>
