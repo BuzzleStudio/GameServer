@@ -22,6 +22,7 @@ export interface ComboboxHandle {
   getValue(): string
   setValue(v: string): void
   isOpen(): boolean  // whether the dropdown listbox is currently visible
+  close(): void      // close the listbox without committing (e.g. on modal scroll)
   destroy(): void    // removes DOM and all listeners
 }
 
@@ -227,6 +228,7 @@ export function mountCombobox(config: ComboboxConfig): ComboboxHandle {
   return {
     getValue:  () => currentValue,
     isOpen:    () => isOpen,
+    close:     () => { if (isOpen) closeList(false) },
     setValue: (v) => {
       currentValue = v
       input.value  = v

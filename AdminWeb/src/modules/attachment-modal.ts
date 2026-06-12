@@ -357,13 +357,7 @@ export function mountAttachmentModal(deps: AttachmentModalDeps): AttachmentModal
     // ── Scroll → close comboboxes ────────────────────────────────────────────
     const modalBody = document.getElementById('modal-body')
     modalBody?.addEventListener('scroll', () => {
-      _comboboxes.forEach(h => {
-        if (h.isOpen()) {
-          // blur the active element to close the combobox
-          const active = modalBody.querySelector<HTMLElement>('.combobox-input:focus')
-          active?.blur()
-        }
-      })
+      _comboboxes.forEach(h => h.close())
     }, { passive: true })
   }
 

@@ -97,7 +97,11 @@ export function mountModalShell(config?: ModalShellConfig): ModalShellHandle {
   let _isOpen      = false
   let _dirtyGuard: (() => boolean) | null = null
 
-  // Create singleton <dialog>
+  // Enforce singleton portal — remove any existing portal before creating a new one.
+  // In production both callers (send-form, drawer) guard with `if (!_modalHandle)` so
+  // this path is only hit during testing or if the guard is bypassed.
+  document.getElementById('modal-portal')?.remove()
+
   const dialogEl = document.createElement('dialog')
   dialogEl.id        = 'modal-portal'
   dialogEl.className = 'modal-shell'
