@@ -77,4 +77,75 @@ describe('buildMailExportJson', () => {
     expect(result.mail.attachments).toHaveLength(1)
     expect(result.mail.attachments[0].AssetType).toBe('Currency')
   })
+
+  // ─── SR-41: Ticket attachment export format ─────────────────────────────────
+  // Ticket PayoutAssetId must be a JSON-stringified object (not plain string)
+  // so that import/export round-trips correctly.
+
+  it('[SR-41] Ticket attachment: PayoutAssetId is a JSON-stringified object in export', () => {
+    const ticketPayoutId = JSON.stringify({
+      BlueprintId: 'expedition_map_ticket_grass',
+      CurrentLevel: 1,
+      Rarity: 0,
+      InitialLevel: 1,
+      FromSource: '',
+    })
+    const mail = makeGlobalMail()
+    if (mail.MailInfo) {
+      mail.MailInfo.Attachment = [{ AssetType: 'Ticket', PayoutAssetId: ticketPayoutId, PayoutAmount: 1, Chance: 1 }]
+    }
+    const result = buildMailExportJson(mail, 'Global', 'production', FIXED_NOW)
+    expect(result.mail.attachments).toHaveLength(1)
+    const att = result.mail.attachments[0]
+    // PayoutAssetId must be JSON string (not plain ticket ID)
+    expect(typeof att.PayoutAssetId).toBe('string')
+    const parsed = JSON.parse(att.PayoutAssetId as string) as Record<string, unknown>
+    expect(parsed.BlueprintId).toBe('expedition_map_ticket_grass')
+    expect(parsed).toHaveProperty('CurrentLevel')
+    expect(parsed).toHaveProperty('Rarity')
+  })
+
+  it('[SR-41b] Ticket attachment: AssetType preserved as "Ticket"', () => {
+    const ticketPayoutId = JSON.stringify({ BlueprintId: 'expedition_map_ticket_forest', CurrentLevel: 1, Rarity: 0, InitialLevel: 1, FromSource: '' })
+    const mail = makeGlobalMail()
+    if (mail.MailInfo) {
+      mail.MailInfo.Attachment = [{ AssetType: 'Ticket', PayoutAssetId: ticketPayoutId, PayoutAmount: 1, Chance: 1 }]
+    }
+    const result = buildMailExportJson(mail, 'Global', 'production', FIXED_NOW)
+    expect(result.mail.attachments[0].AssetType).toBe('Ticket')
+  })
+
+  // ─── SR-42: ISA attachment export format ────────────────────────────────────
+  // ISA PayoutAssetId must also be a JSON-stringified object.
+
+  it('[SR-42] ISA attachment: PayoutAssetId is a JSON-stringified object in export', () => {
+    const isaPayoutId = JSON.stringify({
+      BlueprintId: 'W_Dagger',
+      CurrentLevel: 5,
+      Rarity: 2,
+      InitialLevel: 1,
+      FromSource: 'loot',
+    })
+    const mail = makeGlobalMail()
+    if (mail.MailInfo) {
+      mail.MailInfo.Attachment = [{ AssetType: 'ItemSpecificAsset', PayoutAssetId: isaPayoutId, PayoutAmount: 1, Chance: 0.5 }]
+    }
+    const result = buildMailExportJson(mail, 'Global', 'production', FIXED_NOW)
+    expect(result.mail.attachments).toHaveLength(1)
+    const att = result.mail.attachments[0]
+    const parsed = JSON.parse(att.PayoutAssetId as string) as Record<string, unknown>
+    expect(parsed.BlueprintId).toBe('W_Dagger')
+    expect(parsed.CurrentLevel).toBe(5)
+    expect(parsed.Rarity).toBe(2)
+  })
+
+  it('[SR-42b] ISA attachment: AssetType preserved as "ItemSpecificAsset"', () => {
+    const isaPayoutId = JSON.stringify({ BlueprintId: 'W_Bow', CurrentLevel: 1, Rarity: 0, InitialLevel: 1, FromSource: '' })
+    const mail = makeGlobalMail()
+    if (mail.MailInfo) {
+      mail.MailInfo.Attachment = [{ AssetType: 'ItemSpecificAsset', PayoutAssetId: isaPayoutId, PayoutAmount: 1, Chance: 1 }]
+    }
+    const result = buildMailExportJson(mail, 'Global', 'production', FIXED_NOW)
+    expect(result.mail.attachments[0].AssetType).toBe('ItemSpecificAsset')
+  })
 })

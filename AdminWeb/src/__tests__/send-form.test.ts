@@ -444,3 +444,146 @@ describe('mountSendForm — disabled when busy', () => {
     expect(sendBtn().disabled).toBe(false)
   })
 })
+
+// ─── SF-03: shared attachment editor across modes ─────────────────────────────
+
+describe('mountSendForm — shared attachment editor (SF-03)', () => {
+  it('[SF-03] switching mode does not re-mount attachment editor (same #sf-att-list element)', () => {
+    mount()
+    const attListBefore = container.querySelector('#sf-att-list')
+    setMode('targeted')
+    const attListAfter = container.querySelector('#sf-att-list')
+    // Same element reference: mode switch must NOT destroy+recreate the att-list
+    expect(attListAfter).toBe(attListBefore)
+  })
+
+  it('[SF-03b] attachment editor content preserved after mode switch', () => {
+    mount()
+    const attContentBefore = container.querySelector('#sf-att-list')!.innerHTML
+    setMode('targeted')
+    expect(container.querySelector('#sf-att-list')!.innerHTML).toBe(attContentBefore)
+  })
+})
+
+// ─── SF-14/SF-15: category and schedule in payload ────────────────────────────
+
+describe('mountSendForm — category and schedule in payload (SF-14/SF-15)', () => {
+  it('[SF-14] payload.category reflects selected category index', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    const catSelect = container.querySelector<HTMLSelectElement>('#sf-category')!
+    catSelect.value = '2'
+    sendBtn().click()
+    const payload: SendFormPayload = onSend.mock.calls[0][0]
+    expect(payload.category).toBe(2)
+  })
+
+  it('[SF-14b] payload.category defaults to 0 when nothing changed', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    sendBtn().click()
+    expect(onSend.mock.calls[0][0].category).toBe(0)
+  })
+
+  it('[SF-15] payload.schedule exists and has expiryMode', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    sendBtn().click()
+    const payload: SendFormPayload = onSend.mock.calls[0][0]
+    expect(payload.schedule).toBeDefined()
+    expect(payload.schedule).toHaveProperty('expiryMode')
+  })
+
+  it('[SF-15b] payload.schedule.expiryMode defaults to "none"', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    sendBtn().click()
+    expect(onSend.mock.calls[0][0].schedule.expiryMode).toBe('none')
+  })
+})
+
+// ─── SF-16: attachment content in payload ────────────────────────────────────
+
+describe('mountSendForm — attachment content in payload (SF-16)', () => {
+  it('[SF-16] payload.attachments[0] has assetType from default attachment (Currency)', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    sendBtn().click()
+    const payload: SendFormPayload = onSend.mock.calls[0][0]
+    // _defaultAttachment() creates assetType: 'Currency'
+    expect(payload.attachments).toHaveLength(1)
+    expect(payload.attachments[0].assetType).toBe('Currency')
+  })
+
+  it('[SF-16b] payload.attachments[0].payoutAmount comes from default attachment (1)', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    sendBtn().click()
+    expect(onSend.mock.calls[0][0].attachments[0].payoutAmount).toBe(1)
+  })
+})
+
+// ─── SF-17/SF-18: senderName and dedupKey non-null when filled ────────────────
+
+describe('mountSendForm — senderName and dedupKey when filled (SF-17/SF-18)', () => {
+  it('[SF-17] payload.senderName is non-null when #sf-sender has value', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    const senderInput = container.querySelector<HTMLInputElement>('#sf-sender')!
+    senderInput.value = 'System'
+    sendBtn().click()
+    expect(onSend.mock.calls[0][0].senderName).toBe('System')
+  })
+
+  it('[SF-17b] payload.senderName trims whitespace', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    const senderInput = container.querySelector<HTMLInputElement>('#sf-sender')!
+    senderInput.value = '  System  '
+    sendBtn().click()
+    expect(onSend.mock.calls[0][0].senderName).toBe('System')
+  })
+
+  it('[SF-18] payload.dedupKey is non-null when #sf-dedup has value', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    const dedupInput = container.querySelector<HTMLInputElement>('#sf-dedup')!
+    dedupInput.value = 'key-unique-123'
+    sendBtn().click()
+    expect(onSend.mock.calls[0][0].dedupKey).toBe('key-unique-123')
+  })
+
+  it('[SF-18b] payload.dedupKey trims whitespace', () => {
+    const onSend = vi.fn()
+    mount({ onSend })
+    const dedupInput = container.querySelector<HTMLInputElement>('#sf-dedup')!
+    dedupInput.value = '  key-abc  '
+    sendBtn().click()
+    expect(onSend.mock.calls[0][0].dedupKey).toBe('key-abc')
+  })
+})
+
+// ─── SF-21/SF-22: send button label matches recipientMode ────────────────────
+//
+// §18 fix landed: mode-switch listener (send-form.ts lines 234–241) now
+// directly updates the send button textContent on every mode change.
+
+describe('mountSendForm — send button label matches recipientMode (SF-21/SF-22)', () => {
+  it('[SF-21] initial global mode: send button says "Send Global Mail"', () => {
+    mount()
+    expect(sendBtn().textContent?.trim()).toContain('Send Global Mail')
+  })
+
+  it('[SF-22] after switch to targeted: send button says "Send Targeted Mail"', () => {
+    mount()
+    setMode('targeted')
+    expect(sendBtn().textContent?.trim()).toContain('Send Targeted Mail')
+  })
+
+  it('[SF-22b] after switch back to global: send button reverts to "Send Global Mail"', () => {
+    mount()
+    setMode('targeted')
+    setMode('global')
+    expect(sendBtn().textContent?.trim()).toContain('Send Global Mail')
+  })
+})
