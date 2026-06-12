@@ -46,15 +46,19 @@ export interface DrawerState {
 }
 
 export interface ManageTabState {
-  mailList:     MailRecord[] | null
-  loading:      boolean
-  error:        string | null
-  searchQuery:  string
-  scopeFilter:  '' | 'Global' | 'Global-targeted' | 'User'
-  statusFilter: '' | MailStatus
-  page:         number
-  pageSize:     number   // target: 10 (increase to 20 in v2)
-  drawer:       DrawerState
+  mailList:              MailRecord[] | null
+  loading:               boolean
+  error:                 string | null
+  searchQuery:           string
+  scopeFilter:           '' | 'Global' | 'Global-targeted' | 'User'
+  statusFilter:          '' | MailStatus
+  page:                  number
+  pageSize:              number   // target: 10 (increase to 20 in v2)
+  drawer:                DrawerState
+  // User Mail Lookup
+  userMailList:          MailRecord[] | null
+  userMailError:         string
+  userMailLookupPlayerId: string
 }
 
 export interface SendFormState {
@@ -125,15 +129,18 @@ export function defaultDrawerState(): DrawerState {
 
 export function defaultManageTabState(): ManageTabState {
   return {
-    mailList:     null,
-    loading:      false,
-    error:        null,
-    searchQuery:  '',
-    scopeFilter:  '',
-    statusFilter: '',
-    page:         0,
-    pageSize:     10,
-    drawer:       defaultDrawerState(),
+    mailList:               null,
+    loading:                false,
+    error:                  null,
+    searchQuery:            '',
+    scopeFilter:            '',
+    statusFilter:           '',
+    page:                   0,
+    pageSize:               10,
+    drawer:                 defaultDrawerState(),
+    userMailList:           null,
+    userMailError:          '',
+    userMailLookupPlayerId: '',
   }
 }
 

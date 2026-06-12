@@ -506,6 +506,123 @@ describe('mountCombobox — ComboboxHandle API', () => {
   })
 })
 
+// ─── destroy() — document mousedown listener cleanup [F3] ─────────────────────
+//
+// Bug: mountCombobox adds document.addEventListener('mousedown', handler) but
+// destroy() only clears container.innerHTML — never calls removeEventListener.
+// Each mount leaks one persistent document-level listener.
+//
+// These tests verify the fix: destroy() must call
+// document.removeEventListener('mousedown', <same handler ref>).
+// Tests FAIL before fix, PASS after fix — intentional regression guard.
+
+describe('mountCombobox — destroy() document listener cleanup [F3]', () => {
+  it('[F3] destroy() calls document.removeEventListener for the mousedown handler', () => {
+    // Spy on removeEventListener BEFORE mount so we can assert on any 'mousedown' removal
+    const removeSpy = vi.spyOn(document, 'removeEventListener')
+    mount()
+    handle.destroy()
+    const mousedownRemovals = removeSpy.mock.calls.filter(c => c[0] === 'mousedown')
+    removeSpy.mockRestore()
+    expect(mousedownRemovals).toHaveLength(1)
+  })
+
+  it('[F3] after destroy(), document mousedown outside does not invoke closeList', () => {
+    // Capture the handler added by mountCombobox so we can verify it is removed
+    let capturedHandler: EventListener | null = null
+    const origAdd = document.addEventListener.bind(document)
+    const addSpy = vi.spyOn(document, 'addEventListener').mockImplementation(
+      (type: string, handler: EventListenerOrEventListenerObject, ...rest: any[]) => {
+        if (type === 'mousedown') capturedHandler = handler as EventListener
+        origAdd(type, handler as EventListenerOrEventListenerObject, ...rest)
+      },
+    )
+    mount()
+    addSpy.mockRestore()
+
+    const removeSpy = vi.spyOn(document, 'removeEventListener')
+    handle.destroy()
+    // After fix: removeEventListener called with same handler reference
+    expect(removeSpy).toHaveBeenCalledWith('mousedown', capturedHandler)
+    removeSpy.mockRestore()
+  })
+
+  it('[F3] after destroy(), dispatching mousedown on document does not throw', () => {
+    mount()
+    handle.destroy()
+    // Leaked listener might access stale closure — should not throw after fix
+    expect(() => {
+      document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    }).not.toThrow()
+  })
+})
+
+// ─── Currency option label+id rendering [F2] ─────────────────────────────────
+//
+// Bug: currency combobox options were showing doubled label/id display.
+// Fix: each option must render label in exactly one .combobox-option-label span
+// and id in exactly one .combobox-option-id span — no duplication.
+
+describe('mountCombobox — currency option label+id rendering [F2]', () => {
+  it('[F2] labeled option has exactly one .combobox-option-label span', () => {
+    mount(OPTIONS_WITH_LABELS)
+    openAndShowAll()
+    const firstOpt = getListbox().querySelector<HTMLElement>('.combobox-option')!
+    expect(firstOpt.querySelectorAll('.combobox-option-label')).toHaveLength(1)
+  })
+
+  it('[F2] labeled option label span text equals option.label', () => {
+    mount(OPTIONS_WITH_LABELS)
+    openAndShowAll()
+    const firstOpt = getListbox().querySelector<HTMLElement>('.combobox-option')!
+    expect(firstOpt.querySelector('.combobox-option-label')!.textContent).toBe('Gems')
+  })
+
+  it('[F2] labeled option has exactly one .combobox-option-id span', () => {
+    mount(OPTIONS_WITH_LABELS)
+    openAndShowAll()
+    const firstOpt = getListbox().querySelector<HTMLElement>('.combobox-option')!
+    expect(firstOpt.querySelectorAll('.combobox-option-id')).toHaveLength(1)
+  })
+
+  it('[F2] labeled option id span text equals option.id (not label)', () => {
+    mount(OPTIONS_WITH_LABELS)
+    openAndShowAll()
+    const firstOpt = getListbox().querySelector<HTMLElement>('.combobox-option')!
+    expect(firstOpt.querySelector('.combobox-option-id')!.textContent).toBe('gem')
+    expect(firstOpt.querySelector('.combobox-option-id')!.textContent).not.toBe('Gems')
+  })
+
+  it('[F2] all labeled options: each has exactly 1 label-span and 1 id-span', () => {
+    mount(OPTIONS_WITH_LABELS)
+    openAndShowAll()
+    const opts = getListbox().querySelectorAll<HTMLElement>('.combobox-option')
+    expect(opts).toHaveLength(OPTIONS_WITH_LABELS.length)
+    opts.forEach(li => {
+      expect(li.querySelectorAll('.combobox-option-label')).toHaveLength(1)
+      expect(li.querySelectorAll('.combobox-option-id')).toHaveLength(1)
+    })
+  })
+
+  it('[F2] each option: label-span text matches OPTIONS_WITH_LABELS[i].label', () => {
+    mount(OPTIONS_WITH_LABELS)
+    openAndShowAll()
+    const opts = Array.from(getListbox().querySelectorAll<HTMLElement>('.combobox-option'))
+    OPTIONS_WITH_LABELS.forEach((expected, i) => {
+      expect(opts[i].querySelector('.combobox-option-label')!.textContent).toBe(expected.label)
+    })
+  })
+
+  it('[F2] each option: id-span text matches OPTIONS_WITH_LABELS[i].id', () => {
+    mount(OPTIONS_WITH_LABELS)
+    openAndShowAll()
+    const opts = Array.from(getListbox().querySelectorAll<HTMLElement>('.combobox-option'))
+    OPTIONS_WITH_LABELS.forEach((expected, i) => {
+      expect(opts[i].querySelector('.combobox-option-id')!.textContent).toBe(expected.id)
+    })
+  })
+})
+
 // ─── ARIA attributes ─────────────────────────────────────────────────────────
 
 describe('mountCombobox — ARIA (§4.2)', () => {
