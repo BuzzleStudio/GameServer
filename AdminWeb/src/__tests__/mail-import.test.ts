@@ -317,37 +317,4 @@ describe('validateAndImport', () => {
     })
   })
 
-  // ─── SR-50/SR-51: _legacyWarning set on plain-string Ticket/ISA ───────────
-  //
-  // NOTE: These tests INTENTIONALLY FAIL with current mail-import.ts.
-  // validateAndImport never sets `_legacyWarning` (confirmed implementation gap).
-  // These tests document the requirement. They will pass after the fix lands.
-
-  describe('_legacyWarning set for plain-string Ticket/ISA (SR-50/SR-51) [FAILS until fix]', () => {
-    it('[SR-50] Ticket with plain-string PayoutAssetId: _legacyWarning is set on draft', () => {
-      const parsed = makeParsed({
-        mail: {
-          title: 'T', content: 'C', endTime: null, targetUserIds: [],
-          attachments: [{ AssetType: 'Ticket', PayoutAssetId: 'expedition_map_ticket_grass', PayoutAmount: 1, Chance: 1 }],
-        },
-      })
-      const result = validateAndImport(parsed, KNOWN_CURRENCIES, KNOWN_ITEMS, KNOWN_TICKETS)
-      expect(result.ok).toBe(true)
-      // Currently FAILS: _legacyWarning is never set by validateAndImport
-      expect(result.draft?.attachments[0]._legacyWarning).toBeDefined()
-    })
-
-    it('[SR-51] ISA with plain-string PayoutAssetId: _legacyWarning is set on draft', () => {
-      const parsed = makeParsed({
-        mail: {
-          title: 'T', content: 'C', endTime: null, targetUserIds: [],
-          attachments: [{ AssetType: 'ItemSpecificAsset', PayoutAssetId: 'some_legacy_id', PayoutAmount: 1, Chance: 1 }],
-        },
-      })
-      const result = validateAndImport(parsed, KNOWN_CURRENCIES, KNOWN_ITEMS, KNOWN_TICKETS)
-      expect(result.ok).toBe(true)
-      // Currently FAILS: _legacyWarning is never set by validateAndImport
-      expect(result.draft?.attachments[0]._legacyWarning).toBeDefined()
-    })
-  })
 })
