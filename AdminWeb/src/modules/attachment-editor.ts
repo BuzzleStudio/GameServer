@@ -214,8 +214,8 @@ function _renderCard(prefix: string, i: number, d: AttachmentDraft, disabled: bo
       <span class="att-card-summary-text">${_esc(summary)}</span>
       <span class="att-card-err-marker" id="${prefix}-att-err-marker-${i}" hidden> ⚠</span>
       <span class="att-card-actions">
-        <button type="button" class="btn btn-ghost btn-sm" data-action="att-duplicate" data-prefix="${prefix}" data-idx="${i}" ${dis}>Duplicate</button>
-        <button type="button" class="btn btn-ghost btn-sm att-remove-btn" data-action="att-remove" data-prefix="${prefix}" data-idx="${i}" ${dis}>🗑 Delete</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-action="att-duplicate" data-prefix="${prefix}" data-idx="${i}" ${dis} aria-label="Duplicate attachment ${i + 1}">Duplicate</button>
+        <button type="button" class="btn btn-ghost btn-sm att-remove-btn" data-action="att-remove" data-prefix="${prefix}" data-idx="${i}" ${dis} aria-label="Remove attachment ${i + 1}">🗑 Delete</button>
       </span>
     </summary>
     <div class="att-card-body">
@@ -281,8 +281,8 @@ function _mountRowComboboxes(
     comboboxes.set(`type-${i}`, typeHandle)
   }
 
-  // ID combobox (non-JSON types)
-  _mountIdCombobox(i, d.assetType, prefix, currencyOptions, itemOptions, ticketOptions, comboboxes, onChange)
+  // ID combobox (non-JSON types) — pass draft value so initial validation sees non-empty id
+  _mountIdCombobox(i, d.assetType, prefix, currencyOptions, itemOptions, ticketOptions, comboboxes, onChange, d.payoutAssetId)
 
   // Blueprint combobox (JSON types) — pass draft's initial BlueprintId on first mount
   _mountBlueprintCombobox(i, d.assetType, prefix, itemOptions, ticketOptions, comboboxes, onChange,
@@ -315,11 +315,12 @@ function _mountIdCombobox(
   i: number,
   assetType: string,
   prefix: string,
-  currencyOptions: ComboboxOption[],
-  itemOptions:     ComboboxOption[],
-  ticketOptions:   ComboboxOption[],
-  comboboxes:      Map<string, ComboboxHandle>,
-  onChange:        () => void,
+  currencyOptions:  ComboboxOption[],
+  itemOptions:      ComboboxOption[],
+  ticketOptions:    ComboboxOption[],
+  comboboxes:       Map<string, ComboboxHandle>,
+  onChange:         () => void,
+  initialPayoutId?: string,  // pass draft.payoutAssetId on first mount; undefined = read from DOM (re-mount)
 ): void {
   if (_isJsonObjType(assetType)) return
 
@@ -337,7 +338,7 @@ function _mountIdCombobox(
     : []
 
   const existingInput = document.getElementById(`${prefix}-att-id-${i}`) as HTMLInputElement | null
-  const currentVal    = existingInput?.value ?? ''
+  const currentVal    = initialPayoutId !== undefined ? initialPayoutId : (existingInput?.value ?? '')
 
   const idHandle = mountCombobox({
     containerId:  wrapId,

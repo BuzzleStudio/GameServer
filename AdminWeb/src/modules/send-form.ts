@@ -133,26 +133,26 @@ export function mountSendForm(
     </div>
     <div id="sf-target-section" ${s.recipientMode !== 'targeted' ? 'hidden' : ''}>
       <div class="form-group">
-        <label>Target User IDs <span style="color:var(--text-dim)">(one UUID per line)</span></label>
+        <label for="sf-target-text">Target User IDs <span style="color:var(--text-dim)">(one UUID per line)</span></label>
         <textarea id="sf-target-text" rows="4"
           placeholder="One player UUID per line" ${disAttr}>${_esc(s.targetText)}</textarea>
       </div>
     </div>
     <div class="form-group">
-      <label>Subject <span style="color:var(--text-dim)">[1-128 chars]</span></label>
+      <label for="sf-subject">Subject <span style="color:var(--text-dim)">[1-128 chars]</span></label>
       <input type="text" id="sf-subject" value="${_esc(s.subject)}"
         maxlength="128" placeholder="Mail title" ${disAttr}/>
       <small id="sf-subject-count" style="color:var(--text-dim)">${s.subject.length}/128</small>
     </div>
     <div class="form-group">
-      <label>Body <span style="color:var(--text-dim)">[1-1024 chars]</span></label>
+      <label for="sf-body">Body <span style="color:var(--text-dim)">[1-1024 chars]</span></label>
       <textarea id="sf-body" maxlength="1024"
         placeholder="Mail body text" ${disAttr}>${_esc(s.body)}</textarea>
       <small id="sf-body-count" style="color:var(--text-dim)">${s.body.length}/1024</small>
     </div>
     ${renderScheduleEditor('sf', s.schedule, dis)}
     <div class="form-group">
-      <label>Category</label>
+      <label for="sf-category">Category</label>
       <select id="sf-category" ${disAttr}>
         ${CATEGORY_OPTIONS.map((c, i) =>
           `<option value="${i}" ${i === s.category ? 'selected' : ''}>${_esc(c)}</option>`
@@ -163,12 +163,12 @@ export function mountSendForm(
       <summary style="cursor:pointer;margin:8px 0;font-size:13px;color:var(--text-dim)">▶ Advanced</summary>
       <div style="margin-top:8px">
         <div class="form-group">
-          <label>Sender Name <span style="color:var(--text-dim)">(optional)</span></label>
+          <label for="sf-sender">Sender Name <span style="color:var(--text-dim)">(optional)</span></label>
           <input type="text" id="sf-sender" value="${_esc(s.senderName)}"
             placeholder="e.g. System" ${disAttr}/>
         </div>
         <div class="form-group">
-          <label>Dedup Key <span style="color:var(--text-dim)">(optional)</span></label>
+          <label for="sf-dedup">Dedup Key <span style="color:var(--text-dim)">(optional)</span></label>
           <input type="text" id="sf-dedup" value="${_esc(s.dedupKey)}"
             placeholder="Unique key to prevent duplicate sends" ${disAttr}/>
         </div>
