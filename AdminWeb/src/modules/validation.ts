@@ -36,6 +36,41 @@ export function validateAttachment(d: AttachmentDraft): string | null {
   return null
 }
 
+// ─── Per-field attachment validators (additive — §7.1) ───────────────────────
+
+/** Validate assetType field. */
+export function validateAttachmentType(assetType: string): string | null {
+  return assetType.trim() ? null : 'Type is required'
+}
+
+/** Validate plain-id field for Currency / Item types. */
+export function validateAttachmentId(id: string, idLabel = 'Asset ID'): string | null {
+  return id.trim() ? null : `${idLabel} is required`
+}
+
+/** Validate payoutAmount. */
+export function validateAttachmentAmount(amount: number): string | null {
+  if (!Number.isFinite(amount) || amount <= 0) return 'Amount must be > 0'
+  return null
+}
+
+/** Validate chance value (stored as 0–1). */
+export function validateAttachmentChance(chance: number): string | null {
+  if (!Number.isFinite(chance) || chance < 0.01 || chance > 1) return 'Chance must be 0.01–1.00'
+  return null
+}
+
+/** Validate BlueprintId for ISA / Ticket types. */
+export function validateBlueprintId(id: string): string | null {
+  return id.trim() ? null : 'Blueprint ID is required'
+}
+
+/** Validate Level or InitialLevel (must be integer ≥ 1). */
+export function validateLevel(level: number, label = 'Level'): string | null {
+  if (!Number.isInteger(level) || level < 1) return `${label} must be ≥ 1`
+  return null
+}
+
 /** Returns a list of per-attachment error strings (empty = all valid). */
 export function validateAttachments(drafts: AttachmentDraft[]): string[] {
   return drafts
