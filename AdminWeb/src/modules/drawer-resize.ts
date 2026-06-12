@@ -67,6 +67,12 @@ export function persistWidth(w: number): void {
 export interface DrawerResizeHandle {
   /** Call from open() — applies stored width if valid and on desktop. */
   applyPersistedWidth(): void
+  /**
+   * Re-prepend the handle element as first child of drawerEl if it has been
+   * detached (e.g. by drawerEl.innerHTML assignment in _render()). The same
+   * element is reused so all event listeners remain intact — no re-wiring.
+   */
+  reattach(): void
   /** Remove --drawer-width property and clear localStorage. */
   resetWidth(): void
   /** Remove handle element and all event listeners. Call from destroy(). */
@@ -191,6 +197,14 @@ export function createDrawerResize(drawerEl: HTMLElement): DrawerResizeHandle {
     if (saved !== null) _applyWidth(saved)
   }
 
+  function reattach(): void {
+    // If _render() wiped drawerEl.innerHTML, the handle element is detached.
+    // Re-prepend the SAME element — its pointer/keyboard listeners are still live.
+    if (handle.parentElement !== drawerEl) {
+      drawerEl.insertBefore(handle, drawerEl.firstChild)
+    }
+  }
+
   function resetWidth(): void {
     drawerEl.style.removeProperty('--drawer-width')
     lastKnownW = null
@@ -215,5 +229,5 @@ export function createDrawerResize(drawerEl: HTMLElement): DrawerResizeHandle {
     handle.remove()
   }
 
-  return { applyPersistedWidth, resetWidth, destroy }
+  return { applyPersistedWidth, reattach, resetWidth, destroy }
 }

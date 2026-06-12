@@ -98,6 +98,7 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
     guard.clearDirty()
     _open = true
     _render(mail)
+    resizeHandle?.reattach()           // _render() wipes innerHTML; re-prepend handle
     resizeHandle?.applyPersistedWidth()
     drawerEl.hidden  = false
     backdropEl.hidden = false
