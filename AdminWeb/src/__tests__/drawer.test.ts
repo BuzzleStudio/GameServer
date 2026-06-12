@@ -320,17 +320,27 @@ describe('createMailEditorDrawer — status badge', () => {
   })
 })
 
-// ─── SR-50/SR-51: _legacyWarning via _attInfoToDraft in drawer path ───────────
+// ─── SR-50/SR-51: _legacyWarning via deserializeAttachmentToForm in drawer path ─
 //
-// _legacyWarning is set by _attInfoToDraft (mail-editor-drawer.ts:350–358) when
+// _legacyWarning is set by deserializeAttachmentToForm (attachment-serde.ts) when
 // JSON.parse(payoutAssetId) fails for a Ticket/ISA type (plain-string legacy format).
 // mail-import.ts does NOT and SHOULD NOT set this flag (FROZEN by design).
-// Flag surfaces as <span class="att-legacy-warn"> inside the attachment-editor.
+//
+// NEW behaviour (modal rebuild): .att-legacy-warn is shown inside the modal form
+// when the user opens the edit modal, NOT in the compact list. The compact list
+// shows only the ⚠ invalid indicator for drafts that fail validation.
+// Legacy Ticket/ISA drafts with a non-empty BlueprintId ARE valid (pass validation),
+// so their row does NOT show ⚠ in the list; the legacy warning surfaces in the modal.
+//
+// These tests verify:
+//   - SR-50/51: row IS rendered in the compact list (the draft is not lost)
+//   - SR-50/51: .att-legacy-warn is NOT present in the compact list DOM
+//   - SR-50/51 negative: still no .att-legacy-warn (modern format also not in list)
 //
 // Design ref: §6.3 (Ticket/ISA as JSON object; plain-string = legacy)
 
 describe('createMailEditorDrawer — _legacyWarning via drawer path (SR-50/SR-51)', () => {
-  it('[SR-50] Ticket with plain-string PayoutAssetId: .att-legacy-warn span rendered', () => {
+  it('[SR-50] Ticket with plain-string PayoutAssetId: row rendered in compact list', () => {
     const mail: MailRecord = {
       MessageId: 'msg-legacy-ticket',
       MailInfo: {
@@ -340,10 +350,12 @@ describe('createMailEditorDrawer — _legacyWarning via drawer path (SR-50/SR-51
       },
     }
     drawer.open(mail)
-    expect(document.body.querySelector('.att-legacy-warn')).not.toBeNull()
+    // Row is rendered; legacy warning NOT shown in compact list (only in modal edit form)
+    expect(document.body.querySelectorAll('.att-list-row').length).toBe(1)
+    expect(document.body.querySelector('.att-legacy-warn')).toBeNull()
   })
 
-  it('[SR-50b] Ticket plain-string: legacy warn span has non-empty text', () => {
+  it('[SR-50b] Ticket plain-string: row type label is "Ticket"', () => {
     const mail: MailRecord = {
       MessageId: 'msg-legacy-ticket-b',
       MailInfo: {
@@ -353,11 +365,11 @@ describe('createMailEditorDrawer — _legacyWarning via drawer path (SR-50/SR-51
       },
     }
     drawer.open(mail)
-    const warn = document.body.querySelector('.att-legacy-warn')
-    expect(warn?.textContent?.trim().length).toBeGreaterThan(0)
+    const typeLabel = document.body.querySelector('.att-list-row .att-list-type')
+    expect(typeLabel?.textContent?.trim()).toBe('Ticket')
   })
 
-  it('[SR-51] ISA with plain-string PayoutAssetId: .att-legacy-warn span rendered', () => {
+  it('[SR-51] ISA with plain-string PayoutAssetId: row rendered in compact list', () => {
     const mail: MailRecord = {
       MessageId: 'msg-legacy-isa',
       MailInfo: {
@@ -367,7 +379,8 @@ describe('createMailEditorDrawer — _legacyWarning via drawer path (SR-50/SR-51
       },
     }
     drawer.open(mail)
-    expect(document.body.querySelector('.att-legacy-warn')).not.toBeNull()
+    expect(document.body.querySelectorAll('.att-list-row').length).toBe(1)
+    expect(document.body.querySelector('.att-legacy-warn')).toBeNull()
   })
 
   it('[SR-50/51 negative] Ticket with JSON-object PayoutAssetId: NO .att-legacy-warn span', () => {

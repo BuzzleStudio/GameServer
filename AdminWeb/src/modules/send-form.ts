@@ -4,8 +4,11 @@
 
 import { renderScheduleEditor, readScheduleEditor, attachScheduleListeners } from './schedule-editor'
 import type { ScheduleEditorState } from './schedule-editor'
-import { mountAttachmentEditor, renderAttachmentAddGroup } from './attachment-editor'
-import type { AttachmentEditorHandle } from './attachment-editor'
+import { mountAttachmentList } from './attachment-list'
+import type { AttachmentListHandle } from './attachment-list'
+import { mountAttachmentModal } from './attachment-modal'
+import type { AttachmentModalHandle } from './attachment-modal'
+import { createDefaultDraft } from './attachment-serde'
 import { mountImportPanel } from './json-import-dialog'
 import type { ImportedDraft } from './json-import-dialog'
 import type { ComboboxOption } from './asset-selector'
@@ -55,7 +58,7 @@ function _esc(s: unknown): string {
 }
 
 function _defaultAttachment(): AttachmentDraft {
-  return { payoutAssetId: '', assetType: 'Currency', payoutAmount: 1, chance: 1, itemRows: [] }
+  return createDefaultDraft('Currency')
 }
 
 // ─── Mount ────────────────────────────────────────────────────────────────────
@@ -85,9 +88,10 @@ export function mountSendForm(
     dedupKey:      '',
     targetText:    '',
   }
-  let _attachments: AttachmentDraft[]                    = [_defaultAttachment()]
-  let _attHandle:    AttachmentEditorHandle | null       = null
-  let _importHandle: { destroy(): void }         | null = null
+  let _attachments:   AttachmentDraft[]            = [_defaultAttachment()]
+  let _listHandle:    AttachmentListHandle  | null = null
+  let _modalHandle:   AttachmentModalHandle | null = null
+  let _importHandle: { destroy(): void }    | null = null
 
   function _applyDraftFields(draft: ImportedDraft): void {
     s.subject = draft.title
@@ -107,7 +111,7 @@ export function mountSendForm(
   }
 
   function render(): void {
-    _attHandle?.destroy()
+    _listHandle?.destroy()
     _importHandle?.destroy()
 
     const dis     = deps.isBusy() || !deps.isConnected()
@@ -175,7 +179,6 @@ export function mountSendForm(
       </div>
     </details>
     <div class="card-title" style="margin-top:12px">📎 Attachments</div>
-    <div id="sf-att-hdr-add">${renderAttachmentAddGroup('sf', dis)}</div>
     <div id="sf-att-list"></div>
     <div class="btn-row" style="margin-top:16px">
       <button class="btn btn-primary" id="sf-send" ${disAttr}>
@@ -188,27 +191,55 @@ export function mountSendForm(
 </div>`
 
     // ── Sub-components ──────────────────────────────────────────────────
+    // Create modal (singleton, persists across renders)
+    if (!_modalHandle) {
+      _modalHandle = mountAttachmentModal({
+        currencyOptions: deps.currencyOptions,
+        itemOptions:     deps.itemOptions,
+        ticketOptions:   deps.ticketOptions,
+        onCommit(draft, mode, sourceUid) {
+          if (!_listHandle) return
+          if (mode === 'edit' && sourceUid) {
+            _listHandle.replaceDraft(sourceUid, draft)
+          } else {
+            _listHandle.addDraft(draft)
+          }
+          _attachments = _listHandle.getDrafts()
+        },
+      })
+    }
+
     const attEl = container.querySelector<HTMLElement>('#sf-att-list')
     if (attEl) {
-      _attHandle = mountAttachmentEditor(
+      _listHandle = mountAttachmentList(
         attEl,
         _attachments,
         {
-          prefix:          'sf',
           currencyOptions: deps.currencyOptions,
           itemOptions:     deps.itemOptions,
           ticketOptions:   deps.ticketOptions,
-          disabled:        dis,
+          disabled: dis,
+          onOpenAdd() {
+            _modalHandle?.openAdd(attEl.querySelector<HTMLElement>('[data-action="att-list-add"]') ?? null)
+          },
+          onOpenEdit(uid) {
+            const draft = _listHandle?.getDrafts().find(d => d._id === uid)
+            if (!draft) return
+            const rowEl = attEl.querySelector<HTMLElement>(`[data-uid="${uid}"]`)
+            _modalHandle?.openEdit(draft, rowEl)
+          },
+          onOpenDuplicate(uid) {
+            const draft = _listHandle?.getDrafts().find(d => d._id === uid)
+            if (!draft) return
+            const rowEl = attEl.querySelector<HTMLElement>(`[data-uid="${uid}"]`)
+            _modalHandle?.openDuplicate(draft, rowEl)
+          },
+          onDeleteConfirm() {
+            if (_listHandle) _attachments = _listHandle.getDrafts()
+          },
         },
-        (updated) => { _attachments = updated },
       )
     }
-
-    // Header add-group delegates to editor's addDraft (same code path as footer group)
-    container.querySelector<HTMLElement>('#sf-att-hdr-add')?.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-action="att-add"]')
-      if (btn) _attHandle?.addDraft(btn.dataset['assettype'])
-    })
 
     const importEl = container.querySelector<HTMLElement>('#sf-import-container')
     if (importEl) {
@@ -268,7 +299,7 @@ export function mountSendForm(
       const category = parseInt(catEl?.value ?? '0', 10) || 0
       const senderName = (container.querySelector<HTMLInputElement>('#sf-sender'))?.value?.trim() || null
       const dedupKey   = (container.querySelector<HTMLInputElement>('#sf-dedup'))?.value?.trim() || null
-      const attachments = _attHandle?.getDrafts() ?? _attachments
+      const attachments = _listHandle?.getDrafts() ?? _attachments
 
       let targetUserIds: string[] | null = null
       if (s.recipientMode === 'targeted') {
@@ -296,7 +327,8 @@ export function mountSendForm(
       render()
     },
     destroy() {
-      _attHandle?.destroy()
+      _listHandle?.destroy()
+      _modalHandle?.destroy()
       _importHandle?.destroy()
       container.innerHTML = ''
     },
