@@ -265,18 +265,29 @@ internal static class CloudSaveHelper
         IExecutionContext ctx, string url, string key, T value, string? writeLock,
         string? cacheKey = null)
     {
-        // Cloud Save's SetItemBody documents `value` as "Any JSON serializable structure"
-        // (NOT a JSON-encoded string). Sending the value as a string produces HTTP 404
-        // error code 54 ("Object could not be found"). Embed the value as a raw JSON
-        // object/array/primitive so the outer JsonSerializer.Serialize(payload) keeps it
-        // structured.
-        var payload = new Dictionary<string, object?>
+        // Serialize the value as a compact JSON string so Cloud Save stores a flat
+        // string instead of a nested object tree. This keeps the dashboard tidy and
+        // avoids key-size surprises from pretty-printed nesting.
+        // The read path (DeserializeValue<T>) already handles ValueKind.String by
+        // double-parsing, so old nested-object data AND new inline-string data both
+        // deserialize correctly — full backward compatibility.
+        var compactValue = JsonSerializer.Serialize(value);
+
+        // Build the POST body with `value` as a JSON string literal.
+        // Using JsonSerializer on a Dictionary<string, object?> would double-escape
+        // the string, so we build the JSON manually with a JsonObject.
+        using var bodyDoc = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(bodyDoc))
         {
-            ["key"] = key,
-            ["value"] = value,
-        };
-        if (!string.IsNullOrEmpty(writeLock)) payload["writeLock"] = writeLock!;
-        var bodyJson = JsonSerializer.Serialize(payload);
+            writer.WriteStartObject();
+            writer.WriteString("key", key);
+            // Write the compact JSON as a raw string value — Cloud Save stores it as-is.
+            writer.WriteString("value", compactValue);
+            if (!string.IsNullOrEmpty(writeLock))
+                writer.WriteString("writeLock", writeLock!);
+            writer.WriteEndObject();
+        }
+        var bodyJson = Encoding.UTF8.GetString(bodyDoc.ToArray());
 
         var (respBody, status, _) = await SendAsync(
             HttpMethod.Post, ctx, url,
@@ -345,27 +356,48 @@ internal static class CloudSaveHelper
     private static T? DeserializeValue<T>(JsonElement item)
     {
         if (!item.TryGetProperty("value", out var val)) return default;
-        // Now that we POST `value` as a raw JSON structure, Cloud Save returns it the
-        // same way on read. Legacy data (written as escaped JSON string) still
-        // deserializes when val.ValueKind == String — kept for compat.
+
+        // Extract key name for diagnostic logging (best-effort).
+        var keyName = item.TryGetProperty("key", out var keyProp) && keyProp.ValueKind == JsonValueKind.String
+            ? keyProp.GetString() ?? "?"
+            : "?";
+
         if (val.ValueKind == JsonValueKind.Null || val.ValueKind == JsonValueKind.Undefined)
             return default;
+
+        // New format: value stored as a compact JSON string (double-serialized).
+        // Legacy format: value stored as a raw JSON object/array.
+        // Both paths converge on DeserializeChecked<T>.
         if (val.ValueKind == JsonValueKind.String)
         {
             var s = val.GetString();
             if (string.IsNullOrEmpty(s)) return default;
-            // Stored as an escaped JSON string — parse once, then shape-check the inner value.
             try
             {
                 using var inner = JsonDocument.Parse(s);
                 return DeserializeChecked<T>(inner.RootElement);
             }
-            catch (JsonException)
+            catch (JsonException ex)
             {
+                Console.Error.WriteLine(
+                    $"[CloudSaveHelper] DeserializeValue<{typeof(T).Name}> failed for key={keyName}, " +
+                    $"valueKind=String, error={ex.Message}, rawLength={s.Length}");
                 return default;
             }
         }
-        return DeserializeChecked<T>(val);
+
+        // Legacy path: value is a raw JSON object/array (pre-compact-string migration).
+        try
+        {
+            return DeserializeChecked<T>(val);
+        }
+        catch (JsonException ex)
+        {
+            Console.Error.WriteLine(
+                $"[CloudSaveHelper] DeserializeValue<{typeof(T).Name}> failed for key={keyName}, " +
+                $"valueKind={val.ValueKind}, error={ex.Message}");
+            return default;
+        }
     }
 
     // Deserializes `element` into T, but returns default (instead of throwing) when the

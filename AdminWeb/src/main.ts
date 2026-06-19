@@ -11,6 +11,7 @@ import {
   ApiError,
   apiSendGlobalMail,
   apiGetGlobalMails,
+  apiGetUserMailsAdmin,
   apiSetMailEndTime,
   apiUpdateGlobalMail,
   apiExpireMail,
@@ -23,128 +24,56 @@ import type { ProxyCallArgs } from './api'
 import {
   CATEGORY_OPTIONS,
   mailId,
-  mailTitle,
-  mailContent,
-  mailStartTime,
   mailEndTime,
   mailTargetUsers,
-  mailAttachments,
 } from './types'
 
 import type {
   AttachmentDraft,
   MailRecord,
-  MailAttachment,
+  MailScope,
 } from './types'
 
-// ─── App state ────────────────────────────────────────────────────────────────────
-interface AppState {
-  // Connection fields (sessionStorage for non-secrets)
-  projectId:   string
-  environment: string   // name ("production"/"testing") or UUID — proxy resolves
-  moduleName:  string   // default "BackpackAdventuresModule"
-  operatorId:  string
-  // In-memory only — NEVER stored anywhere
-  proxyToken:  string
-  // Tabs
-  activeTab:        'send' | 'manage'
-  activeSendSubTab: 'global' | 'targeted'
-  // Send Global form
-  globalSubject:     string
-  globalBody:        string
-  globalUseEndTime:  boolean
-  globalEndDate:     string
-  globalEndTime:     string
-  globalCategory:    number
-  globalSenderName:  string
-  globalDedupKey:    string
-  globalAttachments: AttachmentDraft[]
-  // Send Targeted form
-  targetUserIds:    string[]
-  userSubject:      string
-  userBody:         string
-  userUseEndTime:   boolean
-  userEndDate:      string
-  userEndTime:      string
-  userCategory:     number
-  userSenderName:   string
-  userDedupKey:     string
-  userAttachments:  AttachmentDraft[]
-  // Manage form (direct operations)
-  manageMailId:     string
-  manageUseEndTime: boolean
-  manageEndDate:    string
-  manageEndTime:    string
-  // Mail list
-  mailList:       MailRecord[] | null
-  mailPage:       number
-  mailTotalCount: number
-  // Inline end-time editing per mail row (by MessageId)
-  inlineEndDate: Record<string, string>
-  inlineEndTime: Record<string, string>
-  inlineAttachments: Record<string, AttachmentDraft[]>
-  // Status
-  busy:        boolean
-  statusMsg:   string
-  statusType:  'success' | 'error' | 'warning' | 'info' | ''
-  rawJson:     string
-}
+import { buildAttachments } from './modules/build-attachments'
 
-const defaultAttachment = (): AttachmentDraft => ({
-  payoutAssetId: '',
-  assetType: 'Currency',
-  payoutAmount: 1,
-  chance: 1,
-})
+import { CURRENCY_IDS, ITEM_IDS, TICKET_IDS, CURRENCY_OPTIONS } from './generated/lookup-data'
+import { buildMailExportJson } from './mail-export'
+import {
+  defaultAppState,
+} from './state'
+import type { AppState } from './state'
+import { mountManageTab } from './modules/mail-list'
+import type { ManageTabHandle } from './modules/mail-list'
+import type { ComboboxOption } from './modules/asset-selector'
+import { mountSendForm } from './modules/send-form'
+import type { SendFormHandle, SendFormPayload } from './modules/send-form'
+
+// ─── Constants ────────────────────────────────────────────────────────────────────
 
 const MAILS_PER_PAGE = 5
 const FETCH_PAGE_SIZE = 50
 const MAX_FETCH_PAGES = 20
 
-const state: AppState = {
-  projectId:   '',
-  environment: '',
-  moduleName:  'BackpackAdventuresModule',
-  operatorId:  '',
-  proxyToken:  '',
-  activeTab:        'send',
-  activeSendSubTab: 'global',
-  globalSubject:    '',
-  globalBody:       '',
-  globalUseEndTime: false,
-  globalEndDate:    '',
-  globalEndTime:    '',
-  globalCategory:   0,
-  globalSenderName: '',
-  globalDedupKey:   '',
-  globalAttachments: [defaultAttachment()],
-  targetUserIds:  [''],
-  userSubject:    '',
-  userBody:       '',
-  userUseEndTime: false,
-  userEndDate:    '',
-  userEndTime:    '',
-  userCategory:   0,
-  userSenderName: '',
-  userDedupKey:   '',
-  userAttachments: [defaultAttachment()],
-  manageMailId:     '',
-  manageUseEndTime: false,
-  manageEndDate:    '',
-  manageEndTime:    '',
-  mailList:       null,
-  mailPage:       0,
-  mailTotalCount: 0,
-  inlineEndDate:  {},
-  inlineEndTime:  {},
-  inlineAttachments: {},
-  busy:       false,
-  statusMsg:  '',
-  statusType: '',
-  rawJson:    '',
-}
+// ─── Module-level handles ─────────────────────────────────────────────────────────
+
+let _manageTabHandle: ManageTabHandle | null = null
+let _sendFormHandle:  SendFormHandle  | null = null
+
+// ─── Combobox options from generated lookup data ──────────────────────────────────
+
+const CURRENCY_COMBOBOX_OPTIONS: ComboboxOption[] = CURRENCY_OPTIONS.map(o => ({
+  id:    o.id,
+  label: o.name,
+}))
+const ITEM_COMBOBOX_OPTIONS: ComboboxOption[]   = ITEM_IDS.map(id => ({ id }))
+const TICKET_COMBOBOX_OPTIONS: ComboboxOption[] = TICKET_IDS.map(id => ({ id }))
+
+// ─── App state ────────────────────────────────────────────────────────────────────
+
+const state: AppState = defaultAppState()
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────────
+
 function esc(s: unknown): string {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -163,88 +92,34 @@ function val(id: string): string {
   return (document.getElementById(id) as HTMLInputElement | null)?.value ?? ''
 }
 
-function buildEndTimeIso(useEndTime: boolean, endDate: string, endTime: string): string | null {
-  if (!useEndTime) return null
-  const raw = `${endDate.trim()}T${endTime.trim()}:00Z`
-  const d = new Date(raw)
-  if (isNaN(d.getTime())) throw new Error('End Time: invalid date/time. Use yyyy-MM-dd and HH:mm.')
-  return d.toISOString()
-}
-
-function presetEndTime(days: number): { date: string; time: string } {
-  const d = new Date(Date.now() + days * 86400000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return {
-    date: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
-    time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
-  }
-}
-
-function setEndTimePreset(days: number, dateId: string, timeId: string) {
-  const p = presetEndTime(days)
-  ;(el<HTMLInputElement>(dateId)).value = p.date
-  ;(el<HTMLInputElement>(timeId)).value = p.time
-}
-
-function buildAttachments(drafts: AttachmentDraft[]): MailAttachment[] | null {
-  const result: MailAttachment[] = []
-  for (const d of drafts) {
-    const assetType = d.assetType.trim()
-    if (!d.payoutAssetId.trim()) continue
-    if (!assetType) throw new Error(`Attachment '${d.payoutAssetId}': AssetType is required`)
-    if (d.payoutAmount <= 0) throw new Error(`Attachment '${d.payoutAssetId}': PayoutAmount must be > 0`)
-    if (d.chance <= 0) throw new Error(`Attachment '${d.payoutAssetId}': Chance must be > 0`)
-    const wireType = assetType.toLowerCase() === 'currency'
-      ? 'currency'
-      : assetType.toLowerCase() === 'item'
-        ? 'item'
-        : assetType
-    result.push({
-      type:     wireType,
-      id:       d.payoutAssetId.trim(),
-      itemId:   d.payoutAssetId.trim(),
-      amount:   d.payoutAmount,
-      quantity: d.payoutAmount,
-      chance:   d.chance,
-    })
-  }
-  return result.length > 0 ? result : null
-}
-
-function attachmentInfoToDraft(att: ReturnType<typeof mailAttachments>[number]): AttachmentDraft {
-  return {
-    payoutAssetId: att.PayoutAssetId ?? att.payoutAssetId ?? '',
-    assetType: att.AssetType ?? att.assetType ?? 'Currency',
-    payoutAmount: att.PayoutAmount ?? att.payoutAmount ?? 1,
-    chance: att.Chance ?? att.chance ?? 1,
-  }
-}
+// ─── Connection ───────────────────────────────────────────────────────────────────
 
 function resolveProxyArgs(): ProxyCallArgs {
   const pb = effectiveProxyBase()
-  if (!state.proxyToken) {
+  if (!state.connection.proxyToken) {
     throw new Error('Proxy access token is required. Enter it in the connection form.')
   }
   return {
     proxyBase:   pb,
-    proxyToken:  state.proxyToken,
-    projectId:   state.projectId,
-    environment: state.environment,
-    moduleName:  state.moduleName || 'BackpackAdventuresModule',
+    proxyToken:  state.connection.proxyToken,
+    projectId:   state.connection.projectId,
+    environment: state.connection.environment,
+    moduleName:  state.connection.moduleName || 'BackpackAdventuresModule',
   }
 }
 
 function isConnected(): boolean {
   return (
-    !!state.projectId &&
-    !!state.environment &&
-    !!state.moduleName &&
-    !!state.operatorId &&
-    !!state.proxyToken
+    !!state.connection.projectId &&
+    !!state.connection.environment &&
+    !!state.connection.moduleName &&
+    !!state.connection.operatorId &&
+    !!state.connection.proxyToken
   )
 }
 
 // ─── Status bar ───────────────────────────────────────────────────────────────────
+
 function setStatus(msg: string, type: AppState['statusType'], raw = '') {
   state.statusMsg  = msg
   state.statusType = type
@@ -267,13 +142,14 @@ function renderStatus() {
 }
 
 // ─── Connection status dot ────────────────────────────────────────────────────────
+
 function renderConnectionDot() {
   const dot = document.getElementById('conn-dot')
   if (!dot) return
   if (isConnected()) {
     dot.className = 'status-dot ready'
-    dot.title = `Connected — ${state.moduleName} / ${state.environment}`
-  } else if (state.proxyToken || state.projectId) {
+    dot.title = `Connected — ${state.connection.moduleName} / ${state.connection.environment}`
+  } else if (state.connection.proxyToken || state.connection.projectId) {
     dot.className = 'status-dot partial'
     dot.title = 'Partial credentials'
   } else {
@@ -282,317 +158,161 @@ function renderConnectionDot() {
   }
 }
 
-// ─── Attachment editor ────────────────────────────────────────────────────────────
-function renderAttachmentList(listId: string, prefix: string, drafts: AttachmentDraft[]) {
-  const container = document.getElementById(listId)
-  if (!container) return
-  if (drafts.length === 0) {
-    container.innerHTML = '<div class="empty" style="padding:12px">No attachments. Click Add.</div>'
-    return
-  }
-  container.innerHTML = drafts.map((d, i) => `
-    <div class="attachment-row" id="${prefix}-att-${i}">
-      <div class="form-group">
-        <label>PayoutAssetId</label>
-        <input type="text" id="${prefix}-att-id-${i}" value="${esc(d.payoutAssetId)}" placeholder="currency_id or item_id" />
-      </div>
-      <div class="form-group">
-        <label>AssetType</label>
-        <input type="text" id="${prefix}-att-type-${i}" value="${esc(d.assetType)}" list="asset-type-options" placeholder="Currency / Item / custom" />
-      </div>
-      <div class="form-group">
-        <label>PayoutAmount</label>
-        <input type="number" id="${prefix}-att-amt-${i}" value="${d.payoutAmount}" min="1" />
-      </div>
-      <div class="form-group">
-        <label>Chance (0-1): <span id="${prefix}-att-chance-lbl-${i}">${d.chance.toFixed(2)}</span></label>
-        <input type="range" id="${prefix}-att-chance-${i}" min="0" max="1" step="0.01" value="${d.chance}" />
-      </div>
-      <div class="form-group" style="justify-content:flex-end">
-        <button class="btn btn-danger btn-sm att-remove" data-prefix="${prefix}" data-idx="${i}">✕</button>
-      </div>
-    </div>`).join('')
+// ─── Scope label (KEEP — used by doCopyMailAsJson) ────────────────────────────────
 
-  drafts.forEach((_, i) => {
-    const slider = document.getElementById(`${prefix}-att-chance-${i}`) as HTMLInputElement
-    const label  = document.getElementById(`${prefix}-att-chance-lbl-${i}`)
-    if (slider && label) slider.oninput = () => { label.textContent = parseFloat(slider.value).toFixed(2) }
-  })
-}
-
-function syncAttachmentsFromDom(prefix: string, drafts: AttachmentDraft[]): AttachmentDraft[] {
-  return drafts.map((d, i) => ({
-    payoutAssetId: val(`${prefix}-att-id-${i}`),
-    assetType: val(`${prefix}-att-type-${i}`).trim() || d.assetType,
-    payoutAmount: parseInt(val(`${prefix}-att-amt-${i}`), 10) || d.payoutAmount,
-    chance: parseFloat(
-      (document.getElementById(`${prefix}-att-chance-${i}`) as HTMLInputElement | null)?.value ?? String(d.chance),
-    ),
-  }))
-}
-
-// ─── Target user IDs editor ───────────────────────────────────────────────────────
-function renderTargetUserIds() {
-  const container = document.getElementById('target-user-ids')
-  if (!container) return
-  container.innerHTML = state.targetUserIds.map((uid, i) => `
-    <div class="user-id-row">
-      <input type="text" id="uid-${i}" value="${esc(uid)}" placeholder="Player UUID or ID" />
-      <button class="btn btn-ghost btn-sm uid-remove" data-idx="${i}" ${state.targetUserIds.length <= 1 ? 'disabled' : ''}>✕</button>
-    </div>`).join('')
-}
-
-function syncUserIdsFromDom(): string[] {
-  return state.targetUserIds.map((_, i) => val(`uid-${i}`))
-}
-
-// ─── End-time editor ──────────────────────────────────────────────────────────────
-function endTimeEditorHtml(prefix: string, useEndTime: boolean, endDate: string, endTime: string): string {
-  return `
-  <div class="form-group">
-    <label>End Time (expiresAt)</label>
-    <div style="display:flex;gap:6px;margin-bottom:4px">
-      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-        <input type="radio" name="${prefix}-et-mode" value="none" ${!useEndTime ? 'checked' : ''} /> None (no expiry)
-      </label>
-      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
-        <input type="radio" name="${prefix}-et-mode" value="use" ${useEndTime ? 'checked' : ''} /> Use UTC time
-      </label>
-    </div>
-    <div id="${prefix}-endtime-editor" class="endtime-editor" ${!useEndTime ? 'style="display:none"' : ''}>
-      <div class="endtime-row">
-        <div class="form-group"><label>Date UTC (yyyy-MM-dd)</label><input type="date" id="${prefix}-end-date" value="${esc(endDate)}" /></div>
-        <div class="form-group"><label>Time UTC (HH:mm)</label><input type="time" id="${prefix}-end-time" value="${esc(endTime)}" /></div>
-      </div>
-      <div class="preset-row">
-        <button class="btn btn-ghost btn-sm" data-preset-days="1" data-prefix="${prefix}">+1d</button>
-        <button class="btn btn-ghost btn-sm" data-preset-days="7" data-prefix="${prefix}">+7d</button>
-        <button class="btn btn-ghost btn-sm" data-preset-days="30" data-prefix="${prefix}">+30d</button>
-      </div>
-    </div>
-  </div>`
-}
-
-// ─── Send Global tab ──────────────────────────────────────────────────────────────
-function renderSendGlobalTab(): string {
-  return `
-  <div class="card">
-    <div class="card-title">📨 Send Global Mail</div>
-    <div class="form-group">
-      <label>Subject (Title) <span style="color:var(--text-dim)">[1-128 chars]</span></label>
-      <input type="text" id="g-subject" value="${esc(state.globalSubject)}" maxlength="128" placeholder="Mail title" />
-    </div>
-    <div class="form-group">
-      <label>Body (Content) <span style="color:var(--text-dim)">[1-1024 chars]</span></label>
-      <textarea id="g-body" maxlength="1024" placeholder="Mail body text">${esc(state.globalBody)}</textarea>
-    </div>
-    ${endTimeEditorHtml('g', state.globalUseEndTime, state.globalEndDate, state.globalEndTime)}
-    <div class="form-group">
-      <label>Category</label>
-      <select id="g-category">
-        ${CATEGORY_OPTIONS.map((c, i) => `<option value="${i}" ${i === state.globalCategory ? 'selected' : ''}>${c}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Sender Name <span style="color:var(--text-dim)">(optional)</span></label>
-      <input type="text" id="g-sender" value="${esc(state.globalSenderName)}" placeholder="e.g. System" />
-    </div>
-    <div class="form-group">
-      <label>Dedup Key <span style="color:var(--text-dim)">(optional)</span></label>
-      <input type="text" id="g-dedup" value="${esc(state.globalDedupKey)}" placeholder="Unique key to prevent duplicate sends" />
-    </div>
-    <div class="card-title" style="margin-top:12px">📎 Attachments</div>
-    <div id="global-att-list"></div>
-    <button class="btn btn-ghost btn-sm" id="g-att-add" style="margin-top:6px">+ Add Attachment</button>
-    <div class="btn-row" style="margin-top:16px">
-      <button class="btn btn-primary" id="g-send" ${!isConnected() || state.busy ? 'disabled' : ''}>
-        ${state.busy ? '<span class="spinner"></span>' : ''} Send Global Mail
-      </button>
-    </div>
-  </div>`
-}
-
-// ─── Send Targeted tab ────────────────────────────────────────────────────────────
-function renderSendTargetedTab(): string {
-  return `
-  <div class="card">
-    <div class="card-title">🎯 Send Targeted Mail</div>
-    <div class="form-group">
-      <label>Target User IDs</label>
-      <div id="target-user-ids"></div>
-      <button class="btn btn-ghost btn-sm" id="uid-add" style="margin-top:4px">+ Add User ID</button>
-    </div>
-    <div class="form-group" style="margin-top:8px">
-      <label>Subject (Title) <span style="color:var(--text-dim)">[1-128 chars]</span></label>
-      <input type="text" id="u-subject" value="${esc(state.userSubject)}" maxlength="128" placeholder="Mail title" />
-    </div>
-    <div class="form-group">
-      <label>Body (Content) <span style="color:var(--text-dim)">[1-1024 chars]</span></label>
-      <textarea id="u-body" maxlength="1024" placeholder="Mail body text">${esc(state.userBody)}</textarea>
-    </div>
-    ${endTimeEditorHtml('u', state.userUseEndTime, state.userEndDate, state.userEndTime)}
-    <div class="form-group">
-      <label>Category</label>
-      <select id="u-category">
-        ${CATEGORY_OPTIONS.map((c, i) => `<option value="${i}" ${i === state.userCategory ? 'selected' : ''}>${c}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Sender Name <span style="color:var(--text-dim)">(optional)</span></label>
-      <input type="text" id="u-sender" value="${esc(state.userSenderName)}" placeholder="e.g. Admin" />
-    </div>
-    <div class="form-group">
-      <label>Dedup Key <span style="color:var(--text-dim)">(optional)</span></label>
-      <input type="text" id="u-dedup" value="${esc(state.userDedupKey)}" placeholder="Unique key to prevent duplicate sends" />
-    </div>
-    <div class="card-title" style="margin-top:12px">📎 Attachments</div>
-    <div id="user-att-list"></div>
-    <button class="btn btn-ghost btn-sm" id="u-att-add" style="margin-top:6px">+ Add Attachment</button>
-    <div class="btn-row" style="margin-top:16px">
-      <button class="btn btn-primary" id="u-send" ${!isConnected() || state.busy ? 'disabled' : ''}>
-        ${state.busy ? '<span class="spinner"></span>' : ''} Send Targeted Mail
-      </button>
-    </div>
-  </div>`
-}
-
-function ensureInlineAttachmentDrafts(mail: MailRecord): AttachmentDraft[] {
-  const id = mailId(mail)
-  if (!state.inlineAttachments[id]) {
-    state.inlineAttachments[id] = mailAttachments(mail).map(attachmentInfoToDraft)
-  }
-  return state.inlineAttachments[id]
-}
-
-function renderInlineAttachments(mail: MailRecord, idKey: string): string {
-  const id = mailId(mail)
-  const drafts = ensureInlineAttachmentDrafts(mail)
-  const rows = drafts.length === 0
-    ? '<div class="empty" style="padding:8px">No attachments.</div>'
-    : drafts.map((d, i) => `
-      <div class="inline-att-row">
-        <input type="text" id="mia-id-${idKey}-${i}" value="${esc(d.payoutAssetId)}" placeholder="Asset ID" />
-        <input type="text" id="mia-type-${idKey}-${i}" value="${esc(d.assetType)}" list="asset-type-options" placeholder="Type" />
-        <input type="number" id="mia-amt-${idKey}-${i}" value="${d.payoutAmount}" min="1" title="Amount" />
-        <input type="number" id="mia-chance-${idKey}-${i}" value="${d.chance}" min="0.01" max="1" step="0.01" title="Chance" />
-        <button class="btn btn-danger btn-sm inline-att-remove" data-mail-id="${esc(id)}" data-id-key="${idKey}" data-idx="${i}" ${state.busy ? 'disabled' : ''}>✕</button>
-      </div>`).join('')
-
-  return `
-    <div class="inline-att-list" id="mia-list-${idKey}">${rows}</div>
-    <button class="btn btn-ghost btn-sm inline-att-add" data-mail-id="${esc(id)}" data-id-key="${idKey}" ${state.busy ? 'disabled' : ''}>+ Add</button>`
-}
-
-function syncInlineAttachmentsFromDom(mailIdValue: string, idKey: string): AttachmentDraft[] {
-  const drafts = state.inlineAttachments[mailIdValue] ?? []
-  state.inlineAttachments[mailIdValue] = drafts.map((d, i) => ({
-    payoutAssetId: val(`mia-id-${idKey}-${i}`),
-    assetType: val(`mia-type-${idKey}-${i}`).trim() || d.assetType,
-    payoutAmount: parseInt(val(`mia-amt-${idKey}-${i}`), 10) || d.payoutAmount,
-    chance: parseFloat(val(`mia-chance-${idKey}-${i}`)) || d.chance,
-  }))
-  return state.inlineAttachments[mailIdValue]
-}
-
-// ─── Mail list table ──────────────────────────────────────────────────────────────
-function renderMailRow(m: MailRecord): string {
-  const id    = mailId(m)
+function getScopeLabel(m: MailRecord, source: 'global' | 'user'): MailScope {
+  if (source === 'user') return 'User'
   const targets = mailTargetUsers(m)
-  const endT  = mailEndTime(m)
-  const idKey = id.replace(/[^a-z0-9]/gi, '_')
-  const ied   = state.inlineEndDate[id] ?? (endT ? endT.substring(0, 10) : '')
-  const iet   = state.inlineEndTime[id] ?? (endT ? endT.substring(11, 16) : '')
-
-  return `
-  <tr>
-    <td><div class="mail-id">${esc(id)}</div>${targets.length > 0 ? `<span class="tag tag-targeted">targeted (${targets.length})</span>` : ''}</td>
-    <td><input type="text" id="mt-${idKey}" value="${esc(mailTitle(m))}" maxlength="128" /></td>
-    <td><textarea id="mc-${idKey}" maxlength="1024">${esc(mailContent(m))}</textarea></td>
-    <td>${esc(mailStartTime(m))}</td>
-    <td>
-      <div>${esc(endT ?? 'none')}</div>
-      <div class="mail-endtime-edit">
-        <input type="date" id="ied-${idKey}" value="${esc(ied)}" />
-        <input type="time" id="iet-${idKey}" value="${esc(iet)}" />
-        <button class="btn btn-ghost btn-sm set-et" data-mail-id="${esc(id)}" data-id-key="${idKey}">✓</button>
-      </div>
-    </td>
-    <td>${renderInlineAttachments(m, idKey)}</td>
-    <td class="actions-cell">
-      <button class="btn btn-secondary btn-sm save-mail" data-mail-id="${esc(id)}" data-id-key="${idKey}" ${!isConnected() || state.busy ? 'disabled' : ''}>Save</button>
-      <button class="btn btn-ghost btn-sm expire-mail" data-mail-id="${esc(id)}" ${!isConnected() || state.busy ? 'disabled' : ''}>Expire</button>
-      <button class="btn btn-danger btn-sm del-mail"   data-mail-id="${esc(id)}" ${!isConnected() || state.busy ? 'disabled' : ''}>Delete</button>
-    </td>
-  </tr>`
+  return targets.length > 0 ? 'Global-targeted' : 'Global'
 }
 
-// ─── Manage tab ───────────────────────────────────────────────────────────────────
-function renderManageTab(): string {
-  const allMails = state.mailList
-  const total = allMails?.length ?? state.mailTotalCount
-  const page  = state.mailPage
-  const pageCount = total === 0 ? 1 : Math.ceil(total / MAILS_PER_PAGE)
-  const pageStart = page * MAILS_PER_PAGE
-  const mails = allMails?.slice(pageStart, pageStart + MAILS_PER_PAGE) ?? null
+// ─── Send form deps ───────────────────────────────────────────────────────────────
 
-  let tableHtml = ''
-  if (mails === null) {
-    tableHtml = '<div class="empty">Click "Load Mails" to fetch global mails.</div>'
-  } else if (mails.length === 0) {
-    tableHtml = '<div class="empty">No mails found.</div>'
-  } else {
-    tableHtml = `
-    <div class="mail-table-wrap">
-      <table class="mail-table">
-        <thead><tr>
-          <th>Message ID</th><th>Title</th><th>Content</th>
-          <th>Start Time</th><th>End Time / Set New</th><th>Attachments</th><th>Actions</th>
-        </tr></thead>
-        <tbody id="mail-tbody">${mails.map(renderMailRow).join('')}</tbody>
-      </table>
-    </div>
-    <div class="pager">
-      <button class="btn btn-ghost btn-sm" id="pg-prev" ${page <= 0 || state.busy ? 'disabled' : ''}>← Prev</button>
-      <span>Page ${page + 1} / ${pageCount} · ${total} total · ${MAILS_PER_PAGE} per page</span>
-      <button class="btn btn-ghost btn-sm" id="pg-next" ${page >= pageCount - 1 || state.busy ? 'disabled' : ''}>Next →</button>
-    </div>`
+function _buildSendFormDeps() {
+  return {
+    getEnv:          () => state.connection.environment,
+    isBusy:          () => state.busy,
+    isConnected,
+    currencyOptions: CURRENCY_COMBOBOX_OPTIONS,
+    itemOptions:     ITEM_COMBOBOX_OPTIONS,
+    ticketOptions:   TICKET_COMBOBOX_OPTIONS,
+    onSend(payload: SendFormPayload) {
+      void run(async () => {
+        const args = resolveProxyArgs()
+        const { recipientMode, subject, body, schedule, category, senderName, dedupKey, targetUserIds, attachments } = payload
+
+        if (!subject || subject.length > 128) throw new Error('Title must be 1-128 characters.')
+        if (!body || body.length > 1024)     throw new Error('Content must be 1-1024 characters.')
+
+        let expiresAt: string | null = null
+        if (schedule.expiryMode === 'set') {
+          const raw = `${schedule.expiryDate.trim()}T${schedule.expiryTime.trim()}:00Z`
+          const d = new Date(raw)
+          if (isNaN(d.getTime())) throw new Error('End Time: invalid date/time. Use yyyy-MM-dd and HH:mm.')
+          expiresAt = d.toISOString()
+        }
+
+        const builtAttachments = buildAttachments(attachments)
+
+        if (recipientMode === 'targeted') {
+          if (!targetUserIds || targetUserIds.length === 0) {
+            throw new Error('At least one Target User ID is required.')
+          }
+        }
+
+        const { data, rawResponse } = await apiSendGlobalMail(args, {
+          subject, body, expiresAt,
+          mailCategory: CATEGORY_OPTIONS[category] ?? null,
+          senderName, dedupKey,
+          attachments: builtAttachments,
+          operatorId: state.connection.operatorId,
+          targetUserIds: recipientMode === 'targeted' ? targetUserIds : null,
+          adminToken: null,
+        })
+
+        const mId = data.mailId ?? data.globalMailId ?? '(unknown)'
+        setStatus(
+          `${recipientMode === 'targeted' ? 'SendTargetedMail' : 'SendGlobalMail'}: mailId=${mId} sentAt=${data.sentAt ?? '-'}`,
+          'success', rawResponse,
+        )
+
+        _sendFormHandle?.reset()
+      })
+    },
+    onStatusMessage(msg: string, type: 'success' | 'error' | 'warning' | 'info') {
+      setStatus(msg, type)
+    },
   }
+}
 
-  return `
-  <div class="card">
-    <div class="card-title">📋 Get Global Mails</div>
-    <div style="display:flex;gap:8px;align-items:flex-end">
-      <button class="btn btn-secondary" id="m-load" ${!isConnected() || state.busy ? 'disabled' : ''}>
-        ${state.busy ? '<span class="spinner"></span>' : '🔄'} Load All Mails
-      </button>
-    </div>
-    <div style="margin-top:12px">${tableHtml}</div>
-  </div>
+// ─── Manage tab deps ──────────────────────────────────────────────────────────────
 
-  <div class="card">
-    <div class="card-title">⚙️ Direct Mail Operations</div>
-    <div class="form-group">
-      <label>Mail ID</label>
-      <input type="text" id="m-mail-id" value="${esc(state.manageMailId)}" placeholder="Global mail UUID" />
-    </div>
-    ${endTimeEditorHtml('m', state.manageUseEndTime, state.manageEndDate, state.manageEndTime)}
-    <div class="btn-row" style="margin-top:8px">
-      <button class="btn btn-secondary" id="m-set-et" ${!isConnected() || state.busy ? 'disabled' : ''}>Set EndTime</button>
-      <button class="btn btn-ghost"     id="m-expire" ${!isConnected() || state.busy ? 'disabled' : ''}>Expire Mail</button>
-      <button class="btn btn-danger"    id="m-delete" ${!isConnected() || state.busy ? 'disabled' : ''}>Delete Mail</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">🗑️ Purge Expired</div>
-    <p style="font-size:12px;color:var(--text-dim);margin-bottom:10px">Removes all expired global mails. Irreversible.</p>
-    <button class="btn btn-danger" id="m-purge" ${!isConnected() || state.busy ? 'disabled' : ''}>
-      ${state.busy ? '<span class="spinner"></span>' : ''} Purge All Expired
-    </button>
-  </div>`
+function _buildManageTabDeps() {
+  return {
+    getMails:              () => state.manageTab.mailList,
+    getUserMails:          () => state.manageTab.userMailList,
+    getMailPage:           () => state.manageTab.page,
+    getMailTotalCount:     () => state.manageTab.mailList?.length ?? 0,
+    getMailError:          () => state.manageTab.error ?? '',
+    getUserMailError:      () => state.manageTab.userMailError,
+    getUserLookupPlayerId: () => state.manageTab.userMailLookupPlayerId,
+    isBusy:                () => state.busy,
+    isConnected,
+    getEnv:                () => state.connection.environment,
+    currencyOptions:       CURRENCY_COMBOBOX_OPTIONS,
+    itemOptions:           ITEM_COMBOBOX_OPTIONS,
+    ticketOptions:         TICKET_COMBOBOX_OPTIONS,
+    onLoad() { void run(() => doLoadMails(true, true)) },
+    onLookupUser(pid: string) {
+      state.manageTab.userMailLookupPlayerId = pid
+      void run(() => _doFetchUserMailById(pid))
+    },
+    onSave(mId: string, subject: string, body: string, drafts: AttachmentDraft[], targetUserIds: string[] | null, expiresAt: string | null) {
+      void run(async () => {
+        const args = resolveProxyArgs()
+        const atts = buildAttachments(drafts)
+        const { data, rawResponse } = await apiUpdateGlobalMail(args, {
+          mailId: mId, subject, body, attachments: atts,
+          targetUserIds: targetUserIds ?? null,
+          operatorId: state.connection.operatorId, adminToken: null,
+        })
+        // If expiresAt differs from current, also set end time
+        const curr = state.manageTab.mailList?.find(m => mailId(m) === mId)
+        const currEnd = curr ? mailEndTime(curr) : null
+        if (expiresAt !== currEnd) {
+          await apiSetMailEndTime(args, {
+            mailId: mId, endTime: expiresAt, operatorId: state.connection.operatorId, adminToken: null,
+          })
+        }
+        setStatus(`Updated: mailId=${data.mailId ?? mId}`, 'success', rawResponse)
+        await refreshLoadedMails()
+      })
+    },
+    onExpire(mId: string) {
+      void run(async () => {
+        if (!window.confirm(`Expire mail ${mId}? Sets expiry to now.`)) return
+        const args = resolveProxyArgs()
+        const { data, rawResponse } = await apiExpireMail(args, {
+          mailId: mId, operatorId: state.connection.operatorId, adminToken: null,
+        })
+        setStatus(`ExpireMail: mailId=${data.mailId ?? mId} expiredAt=${data.expiredAt ?? '-'}`, 'success', rawResponse)
+        await refreshLoadedMails()
+      })
+    },
+    onDelete(mId: string) {
+      void run(async () => {
+        if (!window.confirm(`Delete mail ${mId}? Irreversible.`)) return
+        const args = resolveProxyArgs()
+        const { data, rawResponse } = await apiDeleteGlobalMail(args, {
+          mailId: mId, operatorId: state.connection.operatorId, adminToken: null,
+        })
+        setStatus(`DeleteGlobalMail: mailId=${data.mailId ?? mId}`, 'success', rawResponse)
+        await refreshLoadedMails()
+      })
+    },
+    onCopyJson(mId: string, source: 'global' | 'user') {
+      void run(() => doCopyMailAsJson(mId, source))
+    },
+    onPurge() { void run(doPurgeExpired) },
+    onPageChange(delta: number) {
+      state.manageTab.page = Math.max(0, state.manageTab.page + delta)
+      refreshMainPanel()
+    },
+    onSetEndTime(mId: string, endTime: string | null) {
+      void run(async () => {
+        const args = resolveProxyArgs()
+        const { data, rawResponse } = await apiSetMailEndTime(args, {
+          mailId: mId, endTime, operatorId: state.connection.operatorId, adminToken: null,
+        })
+        setStatus(`SetMailEndTime: mailId=${data.mailId ?? mId} endTime=${data.endTime ?? 'null'}`, 'success', rawResponse)
+        await refreshLoadedMails()
+      })
+    },
+  }
 }
 
 // ─── Sidebar — Connection form ────────────────────────────────────────────────────
+
 function renderSidebar(): string {
   return `
   <div class="alert alert-security">
@@ -606,28 +326,28 @@ function renderSidebar(): string {
     <div class="card-title">🔑 Connection</div>
     <div class="form-group">
       <label>Module Name</label>
-      <input type="text" id="c-module" value="${esc(state.moduleName)}" placeholder="BackpackAdventuresModule" autocomplete="off" />
+      <input type="text" id="c-module" value="${esc(state.connection.moduleName)}" placeholder="BackpackAdventuresModule" autocomplete="off" />
     </div>
     <div class="form-group">
       <label>Project ID</label>
-      <input type="text" id="c-project-id" value="${esc(state.projectId)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
+      <input type="text" id="c-project-id" value="${esc(state.connection.projectId)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
     </div>
     <div class="form-group">
       <label>Environment (name or UUID)</label>
-      <input type="text" id="c-env" value="${esc(state.environment)}" placeholder="production / testing / UUID" autocomplete="off" />
+      <input type="text" id="c-env" value="${esc(state.connection.environment)}" placeholder="production / testing / UUID" autocomplete="off" />
       <small style="color:var(--text-dim);font-size:11px">The proxy resolves names to UUIDs — no browser API call needed</small>
     </div>
     <div class="form-group">
       <label>Operator ID (email)</label>
-      <input type="text" id="c-operator" value="${esc(state.operatorId)}" placeholder="admin@example.com" autocomplete="off" />
+      <input type="text" id="c-operator" value="${esc(state.connection.operatorId)}" placeholder="admin@example.com" autocomplete="off" />
     </div>
     <div class="form-group">
       <label>Proxy Access Token <span style="color:var(--accent)">★ session-only</span></label>
       <input type="password" id="c-token" value="" placeholder="Proxy bearer token (not stored)" autocomplete="new-password" />
-      ${state.proxyToken ? '<small style="color:var(--success);font-size:11px">✓ Token in memory</small>' : ''}
+      ${state.connection.proxyToken ? '<small style="color:var(--success);font-size:11px">✓ Token in memory</small>' : ''}
     </div>
     ${isConnected()
-      ? `<div class="alert alert-success" style="font-size:12px">✓ Connected — ${esc(state.moduleName)} / ${esc(state.environment)}</div>`
+      ? `<div class="alert alert-success" style="font-size:12px">✓ Connected — ${esc(state.connection.moduleName)} / ${esc(state.connection.environment)}</div>`
       : ''}
     <div class="btn-row">
       <button class="btn btn-primary" id="c-connect" ${state.busy ? 'disabled' : ''}>
@@ -641,25 +361,14 @@ function renderSidebar(): string {
 }
 
 // ─── Full page render ─────────────────────────────────────────────────────────────
-function renderApp() {
-  const sendTabHtml = state.activeSendSubTab === 'global'
-    ? renderSendGlobalTab()
-    : renderSendTargetedTab()
 
-  const mainContent = state.activeTab === 'send'
-    ? `
-      <div class="tabs">
-        <button class="tab-btn ${state.activeSendSubTab === 'global'   ? 'active' : ''}" id="sub-global">Send Global</button>
-        <button class="tab-btn ${state.activeSendSubTab === 'targeted' ? 'active' : ''}" id="sub-targeted">Send Targeted</button>
-      </div>
-      ${sendTabHtml}`
-    : renderManageTab()
+function renderApp() {
+  const isManage = state.activeTab === 'manage'
+  const mainContent = isManage
+    ? `<div id="manage-panel"></div>`
+    : `<div id="send-panel"></div>`
 
   el<HTMLDivElement>('app').innerHTML = `
-  <datalist id="asset-type-options">
-    <option value="Currency"></option>
-    <option value="Item"></option>
-  </datalist>
   <header class="app-header">
     <span id="conn-dot" class="status-dot"></span>
     <h1>Admin Mail</h1>
@@ -680,17 +389,23 @@ function renderApp() {
   renderConnectionDot()
   renderStatus()
   attachAllListeners()
-  if (state.activeTab === 'send') {
-    if (state.activeSendSubTab === 'global') {
-      renderAttachmentList('global-att-list', 'g', state.globalAttachments)
-    } else {
-      renderTargetUserIds()
-      renderAttachmentList('user-att-list', 'u', state.userAttachments)
-    }
+
+  _manageTabHandle?.destroy()
+  _manageTabHandle = null
+  _sendFormHandle?.destroy()
+  _sendFormHandle = null
+
+  if (isManage) {
+    const mp = document.getElementById('manage-panel')
+    if (mp) _manageTabHandle = mountManageTab(mp, _buildManageTabDeps())
+  } else {
+    const sp = document.getElementById('send-panel')
+    if (sp) _sendFormHandle = mountSendForm(sp, _buildSendFormDeps())
   }
 }
 
 // ─── Partial re-renders ───────────────────────────────────────────────────────────
+
 function refreshSidebar() {
   const sb = document.getElementById('sidebar')
   if (!sb) { renderApp(); return }
@@ -704,28 +419,48 @@ function refreshMainPanel() {
   const panel = document.getElementById('main-panel')
   if (!panel) { renderApp(); return }
 
-  const sendTabHtml = state.activeSendSubTab === 'global'
-    ? renderSendGlobalTab() : renderSendTargetedTab()
-
-  panel.innerHTML = state.activeTab === 'send'
-    ? `<div class="tabs">
-        <button class="tab-btn ${state.activeSendSubTab === 'global'   ? 'active' : ''}" id="sub-global">Send Global</button>
-        <button class="tab-btn ${state.activeSendSubTab === 'targeted' ? 'active' : ''}" id="sub-targeted">Send Targeted</button>
-       </div>${sendTabHtml}`
-    : renderManageTab()
-
-  attachMainListeners()
-  if (state.activeTab === 'send') {
-    if (state.activeSendSubTab === 'global') {
-      renderAttachmentList('global-att-list', 'g', state.globalAttachments)
-    } else {
-      renderTargetUserIds()
-      renderAttachmentList('user-att-list', 'u', state.userAttachments)
-    }
+  if (state.activeTab === 'manage') {
+    _sendFormHandle?.destroy()
+    _sendFormHandle = null
+    _manageTabHandle?.destroy()
+    _manageTabHandle = null
+    panel.innerHTML = `<div id="manage-panel"></div>`
+    attachMainListeners()
+    const mp = document.getElementById('manage-panel')
+    if (mp) _manageTabHandle = mountManageTab(mp, _buildManageTabDeps())
+    return
   }
+
+  // Send tab
+  _manageTabHandle?.destroy()
+  _manageTabHandle = null
+  _sendFormHandle?.destroy()
+  _sendFormHandle = null
+  panel.innerHTML = `<div id="send-panel"></div>`
+  attachMainListeners()
+  const sp = document.getElementById('send-panel')
+  if (sp) _sendFormHandle = mountSendForm(sp, _buildSendFormDeps())
+}
+
+// ─── Event listeners ──────────────────────────────────────────────────────────────
+
+function attachSidebarListeners() {
+  document.getElementById('c-connect')?.addEventListener('click', () => run(doConnect))
+  document.getElementById('c-logout')?.addEventListener('click',  () => run(doLogout))
+}
+
+function attachMainListeners() {
+  document.getElementById('tab-send')?.addEventListener('click', () => { state.activeTab = 'send'; renderApp() })
+  document.getElementById('tab-manage')?.addEventListener('click', () => { state.activeTab = 'manage'; renderApp() })
+}
+
+function attachAllListeners() {
+  attachSidebarListeners()
+  attachMainListeners()
 }
 
 // ─── Async action runner ──────────────────────────────────────────────────────────
+
 async function run(action: () => Promise<void>) {
   if (state.busy) return
   state.busy = true
@@ -744,6 +479,7 @@ async function run(action: () => Promise<void>) {
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────────
+
 async function doConnect() {
   const moduleName  = val('c-module').trim()   || 'BackpackAdventuresModule'
   const projectId   = val('c-project-id').trim()
@@ -757,12 +493,11 @@ async function doConnect() {
     return
   }
 
-  // Update state
-  state.moduleName  = moduleName
-  state.projectId   = projectId
-  state.environment = environment
-  state.operatorId  = operatorId
-  state.proxyToken  = proxyToken   // memory only — NOT saved to sessionStorage
+  state.connection.moduleName  = moduleName
+  state.connection.projectId   = projectId
+  state.connection.environment = environment
+  state.connection.operatorId  = operatorId
+  state.connection.proxyToken  = proxyToken   // memory only — NOT saved to sessionStorage
 
   saveCredentials({ projectId, environment, moduleName, operatorId })
 
@@ -776,64 +511,19 @@ async function doConnect() {
 
 async function doLogout() {
   clearAllCredentials()
-  state.projectId   = ''
-  state.environment = ''
-  state.moduleName  = 'BackpackAdventuresModule'
-  state.operatorId  = ''
-  state.proxyToken  = ''    // cleared from memory
+  state.connection.projectId   = ''
+  state.connection.environment = ''
+  state.connection.moduleName  = 'BackpackAdventuresModule'
+  state.connection.operatorId  = ''
+  state.connection.proxyToken  = ''    // cleared from memory
   setStatus('Logged out — all credentials cleared.', 'info')
   renderApp()
 }
 
-async function doSendGlobalMail(targeted = false) {
-  const args   = resolveProxyArgs()
-  const prefix = targeted ? 'u' : 'g'
-
-  const subject     = val(`${prefix}-subject`).trim()
-  const body        = val(`${prefix}-body`).trim()
-  const useEndTime  = (document.querySelector(`input[name="${prefix}-et-mode"]:checked`) as HTMLInputElement | null)?.value === 'use'
-  const endDate     = val(`${prefix}-end-date`)
-  const endTime     = val(`${prefix}-end-time`)
-  const category    = parseInt(val(`${prefix}-category`), 10) || 0
-  const senderName  = val(`${prefix}-sender`).trim() || null
-  const dedupKey    = val(`${prefix}-dedup`).trim() || null
-
-  if (!subject || subject.length > 128) throw new Error('Title must be 1-128 characters.')
-  if (!body || body.length > 1024)     throw new Error('Content must be 1-1024 characters.')
-
-  const expiresAt   = buildEndTimeIso(useEndTime, endDate, endTime)
-  const drafts      = targeted ? state.userAttachments : state.globalAttachments
-  const synced      = syncAttachmentsFromDom(prefix, drafts)
-  const attachments = buildAttachments(synced)
-
-  let targetUserIds: string[] | null = null
-  if (targeted) {
-    const ids = syncUserIdsFromDom().map((s) => s.trim()).filter(Boolean)
-    if (ids.length === 0) throw new Error('At least one Target User ID is required.')
-    targetUserIds = ids
-  }
-
-  const { data, rawResponse } = await apiSendGlobalMail(args, {
-    subject, body, expiresAt,
-    mailCategory: CATEGORY_OPTIONS[category] ?? null,
-    senderName, dedupKey, attachments,
-    operatorId: state.operatorId,
-    targetUserIds, adminToken: null,
-  })
-
-  const mId = data.mailId ?? data.globalMailId ?? '(unknown)'
-  setStatus(
-    `${targeted ? 'SendTargetedMail' : 'SendGlobalMail'}: mailId=${mId} sentAt=${data.sentAt ?? '-'}`,
-    'success', rawResponse,
-  )
-
-  if (targeted) { state.userSubject = ''; state.userBody = ''; state.userAttachments = [defaultAttachment()] }
-  else          { state.globalSubject = ''; state.globalBody = ''; state.globalAttachments = [defaultAttachment()] }
-}
-
 async function doLoadMails(resetPage = false, showStatus = true) {
   const args = resolveProxyArgs()
-  if (resetPage) state.mailPage = 0
+  if (resetPage) state.manageTab.page = 0
+  state.manageTab.error = null
   const all: MailRecord[] = []
   let page = 0
   let hasMore = true
@@ -841,7 +531,11 @@ async function doLoadMails(resetPage = false, showStatus = true) {
 
   while (hasMore) {
     const { data, rawResponse } = await apiGetGlobalMails(args, {
-      page, pageSize: FETCH_PAGE_SIZE,
+      page,
+      pageSize: FETCH_PAGE_SIZE,
+      adminMode: true,
+      operatorId: state.connection.operatorId,
+      adminToken: null,
     })
     const mails = data.Mails ?? data.mails ?? []
     all.push(...mails)
@@ -851,88 +545,37 @@ async function doLoadMails(resetPage = false, showStatus = true) {
     if (page >= MAX_FETCH_PAGES) break
   }
 
-  state.mailList = all
-  state.mailTotalCount = all.length
-  state.inlineEndDate = {}
-  state.inlineEndTime = {}
-  state.inlineAttachments = {}
+  state.manageTab.mailList = all
   const maxPage = Math.max(0, Math.ceil(all.length / MAILS_PER_PAGE) - 1)
-  if (state.mailPage > maxPage) state.mailPage = maxPage
+  if (state.manageTab.page > maxPage) state.manageTab.page = maxPage
   if (showStatus) {
     setStatus(`GetGlobalMails: loaded ${all.length} mails (${MAILS_PER_PAGE} per page)`, 'success', lastRawResponse)
   }
 }
 
 async function refreshLoadedMails() {
-  if (state.mailList !== null) await doLoadMails(false, false)
+  if (state.manageTab.mailList !== null) await doLoadMails(false, false)
 }
 
-async function doUpdateGlobalMail(mailIdArg: string, idKey: string) {
+async function _doFetchUserMailById(playerId: string) {
+  if (!playerId) throw new Error('Player ID is required.')
   const args = resolveProxyArgs()
-  const mId = mailIdArg.trim()
-  if (!mId) throw new Error('Mail ID is required.')
-  const subject = val(`mt-${idKey}`).trim()
-  const body = val(`mc-${idKey}`).trim()
-  if (!subject || subject.length > 128) throw new Error('Title must be 1-128 characters.')
-  if (!body || body.length > 1024) throw new Error('Content must be 1-1024 characters.')
-
-  const drafts = syncInlineAttachmentsFromDom(mId, idKey)
-  const attachments = buildAttachments(drafts)
-  const { data, rawResponse } = await apiUpdateGlobalMail(args, {
-    mailId: mId,
-    subject,
-    body,
-    attachments,
-    operatorId: state.operatorId,
-    adminToken: null,
-  })
-  setStatus(`UpdateGlobalMail: mailId=${data.mailId ?? mId}`, 'success', rawResponse)
-  await refreshLoadedMails()
-}
-
-async function doSetMailEndTime(mailIdArg?: string, idKey?: string) {
-  const args = resolveProxyArgs()
-  const mId  = mailIdArg ?? val('m-mail-id').trim()
-  if (!mId) throw new Error('Mail ID is required.')
-
-  const useEndTime = idKey
-    ? true
-    : (document.querySelector('input[name="m-et-mode"]:checked') as HTMLInputElement | null)?.value === 'use'
-  const endDate = idKey ? val(`ied-${idKey}`) : val('m-end-date')
-  const endTime = idKey ? val(`iet-${idKey}`) : val('m-end-time')
-  const endTimeIso = buildEndTimeIso(useEndTime, endDate, endTime)
-
-  const { data, rawResponse } = await apiSetMailEndTime(args, {
-    mailId: mId, endTime: endTimeIso, operatorId: state.operatorId, adminToken: null,
-  })
-  setStatus(`SetMailEndTime: mailId=${data.mailId ?? mId} endTime=${data.endTime ?? 'null'}`, 'success', rawResponse)
-  await refreshLoadedMails()
-}
-
-async function doExpireMail(mailIdArg?: string) {
-  const args = resolveProxyArgs()
-  const mId  = mailIdArg ?? val('m-mail-id').trim()
-  if (!mId) throw new Error('Mail ID is required.')
-  if (!confirm(`Expire mail ${mId}?`)) return
-
-  const { data, rawResponse } = await apiExpireMail(args, {
-    mailId: mId, operatorId: state.operatorId, adminToken: null,
-  })
-  setStatus(`ExpireMail: mailId=${data.mailId ?? mId} expiredAt=${data.expiredAt ?? '-'}`, 'success', rawResponse)
-  await refreshLoadedMails()
-}
-
-async function doDeleteMail(mailIdArg?: string) {
-  const args = resolveProxyArgs()
-  const mId  = mailIdArg ?? val('m-mail-id').trim()
-  if (!mId) throw new Error('Mail ID is required.')
-  if (!confirm(`Delete mail ${mId}? Irreversible.`)) return
-
-  const { data, rawResponse } = await apiDeleteGlobalMail(args, {
-    mailId: mId, operatorId: state.operatorId, adminToken: null,
-  })
-  setStatus(`DeleteGlobalMail: mailId=${data.mailId ?? mId}`, 'success', rawResponse)
-  await refreshLoadedMails()
+  state.manageTab.userMailList  = null
+  state.manageTab.userMailError = ''
+  const all: MailRecord[] = []
+  let page = 0; let hasMore = true; let lastRaw = ''
+  while (hasMore) {
+    const { data, rawResponse } = await apiGetUserMailsAdmin(args, {
+      targetPlayerId: playerId, page, pageSize: FETCH_PAGE_SIZE,
+      operatorId: state.connection.operatorId, adminToken: '',
+    })
+    all.push(...(data.Mails ?? data.mails ?? []))
+    hasMore = data.HasMore ?? data.hasMore ?? false
+    lastRaw = rawResponse; page++
+    if (page >= MAX_FETCH_PAGES) break
+  }
+  state.manageTab.userMailList = all
+  setStatus(`GetUserMailsAdmin: loaded ${all.length} user mails for ${playerId}`, 'success', lastRaw)
 }
 
 async function doPurgeExpired() {
@@ -940,169 +583,44 @@ async function doPurgeExpired() {
   if (!confirm('Purge all expired global mails? Irreversible.')) return
 
   const { data, rawResponse } = await apiPurgeExpired(args, {
-    operatorId: state.operatorId, adminToken: null,
+    operatorId: state.connection.operatorId, adminToken: null,
   })
   setStatus(`PurgeExpired: purgedCount=${data.purgedCount ?? 0} at ${data.purgedAt ?? '-'}`, 'success', rawResponse)
   await refreshLoadedMails()
 }
 
-// ─── Event listeners ──────────────────────────────────────────────────────────────
-function attachSidebarListeners() {
-  document.getElementById('c-connect')?.addEventListener('click', () => run(doConnect))
-  document.getElementById('c-logout')?.addEventListener('click',  () => run(doLogout))
+// ─── Copy mail as JSON ────────────────────────────────────────────────────────────
+
+function findMailById(mailIdValue: string, source: 'global' | 'user'): MailRecord | undefined {
+  const list = source === 'user' ? state.manageTab.userMailList : state.manageTab.mailList
+  return list?.find(m => mailId(m) === mailIdValue)
 }
 
-function attachMainListeners() {
-  document.getElementById('tab-send')?.addEventListener('click', () => { state.activeTab = 'send'; renderApp() })
-  document.getElementById('tab-manage')?.addEventListener('click', () => { state.activeTab = 'manage'; renderApp() })
-  document.getElementById('sub-global')?.addEventListener('click', () => { state.activeSendSubTab = 'global'; refreshMainPanel() })
-  document.getElementById('sub-targeted')?.addEventListener('click', () => { state.activeSendSubTab = 'targeted'; refreshMainPanel() })
+async function doCopyMailAsJson(mailIdValue: string, source: 'global' | 'user') {
+  const m = findMailById(mailIdValue, source)
+  if (!m) throw new Error(`Mail not found: ${mailIdValue}`)
 
-  document.getElementById('g-send')?.addEventListener('click', () => run(() => doSendGlobalMail(false)))
-  document.getElementById('u-send')?.addEventListener('click', () => run(() => doSendGlobalMail(true)))
+  const scope: MailScope = getScopeLabel(m, source)
+  const exported = buildMailExportJson(m, scope, state.connection.environment, new Date().toISOString())
+  const json = JSON.stringify(exported, null, 2)
 
-  // End-time mode toggles
-  const bindEtToggle = (prefix: string) => {
-    document.querySelectorAll<HTMLInputElement>(`input[name="${prefix}-et-mode"]`).forEach((r) => {
-      r.addEventListener('change', () => {
-        const use = r.value === 'use'
-        const editor = document.getElementById(`${prefix}-endtime-editor`)
-        if (editor) editor.style.display = use ? '' : 'none'
-        if (use && !val(`${prefix}-end-date`)) {
-          const p = presetEndTime(7)
-          ;(el<HTMLInputElement>(`${prefix}-end-date`)).value = p.date
-          ;(el<HTMLInputElement>(`${prefix}-end-time`)).value = p.time
-        }
-      })
-    })
+  try {
+    await navigator.clipboard.writeText(json)
+    setStatus(`Copied mail ${mailIdValue} to clipboard (schemaVersion:1)`, 'success')
+  } catch {
+    // Fallback: show in status bar for manual copy
+    setStatus(`Clipboard unavailable — copy the JSON below manually`, 'warning', json)
   }
-  bindEtToggle('g'); bindEtToggle('u'); bindEtToggle('m')
-
-  // Preset buttons
-  document.querySelectorAll<HTMLElement>('[data-preset-days]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const days   = parseInt(btn.dataset['presetDays'] ?? '7', 10)
-      const prefix = btn.dataset['prefix'] ?? 'g'
-      setEndTimePreset(days, `${prefix}-end-date`, `${prefix}-end-time`)
-    })
-  })
-
-  // Global attachments
-  document.getElementById('g-att-add')?.addEventListener('click', () => {
-    state.globalAttachments = syncAttachmentsFromDom('g', state.globalAttachments)
-    state.globalAttachments.push(defaultAttachment())
-    renderAttachmentList('global-att-list', 'g', state.globalAttachments)
-  })
-  document.getElementById('global-att-list')?.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('.att-remove')
-    if (!btn || btn.dataset['prefix'] !== 'g') return
-    const idx = parseInt(btn.dataset['idx'] ?? '0', 10)
-    state.globalAttachments = syncAttachmentsFromDom('g', state.globalAttachments)
-    state.globalAttachments.splice(idx, 1)
-    renderAttachmentList('global-att-list', 'g', state.globalAttachments)
-  })
-
-  // User attachments
-  document.getElementById('u-att-add')?.addEventListener('click', () => {
-    state.userAttachments = syncAttachmentsFromDom('u', state.userAttachments)
-    state.userAttachments.push(defaultAttachment())
-    renderAttachmentList('user-att-list', 'u', state.userAttachments)
-  })
-  document.getElementById('user-att-list')?.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('.att-remove')
-    if (!btn) return
-    const idx = parseInt(btn.dataset['idx'] ?? '0', 10)
-    state.userAttachments = syncAttachmentsFromDom('u', state.userAttachments)
-    state.userAttachments.splice(idx, 1)
-    renderAttachmentList('user-att-list', 'u', state.userAttachments)
-  })
-
-  // Target user IDs
-  document.getElementById('uid-add')?.addEventListener('click', () => {
-    state.targetUserIds = syncUserIdsFromDom()
-    state.targetUserIds.push('')
-    renderTargetUserIds()
-    attachUserIdListeners()
-  })
-  attachUserIdListeners()
-
-  // Manage
-  document.getElementById('m-load')?.addEventListener('click',   () => run(() => doLoadMails(true)))
-  document.getElementById('m-set-et')?.addEventListener('click', () => run(() => doSetMailEndTime()))
-  document.getElementById('m-expire')?.addEventListener('click', () => run(() => doExpireMail()))
-  document.getElementById('m-delete')?.addEventListener('click', () => run(() => doDeleteMail()))
-  document.getElementById('m-purge')?.addEventListener('click',  () => run(doPurgeExpired))
-
-  document.getElementById('pg-prev')?.addEventListener('click', () => {
-    if (state.mailPage > 0) {
-      state.mailPage--
-      refreshMainPanel()
-    }
-  })
-  document.getElementById('pg-next')?.addEventListener('click', () => {
-    const total = state.mailList?.length ?? 0
-    const pageCount = total === 0 ? 1 : Math.ceil(total / MAILS_PER_PAGE)
-    if (state.mailPage < pageCount - 1) {
-      state.mailPage++
-      refreshMainPanel()
-    }
-  })
-
-  document.getElementById('mail-tbody')?.addEventListener('click', (e) => {
-    const target   = e.target as HTMLElement
-    const saveBtn = target.closest<HTMLElement>('.save-mail')
-    const addAttBtn = target.closest<HTMLElement>('.inline-att-add')
-    const removeAttBtn = target.closest<HTMLElement>('.inline-att-remove')
-    const expireBtn = target.closest<HTMLElement>('.expire-mail')
-    const deleteBtn = target.closest<HTMLElement>('.del-mail')
-    const setEtBtn  = target.closest<HTMLElement>('.set-et')
-    if (saveBtn) run(() => doUpdateGlobalMail(saveBtn.dataset['mailId'] ?? '', saveBtn.dataset['idKey'] ?? ''))
-    else if (addAttBtn) {
-      const mId = addAttBtn.dataset['mailId'] ?? ''
-      const idKey = addAttBtn.dataset['idKey'] ?? ''
-      syncInlineAttachmentsFromDom(mId, idKey)
-      state.inlineAttachments[mId].push(defaultAttachment())
-      refreshMainPanel()
-    }
-    else if (removeAttBtn) {
-      const mId = removeAttBtn.dataset['mailId'] ?? ''
-      const idKey = removeAttBtn.dataset['idKey'] ?? ''
-      const idx = parseInt(removeAttBtn.dataset['idx'] ?? '0', 10)
-      syncInlineAttachmentsFromDom(mId, idKey)
-      state.inlineAttachments[mId].splice(idx, 1)
-      refreshMainPanel()
-    }
-    else if (expireBtn) run(() => doExpireMail(expireBtn.dataset['mailId'] ?? ''))
-    else if (deleteBtn) run(() => doDeleteMail(deleteBtn.dataset['mailId'] ?? ''))
-    else if (setEtBtn)  run(() => doSetMailEndTime(setEtBtn.dataset['mailId'] ?? '', setEtBtn.dataset['idKey'] ?? ''))
-  })
-}
-
-function attachUserIdListeners() {
-  document.getElementById('target-user-ids')?.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>('.uid-remove')
-    if (!btn) return
-    const idx = parseInt(btn.dataset['idx'] ?? '0', 10)
-    state.targetUserIds = syncUserIdsFromDom()
-    state.targetUserIds.splice(idx, 1)
-    if (state.targetUserIds.length === 0) state.targetUserIds = ['']
-    renderTargetUserIds()
-    attachUserIdListeners()
-  })
-}
-
-function attachAllListeners() {
-  attachSidebarListeners()
-  attachMainListeners()
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────────
+
 function init() {
   const saved = loadCredentials()
-  state.projectId   = saved.projectId
-  state.environment = saved.environment
-  state.moduleName  = saved.moduleName || 'BackpackAdventuresModule'
-  state.operatorId  = saved.operatorId
+  state.connection.projectId   = saved.projectId
+  state.connection.environment = saved.environment
+  state.connection.moduleName  = saved.moduleName || 'BackpackAdventuresModule'
+  state.connection.operatorId  = saved.operatorId
   // proxyToken always starts empty — operator must re-enter each session
   renderApp()
 }

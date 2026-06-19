@@ -64,6 +64,34 @@ public enum SenderType
     Player
 }
 
+public enum Rarity
+{
+    None = 0,
+    Common = 1,
+    Rare = 2,
+    Epic = 3,
+    Legendary = 4,
+    Mythic = 5
+}
+
+public class ItemSpecificAsset
+{
+    [JsonPropertyName("BlueprintId")]
+    public string BlueprintId { get; set; } = "";
+
+    [JsonPropertyName("CurrentLevel")]
+    public int CurrentLevel { get; set; } = 1;
+
+    [JsonPropertyName("Rarity")]
+    public Rarity Rarity { get; set; } = Rarity.None;
+
+    [JsonPropertyName("InitialLevel")]
+    public int InitialLevel { get; set; } = 1;
+
+    [JsonPropertyName("FromSource")]
+    public string FromSource { get; set; } = "";
+}
+
 public class MailAttachment
 {
     [JsonPropertyName("itemId")]
@@ -400,6 +428,10 @@ public class MailItemDto
     [JsonPropertyName("MessageId")]
     public string MessageId { get; set; } = string.Empty;
 
+    [JsonPropertyName("TargetUserIds")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? TargetUserIds { get; set; }
+
     [JsonPropertyName("MailInfo")]
     public MailInfoDto MailInfo { get; set; } = new();
 
@@ -496,6 +528,7 @@ public static class MailSchemaHelper
         return new MailItemDto
         {
             MessageId = mail.MessageId,
+            TargetUserIds = mail.TargetUserIds is { Count: > 0 } ? mail.TargetUserIds : null,
             MailInfo = new MailInfoDto
             {
                 Title = mail.Title,
@@ -807,6 +840,27 @@ public static class MailSchemaHelper
         }
     }
 
+    public static string SerializeItemAssets(List<ItemSpecificAsset> items)
+    {
+        if (items == null || items.Count == 0)
+            return "[]";
+        return JsonSerializer.Serialize(items);
+    }
+
+    public static List<ItemSpecificAsset> ParseItemAssets(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new List<ItemSpecificAsset>();
+        try
+        {
+            var result = JsonSerializer.Deserialize<List<ItemSpecificAsset>>(json);
+            return result ?? new List<ItemSpecificAsset>();
+        }
+        catch
+        {
+            return new List<ItemSpecificAsset>();
+        }
+    }
+
     private static string NormalizeAssetTypeForDto(string assetType)
     {
         if (string.IsNullOrEmpty(assetType)) return string.Empty;
@@ -929,6 +983,42 @@ public class GetMailsRequest
 
     [JsonPropertyName("pageSize")]
     public int PageSize { get; set; } = MailboxConstants.DefaultPageSize;
+
+    /// <summary>
+    /// When true the caller must be a service-account; IsVisibleToPlayer filtering is bypassed
+    /// so all global mails (including targeted ones) are returned.
+    /// </summary>
+    [JsonPropertyName("adminMode")]
+    public bool AdminMode { get; set; } = false;
+
+    [JsonPropertyName("operatorId")]
+    public string? OperatorId { get; set; }
+
+    [JsonPropertyName("adminToken")]
+    public string? AdminToken { get; set; }
+}
+
+/// <summary>
+/// Request for admin-only GetUserMailsAdmin endpoint.
+/// Reads another player's personal mailbox (mailbox_user_items).
+/// Must be called from a service-account context.
+/// </summary>
+public class GetUserMailsAdminRequest
+{
+    [JsonPropertyName("targetPlayerId")]
+    public string TargetPlayerId { get; set; } = string.Empty;
+
+    [JsonPropertyName("page")]
+    public int Page { get; set; }
+
+    [JsonPropertyName("pageSize")]
+    public int PageSize { get; set; } = MailboxConstants.DefaultPageSize;
+
+    [JsonPropertyName("operatorId")]
+    public string OperatorId { get; set; } = string.Empty;
+
+    [JsonPropertyName("adminToken")]
+    public string AdminToken { get; set; } = string.Empty;
 }
 
 public class MarkMailReadRequest
@@ -1010,6 +1100,9 @@ public class UpdateGlobalMailRequest
 
     [JsonPropertyName("attachments")]
     public List<MailAttachment>? Attachments { get; set; }
+
+    [JsonPropertyName("targetUserIds")]
+    public List<string>? TargetUserIds { get; set; }
 
     [JsonPropertyName("adminToken")]
     public string AdminToken { get; set; } = string.Empty;

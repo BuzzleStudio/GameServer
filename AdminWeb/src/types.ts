@@ -3,6 +3,34 @@
 //   UnityClient/Runtime/CloudCodeModels.cs
 //   CloudCodeModule/BackpackAdventuresModule~/Mailbox/*.cs
 
+// ── Rarity enum (matches C# Rarity in CloudCodeModels.cs) ───────────────────────
+export const Rarity = {
+  None: 0,
+  Common: 1,
+  Rare: 2,
+  Epic: 3,
+  Legendary: 4,
+  Mythic: 5,
+} as const
+export type RarityValue = typeof Rarity[keyof typeof Rarity]
+export const RARITY_LABELS: Record<RarityValue, string> = {
+  0: 'None',
+  1: 'Common',
+  2: 'Rare',
+  3: 'Epic',
+  4: 'Legendary',
+  5: 'Mythic',
+}
+
+// ── Per-item instance (PascalCase keys, Rarity as int) ───────────────────────────
+export interface ItemSpecificAsset {
+  BlueprintId: string
+  CurrentLevel: number
+  Rarity: RarityValue
+  InitialLevel: number
+  FromSource: string
+}
+
 // ── Wire format for attachments ─────────────────────────────────────────────────
 export interface MailAttachment {
   type: 'currency' | 'item' | string;
@@ -19,6 +47,13 @@ export interface AttachmentDraft {
   assetType: string;
   payoutAmount: number;
   chance: number;
+  itemRows: ItemSpecificAsset[];
+  /** UI-only stable identity for list operations. Never serialized. */
+  _id?: string;
+  /** Set when a Ticket attachment's PayoutAssetId was a plain string (legacy format). UI-only, never serialised. */
+  _legacyWarning?: string;
+  /** Set after import if the ID is not in the known ID lists. UI-only, never serialised. */
+  _unknownIdWarning?: string;
 }
 
 // ── SendGlobalMail ────────────────────────────────────────────────────────────────
@@ -45,6 +80,40 @@ export interface SendGlobalMailResponse {
 export interface GetGlobalMailsRequest {
   page: number;
   pageSize: number;
+  /** When true, caller must be a service-account; targeted mails are included. */
+  adminMode?: boolean;
+  operatorId?: string;
+  adminToken?: string | null;
+}
+
+// ── GetUserMailsAdmin ─────────────────────────────────────────────────────────────
+export interface GetUserMailsAdminRequest {
+  targetPlayerId: string;
+  page: number;
+  pageSize: number;
+  operatorId: string;
+  adminToken: string;
+}
+
+// ── Mail scope (for display badges) ──────────────────────────────────────────────
+export type MailScope = 'Global' | 'Global-targeted' | 'User'
+
+// ── Export envelope (schemaVersion 1) ────────────────────────────────────────────
+export interface MailExportJson {
+  schemaVersion: 1;
+  scope: MailScope;
+  sourceEnv: string;
+  sourceMailId: string;   // server-generated ID — top-level metadata, not round-tripped into mail payload
+  exportedAt: string;
+  mail: {
+    title: string;
+    content: string;
+    endTime: string | null;
+    targetUserIds: string[];
+    attachments: MailAttachmentInfo[];
+    // startTime intentionally omitted — server re-stamps on every send
+    // messageId intentionally omitted — lives in sourceMailId above
+  };
 }
 
 // Cloud Save / server-side attachment info (Payout shape)
@@ -137,6 +206,7 @@ export interface UpdateGlobalMailRequest {
   subject: string;
   body: string;
   attachments?: MailAttachment[] | null;
+  targetUserIds?: string[] | null;
   adminToken?: string | null;
   operatorId: string;
 }

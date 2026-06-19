@@ -313,7 +313,19 @@ public class HotPathOptimizationTests : IDisposable
         Console.WriteLine("[D] DeleteMail removed um_1 via O(1) FindById; um_2 retained.");
     }
 
-    // Cloud Save POST body is {"key":..,"value":<obj>,...}. Return the value element.
+    // Cloud Save POST body is {"key":..,"value":<value>,...}.
+    // Since commit 3c1ec8a the value is a compact JSON string (Cloud Save serialises it);
+    // legacy format (integration tests, older snapshots) may still be an inline object.
+    // Clone() detaches the returned element from the inner JsonDocument so we can dispose
+    // that document inside this helper without invalidating the caller's element.
     private static JsonElement ExtractWrittenValue(JsonDocument doc)
-        => doc.RootElement.GetProperty("value");
+    {
+        var valueEl = doc.RootElement.GetProperty("value");
+        if (valueEl.ValueKind == JsonValueKind.String)
+        {
+            using var innerDoc = JsonDocument.Parse(valueEl.GetString()!);
+            return innerDoc.RootElement.Clone();
+        }
+        return valueEl;
+    }
 }

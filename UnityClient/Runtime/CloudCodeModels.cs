@@ -107,6 +107,35 @@ namespace BackpackAdventures.CloudCode.Client
         Player
     }
 
+    public enum Rarity
+    {
+        None = 0,
+        Common = 1,
+        Rare = 2,
+        Epic = 3,
+        Legendary = 4,
+        Mythic = 5,
+    }
+
+    [Serializable]
+    public class ItemSpecificAsset
+    {
+        [JsonProperty("BlueprintId")]
+        public string BlueprintId = string.Empty;
+
+        [JsonProperty("CurrentLevel")]
+        public int CurrentLevel = 1;
+
+        [JsonProperty("Rarity")]
+        public Rarity Rarity = Rarity.None;
+
+        [JsonProperty("InitialLevel")]
+        public int InitialLevel = 1;
+
+        [JsonProperty("FromSource")]
+        public string FromSource = string.Empty;
+    }
+
     [Serializable]
     public class MailAttachment
     {
@@ -241,7 +270,7 @@ namespace BackpackAdventures.CloudCode.Client
                         id = item.PayoutAssetId,
                         quantity = item.PayoutAmount,
                         amount = item.PayoutAmount,
-                        type = item.AssetType?.ToLowerInvariant()
+                        type = item.AssetType?.ToLowerInvariant(),
                     });
                 }
                 return result;

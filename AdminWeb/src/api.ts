@@ -154,6 +154,7 @@ export type {
   SendGlobalMailResponse,
   GetGlobalMailsRequest,
   GetGlobalMailsResponse,
+  GetUserMailsAdminRequest,
   SetMailEndTimeRequest,
   SetMailEndTimeResponse,
   UpdateGlobalMailRequest,
@@ -171,6 +172,7 @@ import type {
   SendGlobalMailResponse,
   GetGlobalMailsRequest,
   GetGlobalMailsResponse,
+  GetUserMailsAdminRequest,
   SetMailEndTimeRequest,
   SetMailEndTimeResponse,
   UpdateGlobalMailRequest,
@@ -224,4 +226,10 @@ export async function apiPurgeExpired(
   args: ProxyCallArgs, req: PurgeExpiredRequest,
 ) {
   return callCloudCode<PurgeExpiredResponse>(args, 'PurgeExpired', req)
+}
+
+export async function apiGetUserMailsAdmin(
+  args: ProxyCallArgs, req: GetUserMailsAdminRequest,
+) {
+  return callCloudCode<GetGlobalMailsResponse>(args, 'GetUserMailsAdmin', req)
 }
