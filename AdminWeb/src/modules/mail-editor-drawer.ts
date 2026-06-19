@@ -19,6 +19,8 @@ import type { AttachmentModalHandle } from './attachment-modal'
 import { deserializeAttachmentToForm } from './attachment-serde'
 import type { ComboboxOption } from './asset-selector'
 import { createUnsavedGuard } from './unsaved-guard'
+import { createDrawerResize } from './drawer-resize'
+import type { DrawerResizeHandle } from './drawer-resize'
 import { isoToEditInputs, formatDateUtc } from './date-format'
 import { deriveMailStatus, statusBadgeHtml } from './status'
 import {
@@ -65,8 +67,9 @@ export interface MailEditorDrawerHandle {
 
 export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle {
   const guard    = createUnsavedGuard()
-  let listHandle: AttachmentListHandle  | null = null
+  let listHandle: AttachmentListHandle   | null = null
   let modalHandle: AttachmentModalHandle | null = null
+  let resizeHandle: DrawerResizeHandle   | null = null
   let currentMail: MailRecord | null = null
   let _open = false
 
@@ -80,6 +83,9 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
   drawerEl.hidden = true
   document.body.appendChild(drawerEl)
 
+  // Attach left-edge resize handle (desktop only; no-op on mobile via innerWidth guard)
+  resizeHandle = createDrawerResize(drawerEl)
+
   // Backdrop for mobile / click-outside close
   const backdropEl = document.createElement('div')
   backdropEl.className = 'drawer-backdrop'
@@ -92,6 +98,8 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
     guard.clearDirty()
     _open = true
     _render(mail)
+    resizeHandle?.reattach()           // _render() wipes innerHTML; re-prepend handle
+    resizeHandle?.applyPersistedWidth()
     drawerEl.hidden  = false
     backdropEl.hidden = false
     document.body.classList.add('drawer-open')
@@ -112,6 +120,8 @@ export function createMailEditorDrawer(deps: DrawerDeps): MailEditorDrawerHandle
 
   function destroy(): void {
     _destroySubcomponents()
+    resizeHandle?.destroy()
+    resizeHandle = null
     drawerEl.remove()
     backdropEl.remove()
     _open = false
